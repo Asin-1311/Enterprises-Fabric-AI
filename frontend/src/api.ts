@@ -61,6 +61,10 @@ const post = (body: unknown): RequestInit => ({ method: "POST", body: JSON.strin
 
 // ------------------------------------------------------------------------------ sign-in
 
+/** What the sign-in screen may offer (self-registration is off unless the firm enables it). */
+export const getAuthConfig = () =>
+  callJson<{ self_registration: boolean }>("/auth/config", {}, "Sign-in settings unavailable.");
+
 export const login = (email: string, password: string) =>
   callJson<SessionInfo>("/auth/login", post({ email, password }), "Sign-in failed.");
 

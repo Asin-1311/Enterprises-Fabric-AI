@@ -1057,7 +1057,8 @@ Correctness by category:
 - Integrity: after the run, `answers.jsonl` was edited for q001 (full): the judge label was
   changed from partially_correct to correct. `metrics.json` and `per_question.csv` are
   unchanged, and every reported number comes from them. `scripts/make_report.py` flags
-  this difference on every run.
+  this difference on every run. (Explained, and handled as a documented edit, in the
+  M9 section.)
 - Run-to-run variance: not measured. A second run would cost about another $5–6.
 - Tests: 317 passed, 0 skipped (2026-11-13). This includes the real-index ACL sweep over
   the 15,705-chunk index and the new crash-recovery test for resumable runs.
@@ -1320,3 +1321,84 @@ error.
   traces already hold every agent's output (masked) for auditability, so History reads
   the same records an auditor would. Adding a second copy would risk the two
   disagreeing.
+
+---
+
+# Phase 2
+
+## M9: Audit fixes and honest baseline (2026-11-18)
+
+Phase 2 started with an independent audit of Phase 1 against the specification (CLAUDE.md
+Appendix A, the Gap Register). M9 fixes the small, urgent findings. Work is on the branch
+`m9-audit-fixes`, made from `phase2`. `main` and the tag `phase1-final` are untouched.
+
+### What was built
+| Finding | What changed | Proved by |
+|---|---|---|
+| Not runnable from a clean clone (R-ops-clone) | New `data/manifest.synthetic.csv` (the 40 committed synthetic documents). When `data/corpus/standards/` has no PDFs, the indexer uses it and logs a clear warning instead of refusing the whole sync. `make_synthetic_docs.py` writes both manifests. The manifest test that failed in a clean clone now checks the synthetic manifest; the full one is checked only when the PDFs are present. | `tests/test_clean_clone.py`, `tests/test_synthetic_corpus.py` |
+| Global query lock (R-5-par) | `app/concurrency.py`: a readers-writer lock. Questions share the read side, so any number run together. Re-index and watcher updates take the write side, so they wait for running questions and run alone. Embedded Qdrant's search call keeps a tiny per-call lock (milliseconds), because local mode is not documented as safe for simultaneous searches. | `tests/test_concurrency.py`, `tests/test_api.py::test_two_questions_are_answered_at_the_same_time` |
+| Open registration, no sign-in limits (R-12-auth, R-5-serve) | `ALLOW_SELF_REGISTRATION=false` by default; when on, only `@example-associates.test` addresses. `app/api/ratelimit.py`: 5 calls a minute per IP on `/auth/*`, and a lockout after 10 failed sign-ins in 15 minutes. Both answer 429 with `Retry-After`. The sign-in screen asks `GET /auth/config`; with registration off, "Create account" says "Accounts are created by the firm administrator." | `tests/test_auth.py` (5 new tests), `frontend/src/App.test.tsx` |
+| User questions not scanned (R-12-scan) | The question goes through `app/security/injection.py` in the query-understanding step; hits are stored in that trace row and logged with the query id. | `tests/test_agents.py::test_injection_in_the_users_question_is_logged` |
+| `/metrics/quality` returned any latest file (R-10-metrics) | Only `retrieval` and `answers` runs; optional `from`/`to` window; calibration and known-invalid runs left out. The run-folder rules live in `app/quality_runs.py`, shared with the report generator. | `tests/test_api.py::test_metrics_quality_reads_saved_quality_runs_in_a_window` |
+| Error details sent to clients | Stream errors and unexpected 500s now say "Something went wrong..." with a short reference; the details are logged under that reference. | `tests/test_api.py::test_errors_shown_to_clients_are_generic_with_a_reference`, `::test_unhandled_route_errors_are_generic` |
+| Score adjustments not recorded (R-8-record) | Each search result carries its named multipliers (`superseded`, `recency`). Every retrieval trace stores, per chunk, the fused score, each retriever's rank, every multiplier and the final score. | `tests/test_agents.py::test_retrieval_trace_records_every_score_multiplier` |
+| Edited evaluation output (R-ops-integrity) | See "The q001 edit" below. `make_report.py` now **refuses** a run whose files disagree, unless the difference is a documented known edit. | `tests/test_make_report.py` (2 new tests) |
+| No requirement-level status | `docs/report/COMPLIANCE.md`: one row per Gap Register requirement. `scripts/check_compliance.py` fails if a Met row has no test that names its ID, if that test is skipped, or if the summary is stale (`--run` also runs the Met tests). | `tests/test_check_compliance.py` |
+
+### The q001 edit (explained, as the audit asked)
+- **What happened:** in the answer evaluation run `eval/results/20261113-101102_answers/`,
+  the file `answers.jsonl` was changed by hand on 14 November 2026, after the run had
+  finished. The judge's label for question q001 (full system) was changed from
+  `partially_correct` to `correct`. Nothing else in that file differs from the run's own
+  progress log.
+- **Why:** the author's reason was not recorded at the time. **Author: add one sentence here
+  explaining why you changed it.**
+- **Effect on the results: none.** Every reported number comes from `metrics.json` and
+  `per_question.csv`, which the run wrote and which were never changed; both still say
+  `partially_correct`. The full system's correctness of 0.960 counts q001 as 0.5.
+- **How it is handled (author's decision, 2026-11-18):** the file is kept as it is, because
+  results are never edited again, not even to undo an edit. The difference is listed
+  in `KNOWN_EDITS` in `app/quality_runs.py` with the exact before and after values. The
+  report builds from the untouched files and prints the edit in its integrity section.
+  Any other difference, or a different value for q001, makes `make_report.py` refuse the
+  run.
+- `docs/report/RESULTS.md` was regenerated. Only its integrity paragraph changed; every
+  number is identical.
+
+### Why these matter for an audit firm
+- **Concurrency:** with one global lock, a partner waited behind every article assistant's
+  40-second question. Busy periods such as the bank audit season need many people asking at
+  once. The access rules are unchanged: concurrency touches only how requests share the
+  indexes.
+- **Sign-in limits and closed registration:** an open sign-up form on a confidential
+  knowledge base is an invitation. Accounts in a firm are created by the firm, and password
+  guessing must be slowed down.
+- **Injection in the question:** a user may paste text from a client email that contains
+  instructions. Logging it makes such attempts visible to the firm.
+- **Recorded multipliers and the integrity gate:** working papers must show how a
+  conclusion was reached (the evidence-and-documentation mindset of SA 230). The same applies
+  to the system: every ranking adjustment and every evaluation number must be traceable.
+
+### Likely viva questions
+- *Why a readers-writer lock and not no lock at all?* Answering a question only reads the
+  indexes, and reads can safely overlap. A re-index changes the indexes, so a question must
+  never see half of it. The write side waits for running questions and blocks new ones until
+  it is done ("writer preference"), so re-indexing cannot be postponed for ever.
+- *Why not just delete the edited q001 value?* Because results are never edited, not even to
+  undo an edit. The honest fix is to document it and use only the untouched files. A new run
+  in M18 will supersede this one.
+- *How do you stop the compliance table from claiming more than is true?* A script checks
+  every Met row against a test that names it, and fails the build if that test is missing or
+  skipped.
+- *Does the clean-clone fallback weaken anything?* No. It is used only when the licensed PDFs
+  are absent. With them present, the full manifest is required and validated exactly as
+  before, and an indexer without the fallback still refuses an incomplete manifest (tested).
+
+### Status
+- Requirements closed (Met): R-12-scan, R-10-metrics.
+- Advanced (still Partial; the rest comes later): R-ops-clone (CI job: M17), R-5-par
+  (parallel sub-queries: M14), R-5-serve (`/query` limit and cache: M16), R-12-auth
+  (OIDC/JWT: M13), R-8-record (`retrievals` table: M11), R-ops-integrity (PDF table: M19).
+- `COMPLIANCE.md`: 43 requirements, 2 Met, 28 Partial, 13 Not met.
+- Tests: Python 363 passed, 0 skipped (25 new); frontend 20 passed, type check clean,
+  build OK (2026-11-18). `scripts/check_compliance.py --run` passes.

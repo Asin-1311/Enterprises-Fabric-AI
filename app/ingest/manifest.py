@@ -100,8 +100,13 @@ def validate_manifest(
     corpus_dir: Path,
     engagement_ids: set[str],
     header: list[str] | None = None,
+    skip_orphans_in: tuple[str, ...] = (),
 ) -> list[str]:
-    """Return a list of problems found in the manifest (empty if valid)."""
+    """Return a list of problems found in the manifest (empty if valid).
+
+    `skip_orphans_in` lists source types whose folders may hold files that this manifest
+    does not list. The synthetic-only manifest uses ("standards",): the licensed ICAI PDFs
+    may be present on the author's laptop but are deliberately not in that manifest."""
     errors: list[str] = []
     if header is not None:
         missing = [c for c in MANIFEST_COLUMNS if c not in header]
@@ -187,10 +192,34 @@ def validate_manifest(
     if corpus_dir.is_dir():
         for file in sorted(corpus_dir.rglob("*")):
             if file.is_file() and file.suffix.lower() in DOCUMENT_SUFFIXES:
+                if file.relative_to(corpus_dir).parts[0] in skip_orphans_in:
+                    continue
                 rel = file.relative_to(project_root).as_posix()
                 if rel not in seen_paths:
                     errors.append(f"file not in manifest: {rel}")
     return errors
+
+
+def licensed_corpus_present(corpus_dir: Path) -> bool:
+    """True if the ICAI study material (not in git) is on this machine."""
+    standards = corpus_dir / "standards"
+    return standards.is_dir() and any(standards.rglob("*.pdf"))
+
+
+def choose_manifest(full: Path, synthetic: Path | None, corpus_dir: Path) -> tuple[Path, bool]:
+    """The manifest to index from, and whether it is the synthetic-only fallback.
+
+    A clean clone has no ICAI PDFs (they are licensed and kept out of git). Instead of
+    refusing the whole sync, the indexer then uses data/manifest.synthetic.csv, which
+    lists only the committed synthetic documents."""
+    if synthetic is not None and synthetic.is_file() and not licensed_corpus_present(corpus_dir):
+        return synthetic, True
+    return full, False
+
+
+def synthetic_rows(rows: list[ManifestRow]) -> list[ManifestRow]:
+    """The rows for committed synthetic documents (what manifest.synthetic.csv holds)."""
+    return [r for r in rows if r.is_synthetic]
 
 
 def superseded_ids(rows: list[ManifestRow]) -> set[str]:

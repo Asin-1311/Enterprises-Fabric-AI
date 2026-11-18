@@ -19,11 +19,20 @@ def freshness(effective_date: str | None, as_of: date, half_life_days: float) ->
     return 0.5 ** (age / half_life_days)
 
 
-def adjustment(*, superseded: bool, effective_date: str | None, time_sensitive: bool,
-               as_of: date, superseded_weight: float, recency_weight: float,
-               half_life_days: float) -> float:
-    """Multiplier applied to a chunk's fused score."""
-    factor = superseded_weight if superseded else 1.0
+def multipliers(*, superseded: bool, effective_date: str | None, time_sensitive: bool,
+                as_of: date, superseded_weight: float, recency_weight: float,
+                half_life_days: float) -> dict[str, float]:
+    """Each multiplier applied to a chunk's fused score, by name (1.0 = no effect).
+    Recorded in the retrieval trace so every adjustment can be measured (R-8-record)."""
+    recency = 1.0
     if time_sensitive:
-        factor *= 1.0 + recency_weight * freshness(effective_date, as_of, half_life_days)
+        recency = 1.0 + recency_weight * freshness(effective_date, as_of, half_life_days)
+    return {"superseded": superseded_weight if superseded else 1.0, "recency": recency}
+
+
+def adjustment(**kwargs) -> float:
+    """The combined multiplier: the product of `multipliers(...)`."""
+    factor = 1.0
+    for value in multipliers(**kwargs).values():
+        factor *= value
     return factor

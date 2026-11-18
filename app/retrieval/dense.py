@@ -8,6 +8,7 @@ Note: local mode allows only one QdrantClient per storage folder at a time (it t
 file lock), so the watcher and the API must share one client in one process.
 """
 
+import threading
 import uuid
 from collections.abc import Sequence
 from typing import Protocol
@@ -95,6 +96,10 @@ class QdrantStore:
 
     def __init__(self, client: QdrantClient, collection: str, dim: int) -> None:
         self.client, self.collection, self.dim = client, collection, dim
+        # Embedded (local-mode) Qdrant is not documented as safe for simultaneous searches
+        # from several threads, so each search call is serialised. It lasts milliseconds,
+        # unlike the old whole-question lock. A Qdrant server (full profile) needs no lock.
+        self._search_lock = threading.Lock()
         if not self.client.collection_exists(collection):
             self.client.create_collection(
                 collection,
@@ -125,8 +130,10 @@ class QdrantStore:
                limit: int) -> list[tuple[str, float]]:
         """Top-`limit` (chunk_id, cosine score). `flt` is applied INSIDE Qdrant, so
         points that fail the access filter are never scored."""
-        result = self.client.query_points(self.collection, query=list(vector), query_filter=flt,
-                                          limit=limit, with_payload=["chunk_id"])
+        with self._search_lock:
+            result = self.client.query_points(self.collection, query=list(vector),
+                                              query_filter=flt, limit=limit,
+                                              with_payload=["chunk_id"])
         return [(p.payload["chunk_id"], float(p.score)) for p in result.points if p.payload]
 
     def count(self, doc_id: str | None = None) -> int:

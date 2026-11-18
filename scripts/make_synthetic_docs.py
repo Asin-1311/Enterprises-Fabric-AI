@@ -9,6 +9,8 @@ Outputs:
     data/users.csv                    synthetic users
     data/engagements.csv              synthetic engagements and team members
     data/manifest.csv                 one row per document, ICAI chapters included
+    data/manifest.synthetic.csv       the synthetic rows only (indexable from a clean clone,
+                                      where the licensed ICAI PDFs are absent)
 
 The script is deterministic: the same code always writes the same files. Manifest rows for
 documents the author added by hand (doc_ids this script does not generate) are kept.
@@ -150,7 +152,8 @@ def main(argv: list[str] | None = None) -> int:
 
     docs = all_synthetic_docs()
     targets = [doc_path(d) for d in docs] + [
-        DATA / "users.csv", DATA / "engagements.csv", DATA / "manifest.csv"
+        DATA / "users.csv", DATA / "engagements.csv", DATA / "manifest.csv",
+        DATA / "manifest.synthetic.csv",
     ]
     existing = [p for p in targets if p.exists()]
     if existing and not args.force:
@@ -169,7 +172,10 @@ def main(argv: list[str] | None = None) -> int:
               ["engagement_id", "client_name", "industry", "fy", "partner_id", "member_ids"],
               [[e, c, i, fy, p, ";".join(m)] for e, c, i, fy, p, m in ENGAGEMENTS])
     generated = manifest_rows(docs)
-    write_csv(DATA / "manifest.csv", MANIFEST_COLUMNS, generated + author_rows(generated))
+    every_row = generated + author_rows(generated)
+    write_csv(DATA / "manifest.csv", MANIFEST_COLUMNS, every_row)
+    write_csv(DATA / "manifest.synthetic.csv", MANIFEST_COLUMNS,
+              [r for r in every_row if r["synthetic"] == "true"])
 
     print(f"Wrote {len(docs)} synthetic documents, {len(USERS)} users, "
           f"{len(ENGAGEMENTS)} engagements and {len(docs) + len(STANDARDS)} manifest rows.")
