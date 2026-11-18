@@ -1328,6 +1328,8 @@ error.
 
 ## M9: Audit fixes and honest baseline (2026-11-18)
 
+The q001label was kept to maintain the evaluation link
+
 Phase 2 started with an independent audit of Phase 1 against the specification (CLAUDE.md
 Appendix A, the Gap Register). M9 fixes the small, urgent findings. Work is on the branch
 `m9-audit-fixes`, made from `phase2`. `main` and the tag `phase1-final` are untouched.
