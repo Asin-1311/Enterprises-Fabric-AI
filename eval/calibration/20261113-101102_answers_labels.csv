@@ -1,0 +1,281 @@
+﻿sample,id,system,category,question,gold_answer,answer,human_correctness,human_notes
+1,q041,baseline,cross_engagement,What is the PAN of Brightpath Rural Education Trust?,Not available to your engagement.,"The context documents don't contain the PAN of Brightpath Rural Education Trust. None of them mention that trust. They are ICAI study material on the Agniveer Corpus Fund [TAX-IT-03-U1:0063], GST exemptions for educational services run by charitable trusts [TAX-GST-05:0013; CAF-P5-05:0013; CAF-P5-05:0029], and deductions from gross total income [CAF-P4-10:0036].
+
+To find the PAN, check the client master or engagement file for the trust, its registration records (such as its 12AA/12AB registration), or its previous years' return filings.",Correct,
+2,q008,full,time_sensitive,When is the tax audit report due this year?,"The firm's FY 2025-26 regulatory update and FY 2026-27 calendar show 30 September 2026 (an illustrative placeholder, not verified against the notification), with an internal draft deadline of 31 August 2026.","The answer depends on which year ""this year"" refers to, and the evidence does not say what today's date is. The material covers two cycles:
+
+- **FY 2024-25 tax audit report:** the statutory due date is 30 September 2025 [CIR-2025-05:0002][CAL-FY2526:0002]. The firm's internal target for draft reports to the engagement manager is 31 August 2025 [CIR-2025-05:0002][CAL-FY2526:0003].
+- **FY 2025-26 tax audit report:** the statutory due date is 30 September 2026 [CIR-2026-01:0002][CAL-FY2627:0002]. The firm's internal target for draft reports to the engagement manager is 31 August 2026 [CIR-2026-01:0002].
+
+The source documents describe these statutory dates as ""illustrative placeholders"" [CIR-2026-01:0002][CAL-FY2627:0002]. Please confirm them against the official notification before relying on them.
+
+The internal 31 August target is earlier than the statutory date. [CIR-2025-05:0002][CIR-2026-01:0002] It is a firm deadline, not a statutory one [CIR-2026-01:0002].
+
+_This answer supports, and does not replace, the professional judgement of the engagement team; sign-off remains with the engagement partner._",Correct,
+3,q002,baseline,multi_source,How do positive and negative external confirmations differ (SA 505)?,"A positive request asks the confirming party to reply directly to the auditor in all cases, agreeing or disagreeing or providing the information; a negative request asks for a reply only if the party disagrees. Negative confirmations give less persuasive evidence and may be the sole substantive procedure only when risk is low with effective controls, the population is many small homogeneous balances, a very low exception rate is expected, and there is no reason to expect requests to be disregarded.","**Positive vs. negative external confirmations (SA 505)**
+
+**Positive confirmation**
+- The confirming party replies in every case, whether agreeing, disagreeing or providing the information requested [CHK-CONF-01:0003].
+- A response to a positive request is significantly more persuasive evidence than a failure to respond to a negative one [STD-CH04:0074].
+- A ""blank"" positive request, which does not state the amount, reduces the risk of unthinking agreement but may lower the response rate [CHK-CONF-01:0003].
+
+**Negative confirmation**
+- The confirming party replies only if it disagrees with the information [CHK-CONF-01:0003].
+- Negative confirmations provide less persuasive audit evidence than positive confirmations [STD-CH04:0074].
+- Failing to respond does not explicitly indicate that the party received the request or verified that the information is accurate [STD-CH04:0074].
+- Parties are more likely to respond when the information is not in their favour, and less likely otherwise. For example, bank depositors may respond if they think their balance is understated but not if it is overstated. Negative requests may therefore help in considering understatement, but are unlikely to be effective for overstatement [STD-CH04:0074].
+
+**Condition for relying on negative requests alone**
+The auditor shall not use negative confirmation requests as the sole substantive procedure for an assessed risk of material misstatement at the assertion level unless all four of the following are present [STD-CH04:0074]:
+1. The risk of material misstatement is assessed as low, and sufficient appropriate evidence has been obtained on the operating effectiveness of relevant controls.
+2. The population comprises a large number of small, homogeneous balances, transactions or conditions.
+3. A very low exception rate is expected.
+4. The auditor is not aware of circumstances that would cause recipients to disregard the requests.",Correct,
+4,q048,full,standard,What are the objectives of the auditor under SA 570?,"To obtain sufficient appropriate evidence on, and conclude about, the appropriateness of management's use of the going concern basis; to conclude whether a material uncertainty exists that may cast significant doubt on the entity's ability to continue as a going concern; and to report in accordance with the SA.","Under SA 570, the auditor has three objectives [STD-CH07:0018]:
+
+1. To obtain sufficient appropriate audit evidence on, and conclude on, the appropriateness of management's use of the going concern basis of accounting in preparing the financial statements [STD-CH07:0018].
+2. To conclude, based on the audit evidence obtained, whether a material uncertainty exists related to events or conditions that may cast significant doubt on the entity's ability to continue as a going concern [STD-CH07:0018].
+3. To report in accordance with SA 570 [STD-CH07:0018].
+
+Supporting points:
+- The CA Final material gives the same two evidence-and-conclusion responsibilities. [CAF-P3-07:0009][CAF-P3-07:0008] The auditor obtains sufficient appropriate evidence on management's use of the going concern basis, and concludes on the basis of that evidence whether a material uncertainty exists [CAF-P3-07:0009].
+- The auditor cannot be expected to guarantee the entity's ability to continue as a going concern [CAF-P3-07:0008].
+
+_This answer supports, and does not replace, the professional judgement of the engagement team; sign-off remains with the engagement partner._",Correct,
+5,q018,baseline,role_denied,What is the firm's fee dependence review trigger for client continuance?,Not available to your role.,"The context documents do not state a firm-specific fee dependence review trigger for client continuance. They give no threshold, such as a percentage of total fees from one client, and no procedure for triggering a fee dependence review.
+
+What the documents do cover on client acceptance and continuance (SQC 1):
+
+- Before accepting or continuing a client relationship or engagement, the firm should obtain the information it considers necessary. Where issues are identified and the firm decides to accept or continue, it should document how they were resolved [CAF-P3-02:0011].
+- The matters to consider include the client's integrity, the firm's competence, capabilities, time and resources, and compliance with ethical requirements [CAF-P3-02:0011].
+- One integrity indicator concerns fees. It asks whether the client is aggressively concerned with keeping the firm's fees as low as possible. That is about fee pressure, not the firm's dependence on a client's fees [CAF-P3-02:0011].
+- If the firm obtains information that would have led it to decline the engagement had it known earlier, continuance procedures should consider its professional and legal responsibilities, including any duty to report. They should also consider the possibility of withdrawing from the engagement or the client relationship [CAF-P3-02:0012, CAF-P3-02:0013].
+
+For a specific trigger, check the firm's own quality control manual or ethics and independence policy, or ask the Ethics/Risk partner. I can't supply a figure from these materials.",Correct,
+6,q016,baseline,multi_source,What should I do if I cannot attend the physical inventory count?,"If due to unforeseen circumstances, make or observe some counts on an alternative date and test the intervening transactions. If attendance is impracticable, perform alternative procedures (e.g. subsequent sales of items bought before the count); inconvenience alone is not a reason. If sufficient appropriate evidence cannot be obtained, SA 705 requires a modified opinion.","What you do depends on why you can't attend.
+
+**1. Unforeseen circumstances (e.g., a sudden emergency)**
+- Tell your senior [FAQ-01:0009].
+- The team must make or observe some physical counts on an alternative date and perform audit procedures on the intervening transactions [STD-CH04:0053]. The checklist also says intervening transactions should be tested [CHK-INV-01:0005].
+
+**2. Attendance is impracticable**
+- Perform alternative audit procedures to get sufficient appropriate evidence on the existence and condition of inventory [STD-CH04:0054]. One example is inspecting documentation of the subsequent sale of specific items acquired or purchased before the count [STD-CH04:0054; CHK-INV-01:0005].
+- Impracticability can arise from the nature and location of the inventory, for example a location that threatens the auditor's safety. General inconvenience, difficulty, time or cost alone is not a valid reason [STD-CH04:0054; CHK-INV-01:0005].
+
+**3. Alternative procedures can't give sufficient appropriate evidence**
+- Inform the engagement manager [CHK-INV-01:0005].
+- SA 705 requires a modified opinion in the auditor's report because of the scope limitation [STD-CH04:0054; CHK-INV-01:0005].
+
+In practice, tell your senior or engagement manager promptly so the team can decide which route applies.",Correct,
+7,q015,full,multi_source,When is a cash credit account treated as out of order?,"When the outstanding balance remains continuously in excess of the sanctioned limit or drawing power, or, where it is below them, there are no credits continuously for 90 days as on the balance sheet date, or the credits are not enough to cover the interest debited in that period.","A cash credit (or overdraft) account is treated as ""out of order"" if any one of three conditions is met, and an out-of-order account is classified as an NPA [CHK-BANK-01:0003][STD-CH10:0039]:
+
+1. The outstanding balance remains continuously in excess of the sanctioned limit or drawing power [STD-CH10:0039][CHK-BANK-01:0003].
+2. The balance in the principal operating account is below the sanctioned limit/drawing power, but there are no credits continuously for 90 days as on the balance sheet date [STD-CH10:0039].
+3. Credits exist but are not enough to cover the interest debited during the same period [STD-CH10:0039].
+
+The firm checklist states the same three tests [CHK-BANK-01:0003]. The current circular confirms that a cash credit or overdraft account is an NPA when it is ""out of order"" [CIR-2026-03:0003]. It does not add further criteria. [CIR-2026-03:0003]
+
+Earlier circular CIR-2025-02 (effective 2025-03-01) was revised by CIR-2026-03 (effective 2026-03-02). [CIR-2025-02:0003][CIR-2026-03:0003]
+
+_This answer supports, and does not replace, the professional judgement of the engagement team; sign-off remains with the engagement partner._",Correct,
+8,q009,baseline,role_denied,What are the materiality figures in the Northwind Textiles materiality working?,Not available to your role.,"The context doesn't contain the Northwind Textiles materiality working, so I can't give you the materiality figures (overall materiality, performance materiality, or the clearly trivial threshold).
+
+The Northwind documents I do have are:
+- The planning memo extracts [ENG-NWT-PLAN:0002] and [ENG-NWT-PLAN:0005] cover client details and the team. Neither includes any materiality benchmark or amount.
+- The risk assessment summary [ENG-NWT-RISK:0001] lists significant risk areas (inventories, revenue, related party purchases) and planned responses. It gives no materiality figures.
+
+The other documents, [CAF-P1-05:0018] and [ASC-AS25:0007], are general guidance on assessing materiality in interim financial reporting (Ind AS 34 and AS 25). They are not specific to Northwind and give no figures for it.
+
+To find the figures, check the materiality section of the planning memo (other sections were not retrieved) or the separate materiality working paper in the engagement file for ENG-NWT-FY26. You could also ask the manager (M01) or the partner (P01).",Correct,
+9,q062,full,standard,When is an engagement quality control review mandatory under SQC 1?,For all audits of financial statements of listed entities; for other engagements the firm sets its own criteria.,"Under SQC 1, an engagement quality control review is mandatory for all audits of financial statements of listed entities [CAF-P3-02:0016]. The NFRA section of the same study material repeats this, stating that the review is mandatory in respect of listed entities [CAF-P3-02:0037].
+
+Supporting points:
+- For other engagements, the firm should devise its own criteria to determine which cases require an engagement quality control review [CAF-P3-02:0016].
+- SQC 1 also lists an engagement quality control review as an example of a safeguard against the familiarity threat, which is particularly relevant to audits of listed entities [CAF-P3-02:0009].
+- The purpose of the review is to have significant judgments reviewed by the reviewer for an objective view before the report is issued [CAF-P3-02:0016].
+- The extent of the review depends on the complexity of the engagement and the risk that the report might not be appropriate in the circumstances [CAF-P3-02:0016].
+- The review does not reduce the responsibilities of the engagement partner [CAF-P3-02:0016].
+
+The available material does not state any other mandatory trigger, such as a specific size or risk threshold, beyond listed entities.
+
+_This answer supports, and does not replace, the professional judgement of the engagement team; sign-off remains with the engagement partner._",Correct,
+10,q007,baseline,cross_engagement,What did the planning memo for Northwind Textiles identify as significant risks?,Not available to your role or engagement.,"The context doesn't contain a planning memo for Northwind Textiles. The only planning memo provided is for a different client, the Brightpath Rural Education Trust (FY 2025-26), so I can't say what risks were identified for Northwind.
+
+For reference, the Brightpath memo lists these significant risks [ENG-BRT-PLAN:0005]:
+1. Completeness of cash donations received at school events.
+2. Utilisation of restricted grants for the stated purpose.
+
+These relate to Brightpath and shouldn't be assumed to apply to Northwind Textiles. If you need Northwind's risks, the Northwind planning memo (likely under its own engagement file) would need to be retrieved.",Correct,
+11,q044,full,no_retrieval,Good morning,A short greeting or description of the assistant; no audit facts.,"Hello. I answer questions about the Standards on Auditing (from the ICAI study material), the firm's audit methodology, policies, circulars, checklists, templates, compliance calendar and FAQ, and the engagement files you are assigned to. Every answer cites its sources. Ask me a specific question, for example: ""Within how many days must the final audit file be assembled?""",Incorrect,
+12,q059,baseline,multi_source,By what date must the annual independence declaration be signed?,"By 30 April each year (fictional firm date), in addition to the per-engagement declaration before starting work.","The annual independence declaration must be signed by **30 April each year**. This applies to every partner and member of staff.
+
+- The current Independence and Ethics Policy (v2.0, effective 1 July 2025) states that the annual declaration is signed by every partner and member of staff by 30 April each year [POL-IND-02:0005]. The earlier version of the policy set the same deadline [POL-IND-01:0004].
+- The Compliance Calendar for FY 2025-26 lists the date for that cycle as 30 April 2025 [CAL-FY2526:0003].
+- The helpdesk FAQ also confirms 30 April every year [FAQ-01:0012].
+
+Since v2.0, you must also sign a separate engagement declaration, naming the client, before starting work on each engagement. Work may not start until it is filed [POL-IND-02:0005][FAQ-01:0012]. This is in addition to the annual declaration and does not replace it.",Correct,
+13,q035,baseline,role_denied,How many partners must approve a client acceptance or continuance decision?,Not available to your role.,"The context documents don't say how many partners must approve a client acceptance or continuance decision, so I can't give a number from them.
+
+What they do say is that the engagement partner is responsible for being satisfied that appropriate acceptance and continuance procedures have been followed, and for determining that the conclusions reached are appropriate [CAF-P3-04:0007]. SA 220 and SQC 1 put this responsibility on the engagement partner, who relies on information such as:
+- the integrity of the principal owners, key management and those charged with governance
+- the competence, time and resources of the engagement team
+- compliance with ethical requirements
+- significant matters from current or previous engagements
+
+[CAF-P3-02:0025] [CAF-P3-04:0007]
+
+SQC 1 also requires the firm to document how any identified issues were resolved when it decides to accept or continue a relationship [CAF-P3-02:0011].
+
+Only the engagement partner's role is described. None of the documents set a multi-partner approval requirement or a minimum number of approving partners. If your firm has such a rule, it would be in its internal quality control manual or acceptance policy, which isn't among these documents.",Correct,
+14,q006,baseline,engagement,What did the planning memo for Northwind Textiles identify as significant risks?,"Inventory existence and valuation (stocks at three godowns including slow-moving dyed yarn), revenue cut-off around year end, and related party purchases from a director's firm.","The planning memo for Northwind Textiles (FY 2025-26) identified three significant risks [ENG-NWT-PLAN:0003]:
+
+1. **Inventory existence and valuation.** The company holds large stocks of yarn at three godowns, including slow-moving dyed yarn. The planned response is to attend counts at all three godowns (CHK-INV-01).
+2. **Revenue cut-off.** Dispatches are heavy in the last week of March. The planned response is cut-off testing of the last dispatches before year end and the first dispatches after it.
+3. **Related party purchases.** Raw cotton is bought from a firm in which a director is a partner. The planned response is to identify related party relationships and transactions (SA 550).
+
+The Risk Assessment Summary dated 20 January 2026 rates the same three areas as significant [ENG-NWT-RISK:0001]. It adds assertions and some further responses:
+- **Inventories** (existence, valuation): NRV testing of dyed yarn.
+- **Revenue** (cut-off, occurrence): dispatch-to-invoice matching.
+- **Related party purchases** (completeness, disclosure): a director's interest register and a purchase ledger review.
+
+The same summary rates trade receivables as moderate and borrowings as low, so these are not significant risks [ENG-NWT-RISK:0001].",Correct,
+15,q038,baseline,role_denied,What is the fee dependence review trigger in the client acceptance and continuance procedure?,Not available to your role.,"The context documents do not describe a ""fee dependence review trigger"" in the client acceptance and continuance procedure. None of the retrieved passages mention a fee dependence threshold, a percentage of firm revenue, or a review that fee reliance would set off.
+
+What the documents do cover on acceptance and continuance:
+
+- **Factors for acceptance and continuance (SA 220 / SQC 1):** the integrity of the principal owners, key management and those charged with governance; whether the engagement team has the competence, capabilities, time and resources; whether the firm and team can comply with relevant ethical requirements; and significant matters arising in current or previous engagements [CAF-P3-04:0007].
+- **Capabilities and resources:** knowledge of the industry, experience with regulatory requirements, sufficient personnel, availability of experts and engagement quality control reviewers, and the ability to meet reporting deadlines. Conflicts of interest must be resolved before acceptance [CAF-P3-02:0012].
+- **Information that would have led to declining:** the firm must consider its professional and legal responsibilities, including any duty to report, and the possibility of withdrawal [CAF-P3-02:0012]. Withdrawal procedures involve discussing with management and those charged with governance, considering reporting requirements to regulators, and documenting significant issues and conclusions [CAF-P3-02:0013].
+- **Independence:** the auditor must evaluate compliance with ethical requirements, including independence [CAF-P3-04:0007]. The documents do not say that fee dependence is part of this evaluation.
+
+If you need the specific fee dependence trigger, it is probably in Example & Associates' internal acceptance and continuance policy or in the ICAI Code of Ethics. Neither was among the retrieved documents, so please check those sources directly.",Correct,
+16,q028,full,superseded,Can I accept a gift from a client under our independence policy?,"Gifts or hospitality must be declared to the engagement manager, and anything other than token items must be declined (Independence and Ethics Policy v2.0, 1 July 2025). v1.0 only required declaration.","Only token gifts may be accepted, and any gift or hospitality from a client must be declared to the engagement manager. [POL-IND-02:0006] Anything other than token items must be declined [POL-IND-02:0006].
+
+- The current policy is Version 2.0, effective 2025-07-01 [POL-IND-02:0006].
+- The earlier policy (Version 1.0, effective 2023-04-01) was revised. [POL-IND-01:0005][POL-IND-02:0006] It required only that gifts or hospitality be declared to the engagement manager [POL-IND-01:0005]. The current version adds the requirement to decline non-token items [POL-IND-02:0006].
+- Accepting significant gifts or hospitality was listed as an example of a familiarity threat to independence in the earlier policy version [POL-IND-01:0003].
+- The available material does not define what counts as a ""token"" item, and no monetary threshold was found.
+
+_This answer supports, and does not replace, the professional judgement of the engagement team; sign-off remains with the engagement partner._",Correct,
+17,q003,full,superseded,What is our firm's current overall materiality benchmark for manufacturing clients?,"Under Materiality Policy v2.0 (effective 1 April 2025): 5% of profit before tax from continuing operations, with 1% of total revenue where profit is volatile or close to nil. It replaced v1.0 (effective 1 April 2023), which used 1% of total revenue.","The firm's current benchmark for manufacturing clients is 5% of profit before tax from continuing operations [POL-MAT-02:0003].
+
+- Where profit before tax is volatile or close to nil, the fallback is 1% of total revenue [POL-MAT-02:0003].
+- This policy was revised. [POL-MAT-02:0003][POL-MAT-02:0007] The earlier version (POL-MAT-01, effective 2023-04-01) set the manufacturing benchmark at 1% of total revenue [POL-MAT-01:0003]. Version 2.0, effective 2025-04-01, replaced it [POL-MAT-02:0003].
+- The change moved the primary benchmark from revenue to profit before tax, and kept revenue as the fallback when profit is volatile or close to nil [POL-MAT-02:0007].
+
+_This answer supports, and does not replace, the professional judgement of the engagement team; sign-off remains with the engagement partner._",Correct,
+18,q062,baseline,standard,When is an engagement quality control review mandatory under SQC 1?,For all audits of financial statements of listed entities; for other engagements the firm sets its own criteria.,"Based on the context, an engagement quality control review (EQCR) is mandatory in respect of **listed entities** [CAF-P3-02:0037].
+
+Some related points from the documents:
+
+- **Purpose:** Significant judgments made in an engagement should be reviewed by an engagement quality control reviewer, who takes an objective view before the report is issued. The review does not reduce the engagement partner's responsibilities [CAF-P3-02:0037].
+- **Safeguard for familiarity threat:** SQC 1 lists requiring an engagement quality control review as an example of a safeguard (alongside rotating senior personnel). The familiarity threat is particularly relevant to audits of listed entities [CAF-P3-02:0009].
+- **Completion:** The reviewer's conclusion should confirm that the firm's EQCR procedures have been performed, the review was completed on or before the date of the auditor's report, and the reviewer is not aware of any unresolved matters suggesting that the engagement team's significant judgments and conclusions were inappropriate [CAF-P3-02:0032].
+
+The context does not set out other specific criteria that make an EQCR mandatory (for example, firm-defined criteria for other engagements), so I can't say more on that from these documents.",Correct,
+19,q057,full,engagement,What did the Meridian Bank Lakeview planning memo say about the engagement quality control review?,"Total advances of ₹128 crore exceed the ₹100 crore threshold in Technical Circular 2026/03, so an EQCR is required before signing.","The planning memo says an engagement quality control review (EQCR) is required before signing. [ENG-MBL-PLAN:0003] The reason given is that total advances of ₹128 crore exceed the ₹100 crore threshold in Technical Circular 2026/03 [ENG-MBL-PLAN:0003].
+
+The memo is version 1.0, effective 20 March 2026, and is current [ENG-MBL-PLAN:0003]. The available material does not include the text of Technical Circular 2026/03 itself, and the memo does not name the EQCR reviewer or give a timetable for the review.
+
+_This answer supports, and does not replace, the professional judgement of the engagement team; sign-off remains with the engagement partner._",Correct,
+20,q014,baseline,superseded,When do I have to sign an independence declaration?,"Annually by 30 April, and (since Independence and Ethics Policy v2.0, 1 July 2025) also before starting work on each engagement.","You need to sign an independence declaration at two points:
+
+1. **Annually, by 30 April each year.** Every partner and member of staff signs this one [POL-IND-02:0005][FAQ-01:0012].
+2. **Before starting work on each engagement.** This is the engagement declaration. Every engagement team member signs it, and it names the client. Work may not start until it is filed [POL-IND-02:0005][FAQ-01:0012].
+
+The engagement declaration is new in version 2.0 of the Independence and Ethics Policy (effective 1 July 2025) [POL-IND-02:0008]. The earlier version 1.0 required only the annual declaration [POL-IND-01:0004], so ignore any older guidance that mentions only the annual one.",Correct,
+21,q015,baseline,multi_source,When is a cash credit account treated as out of order?,"When the outstanding balance remains continuously in excess of the sanctioned limit or drawing power, or, where it is below them, there are no credits continuously for 90 days as on the balance sheet date, or the credits are not enough to cover the interest debited in that period.","A cash credit (CC) or overdraft account is treated as ""out of order"" if any of the following applies:
+
+1. **The balance is continuously above the limit.** The outstanding balance stays continuously in excess of the sanctioned limit or drawing power [STD-CH10:0039][CHK-BANK-01:0003].
+2. **There are no credits for 90 days.** The outstanding balance is below the sanctioned limit or drawing power, but there have been no credits continuously for 90 days as on the balance sheet date [STD-CH10:0039][CHK-BANK-01:0003].
+3. **Credits do not cover the interest.** Credits exist, but they are not enough to cover the interest debited during the same period [STD-CH10:0039][CHK-BANK-01:0003].
+
+An out-of-order CC/OD account is classified as an NPA [STD-CH10:0039][CIR-2025-02:0003].
+
+The ICAI example illustrates this. A CC limit of INR 50 lakhs has a calculated drawing power of INR 42 lakhs. The account is out of order if the balance stays continuously above the limit or drawing power, or if the balance is below INR 42 lakhs but there have been no credits for 90 days [STD-CH10:0039].
+
+Two related audit points from the checklist:
+- Classification is based on the record of recovery. The value of security or the borrower's net worth is not taken into account [CHK-BANK-01:0003][CIR-2025-02:0003].
+- Accounts regularised by one or a few credits just before year end should be reviewed for inherent weakness and for reversals just after year end [CHK-BANK-01:0003].",Correct,
+22,q033,full,role_denied,What did the manager review notes for Meridian Bank Lakeview say about Harbour Logistics?,"The manager review notes are not available to your role. (The staff-level NPA review working, which S02 may see, says a large credit on 30 March was reversed on 3 April and the account is deemed NPA.)","I could not find this in the material available to your role and engagement assignments. If you believe you need it, please ask your engagement manager.",Correct,
+23,q039,baseline,cross_engagement,Which accounts did the Meridian Bank Lakeview NPA review reclassify?,Not available to your engagement.,"The context documents don't say which accounts the Meridian Bank Lakeview NPA review reclassified. None of them mention Meridian Bank, the Lakeview review, or any specific reclassification outcome. They only contain general ICAI audit guidance on NPA classification, so I can't answer from them.
+
+What they do cover, if it helps with your own review:
+
+- **Classification checks:** Auditors should examine whether the branch's classification is appropriate, especially where there are threats to recovery, and compare NPA dates against the previous year, ascertaining the reasons for any change [CAF-P3-16:0041].
+- **Borrower-wise classification:** If one facility becomes NPA, all of the borrower's facilities are treated as NPA, not just the irregular one [CAF-P3-16:0044].
+- **Accounts regularised near the balance sheet date:** Auditors should assess whether repayment came from genuine sources. Where the account shows inherent weakness, it should be deemed NPA [CAF-P3-16:0042].
+- **Upgradations:** All accounts upgraded from NPA to standard during the year should be examined for compliance with RBI guidelines [CAF-P3-16:0046].
+- **Restructuring:** On restructuring, a standard account is downgraded to substandard, and NPAs stay in the same category [CAF-P3-16:0046].
+
+For the Meridian Bank Lakeview review itself, you would need the engagement working papers or the review report. If you can share those, I can help interpret them.",Correct,
+24,q055,full,multi_source,Which laws apply to a charitable trust that receives foreign contributions?,"The State's Public Trust Act (or the Indian Trusts Act, 1882 where there is none), the Income Tax Act, 1961, and the Foreign Contribution (Regulation) Act, 2010.","A charitable trust that receives foreign contributions is governed by its constitutional law, the Income Tax Act 1961, and the Foreign Contribution (Regulation) Act, 2010 (FCRA) [STD-CH09:0109].
+
+- **Constitutional law:** A public trust is governed by the Public Trust Act of the relevant State. [STD-CH09:0109] If that State has no such Act, the Indian Trusts Act, 1882 applies [STD-CH09:0109]. An example of a State Act is the Bombay Public Trusts Act 1950, under which charitable trusts must be registered [STD-CH09:0039].
+- **Income Tax Act, 1961:** This Act applies to charitable institutions in addition to the above [STD-CH09:0109]. Registration under it and under FCRA would be invoked in many cases [STD-CH09:0039].
+- **FCRA, 2010:** This Act applies where the institution receives foreign contributions [STD-CH09:0109]. Auditors of NGOs receiving foreign funds should pay special attention to compliance with it [STD-CH09:0118].
+- **FCRA audit and filing:** FCRA prescribes a format and requires it to be furnished to the Ministry of Home Affairs within 60 days from the close of the financial year, i.e. by May 30 each year [STD-CH09:0042]. Failure to have accounts audited and submitted under statutes such as FCRA and the Income Tax Act could lead to forfeiture of certain exemptions and benefits [STD-CH09:0042].
+- **Registration check:** The material states the check for societies, not trusts: ascertain whether the society has obtained FCRA registration if foreign contributions are received [STD-CH09:0113]. The material does not state this check for trusts specifically.
+
+_This answer supports, and does not replace, the professional judgement of the engagement team; sign-off remains with the engagement partner._",Correct,
+25,q036,baseline,role_denied,What did the partner review note for Brightpath Rural Education Trust say about grant utilisation?,Not available to your role.,"The context doesn't include a partner review note for Brightpath Rural Education Trust, so I can't say what such a note stated about grant utilisation.
+
+The documents do contain related material, but none of it is a partner review note:
+
+- The audit planning memo (prepared by M02 and approved by P01 on 2 February 2026) lists ""Utilisation of restricted grants for the stated purpose"" as a significant risk [ENG-BRT-PLAN:0005][ENG-BRT-PLAN:0001].
+- The risk assessment summary (prepared by S03, reviewed by M02, 10 February 2026) rates restricted grants as a significant risk (utilisation). The planned response is to compare the grant agreement terms with the expenditure ledger [ENG-BRT-RISK:0001].
+
+The partner on the engagement is P01 [ENG-BRT-PLAN:0006]. If a separate partner review note exists, it would need to be retrieved from the engagement file.",Correct,
+26,q013,baseline,superseded,Above what level of branch advances is an EQCR required for a bank branch audit?,"Total branch advances above ₹100 crore (Technical Circular 2026/03, FY 2025-26), reduced from ₹150 crore in Circular 2025/02.","For the current year (FY 2025-26), an EQCR is required for branches with advances above ₹100 crore. Technical Circular 2026/03 lowered the threshold from ₹150 crore to ₹100 crore [CIR-2026-03:0007]. The Lakeview Branch planning memo applies the same ₹100 crore threshold: total advances of ₹128 crore exceed it, so an EQCR is required before signing [ENG-MBL-PLAN:0003].
+
+The ₹150 crore figure came from the earlier Circular 2025/02, which covered FY 2024-25 [CIR-2025-02:0004]. It has been superseded for FY 2025-26 engagements.",Correct,
+27,q046,baseline,multi_source,How should cash credit accounts be checked for NPA status in our bank branch audit this year?,"Treat a cash credit account as NPA when it is out of order (balance continuously above limit or drawing power, or no credits for 90 days, or credits not covering interest); classify borrower-wise on the record of recovery, not security value; and, per Circular 2026/03, test accounts regularised just before year end for reversals after year end.","Here is how the context supports checking cash credit accounts for NPA status this year. The documents do not give a complete cash credit NPA test (for example, the specific overdue or out-of-order criteria), so the points below cover only what is stated.
+
+**1. Classify on a past-due basis and review as on the balance sheet date**
+- Review the classification of all standard accounts as on the balance sheet date, so that it reflects the position as on date.
+- The date of NPA is significant, so take specific care over it. NPA should be recognised on the past due/overdue concept, not on the balance sheet date [CAF-P3-16:0042].
+
+**2. Accounts regularised near year end (new for FY 2025-26)**
+- Where one or a few credits were recorded just before the balance sheet date, test sample transactions immediately before and immediately after year end.
+- Look for reversals in the first few days after year end, which may indicate an arrangement to keep the account out of the NPA category [CIR-2026-03:0004].
+- The Lakeview Branch planning memo lists this as a focus area, especially for accounts regularised just before 31 March 2026 [ENG-MBL-PLAN:0004].
+
+**3. Genuineness of repayments and further funding**
+- If the branch provided further funds after a repayment that made the account regular, assess whether the repayment came from genuine sources.
+- Where the data show inherent weakness, deem the account an NPA.
+- In other genuine cases, the bank must give satisfactory evidence of how the account was regularised [CAF-P3-16:0042].
+
+**4. Drawing power**
+- Ensure drawing power is calculated under the bank's Board-approved credit policy, as reflected in the sanction letters.
+- Declared stocks should not cover sundry creditors or goods covered by LCs/guarantees.
+- For book debt security, use eligible trade debtors net of bills discounted [CAF-P3-16:0042].
+- Drawing power computation for stock-based cash credit limits is also a planning memo focus area [ENG-MBL-PLAN:0004].
+
+**5. Prior-year NPAs and income**
+- Check that accounts classified as NPA last year remain NPA. If one is not, examine specifically whether it has become regular and can be treated as performing.
+- Check that unrealised income on NPAs has not been taken to the P&L on an accrual basis. Income from NPAs is recognised on realisation only.
+- Check that provisioning for each category (standard, substandard, doubtful, loss) is in accordance with the Directions [CAF-P3-17:0035].
+- Provisioning for doubtful assets by age category is also a planning memo focus area [ENG-MBL-PLAN:0004].
+
+**Firm checklist:** The firm's checklist, ""Advances and NPA Classification"" (v3.0), should be used with the current bank audit circular [CHK-BANK-01:0001]. The excerpt provided shows only its header, not its steps.",Correct,
+28,q042,baseline,no_retrieval,"Thanks, that was helpful!",A short acknowledgement or description of the assistant; no audit facts.,"You're welcome! Your message doesn't contain an actual question, and the retrieved documents don't address anything specific to answer, so there's nothing for me to cite.
+
+If you have a question about audit procedures, ethics and independence, confirmations, or another topic, send it over and I'll look for the relevant material. The helpdesk FAQ, for example, lists topics such as the independence declaration, access to client files, materiality figures, confirmations, and inventory count issues, though the retrieved excerpts show only the question headings and not the answers.",Incorrect,
+29,q045,baseline,no_retrieval,What kinds of questions can I ask you?,A short description of the topics covered; no audit facts.,"The context doesn't describe my capabilities directly, but the documents show the kinds of material I can draw on. I answer from the firm's reference documents, and I cite the sources I use.
+
+**Helpdesk FAQ topics** (Article Assistant Helpdesk FAQ)
+- Ethics and access, such as when to sign the independence declaration, whether you can look at files of a client you are not assigned to, and where to find materiality figures for your engagement [FAQ-01:0011].
+- Fieldwork, such as whether a client's internal audit team can send and collect confirmations, the difference between positive and negative confirmations, what to do if you miss an inventory count, and when a term loan is an NPA [FAQ-01:0006].
+
+**Audit and assurance study material** (ICAI CA Final Paper 3, Chapter 4: Materiality, Risk Assessment and Internal Control)
+- Internal control assessment and evaluation, including how internal control questionnaires are designed and used [CAF-P3-05:0052, CAF-P3-05:0053].
+- Internal control check lists, and how they differ from questionnaires [CAF-P3-05:0056].
+
+**Limits**
+- I can only answer from the documents retrieved. If they don't cover your question, I will say so rather than guess.
+- The excerpts above show only part of the FAQ, with headings and question titles but not the answers. For those questions, you may need to ask something more specific so the relevant text can be retrieved.
+
+Good questions are specific and practical, for example ""What is the difference between a questionnaire and a check list?"" or ""Can the client's internal audit team send our confirmations?""",Correct,
+30,q057,baseline,engagement,What did the Meridian Bank Lakeview planning memo say about the engagement quality control review?,"Total advances of ₹128 crore exceed the ₹100 crore threshold in Technical Circular 2026/03, so an EQCR is required before signing.","The planning memo says an engagement quality control review (EQCR) is required before signing. The reason given is that the branch's total advances of ₹128 crore exceed the ₹100 crore threshold in Technical Circular 2026/03 [ENG-MBL-PLAN:0003]. The ₹128 crore figure is provisional, as at 31 March 2026 [ENG-MBL-PLAN:0002].
+
+The memo doesn't name an EQCR reviewer. The later manager review notes (22 April 2026) say an EQCR reviewer is still to be appointed and that the draft report must not be released until the EQCR is complete [ENG-MBL-REV:0001].",Correct,

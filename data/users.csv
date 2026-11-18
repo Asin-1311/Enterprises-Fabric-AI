@@ -1,0 +1,8 @@
+user_id,name,role,synthetic,email
+S01,Riya Kapoor,staff,true,riya.kapoor@example-associates.test
+S02,Kabir Nair,staff,true,kabir.nair@example-associates.test
+S03,Meera Iyer,staff,true,meera.iyer@example-associates.test
+M01,Arjun Desai,manager,true,arjun.desai@example-associates.test
+M02,Neha Kulkarni,manager,true,neha.kulkarni@example-associates.test
+P01,Vikram Sethi,partner,true,vikram.sethi@example-associates.test
+P02,Anjali Bose,partner,true,anjali.bose@example-associates.test

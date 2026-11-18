@@ -1,0 +1,25 @@
+{
+  "answers_run": "20261113-101102_answers",
+  "labelled": 30,
+  "exported": 30,
+  "exact_agreement": 0.8333333333333334,
+  "cohens_kappa": -0.041666666666666234,
+  "binary_agreement_correct_vs_not": 0.8333333333333334,
+  "confusion_human_rows_judge_cols": {
+    "correct": {
+      "correct": 25,
+      "partially_correct": 3,
+      "incorrect": 0
+    },
+    "partially_correct": {
+      "correct": 0,
+      "partially_correct": 0,
+      "incorrect": 0
+    },
+    "incorrect": {
+      "correct": 2,
+      "partially_correct": 0,
+      "incorrect": 0
+    }
+  }
+}

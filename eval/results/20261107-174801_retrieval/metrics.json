@@ -1,0 +1,228 @@
+{
+  "by_mode": {
+    "dense": {
+      "questions_scored": 43,
+      "recall@5": 0.9806201550387597,
+      "recall@10": 0.9883720930232558,
+      "mrr": 0.9224806201550387,
+      "ndcg@10": 0.9227767216552921,
+      "access_leak_rate": 0.0,
+      "cross_engagement_leak_rate": 0.0,
+      "superseded_order_accuracy": 0.5833333333333334,
+      "superseded_questions": 12,
+      "per_source_type": {
+        "calendar": {
+          "gold_docs": 2,
+          "recall@5": 1.0,
+          "recall@10": 1.0
+        },
+        "checklists": {
+          "gold_docs": 11,
+          "recall@5": 0.9090909090909091,
+          "recall@10": 0.9090909090909091
+        },
+        "circulars": {
+          "gold_docs": 7,
+          "recall@5": 1.0,
+          "recall@10": 1.0
+        },
+        "engagement": {
+          "gold_docs": 6,
+          "recall@5": 1.0,
+          "recall@10": 1.0
+        },
+        "faq": {
+          "gold_docs": 3,
+          "recall@5": 1.0,
+          "recall@10": 1.0
+        },
+        "firm_policy": {
+          "gold_docs": 12,
+          "recall@5": 1.0,
+          "recall@10": 1.0
+        },
+        "standards": {
+          "gold_docs": 24,
+          "recall@5": 0.9583333333333334,
+          "recall@10": 1.0
+        },
+        "templates": {
+          "gold_docs": 1,
+          "recall@5": 1.0,
+          "recall@10": 1.0
+        }
+      },
+      "latency_ms_p50": 60.23199995979667,
+      "latency_ms_p95": 73.68959998711944
+    },
+    "bm25": {
+      "questions_scored": 43,
+      "recall@5": 0.9224806201550387,
+      "recall@10": 0.9534883720930233,
+      "mrr": 0.8922480620155039,
+      "ndcg@10": 0.8747032241887297,
+      "access_leak_rate": 0.0,
+      "cross_engagement_leak_rate": 0.0,
+      "superseded_order_accuracy": 0.5833333333333334,
+      "superseded_questions": 12,
+      "per_source_type": {
+        "calendar": {
+          "gold_docs": 2,
+          "recall@5": 1.0,
+          "recall@10": 1.0
+        },
+        "checklists": {
+          "gold_docs": 11,
+          "recall@5": 0.7272727272727273,
+          "recall@10": 0.8181818181818182
+        },
+        "circulars": {
+          "gold_docs": 7,
+          "recall@5": 0.7142857142857143,
+          "recall@10": 0.8571428571428571
+        },
+        "engagement": {
+          "gold_docs": 6,
+          "recall@5": 1.0,
+          "recall@10": 1.0
+        },
+        "faq": {
+          "gold_docs": 3,
+          "recall@5": 1.0,
+          "recall@10": 1.0
+        },
+        "firm_policy": {
+          "gold_docs": 12,
+          "recall@5": 1.0,
+          "recall@10": 1.0
+        },
+        "standards": {
+          "gold_docs": 24,
+          "recall@5": 0.9166666666666666,
+          "recall@10": 0.9583333333333334
+        },
+        "templates": {
+          "gold_docs": 1,
+          "recall@5": 1.0,
+          "recall@10": 1.0
+        }
+      },
+      "latency_ms_p50": 9.248699992895126,
+      "latency_ms_p95": 10.81270002759993
+    },
+    "hybrid_raw": {
+      "questions_scored": 43,
+      "recall@5": 0.9689922480620154,
+      "recall@10": 0.9883720930232558,
+      "mrr": 0.8759689922480619,
+      "ndcg@10": 0.8863561482060942,
+      "access_leak_rate": 0.0,
+      "cross_engagement_leak_rate": 0.0,
+      "superseded_order_accuracy": 0.4166666666666667,
+      "superseded_questions": 12,
+      "per_source_type": {
+        "calendar": {
+          "gold_docs": 2,
+          "recall@5": 1.0,
+          "recall@10": 1.0
+        },
+        "checklists": {
+          "gold_docs": 11,
+          "recall@5": 0.9090909090909091,
+          "recall@10": 0.9090909090909091
+        },
+        "circulars": {
+          "gold_docs": 7,
+          "recall@5": 1.0,
+          "recall@10": 1.0
+        },
+        "engagement": {
+          "gold_docs": 6,
+          "recall@5": 1.0,
+          "recall@10": 1.0
+        },
+        "faq": {
+          "gold_docs": 3,
+          "recall@5": 1.0,
+          "recall@10": 1.0
+        },
+        "firm_policy": {
+          "gold_docs": 12,
+          "recall@5": 1.0,
+          "recall@10": 1.0
+        },
+        "standards": {
+          "gold_docs": 24,
+          "recall@5": 0.9166666666666666,
+          "recall@10": 1.0
+        },
+        "templates": {
+          "gold_docs": 1,
+          "recall@5": 1.0,
+          "recall@10": 1.0
+        }
+      },
+      "latency_ms_p50": 62.578200129792094,
+      "latency_ms_p95": 68.81879991851747
+    },
+    "hybrid": {
+      "questions_scored": 43,
+      "recall@5": 0.9883720930232558,
+      "recall@10": 0.9883720930232558,
+      "mrr": 0.9651162790697675,
+      "ndcg@10": 0.9567916733928252,
+      "access_leak_rate": 0.0,
+      "cross_engagement_leak_rate": 0.0,
+      "superseded_order_accuracy": 1.0,
+      "superseded_questions": 12,
+      "per_source_type": {
+        "calendar": {
+          "gold_docs": 2,
+          "recall@5": 1.0,
+          "recall@10": 1.0
+        },
+        "checklists": {
+          "gold_docs": 11,
+          "recall@5": 0.9090909090909091,
+          "recall@10": 0.9090909090909091
+        },
+        "circulars": {
+          "gold_docs": 7,
+          "recall@5": 1.0,
+          "recall@10": 1.0
+        },
+        "engagement": {
+          "gold_docs": 6,
+          "recall@5": 1.0,
+          "recall@10": 1.0
+        },
+        "faq": {
+          "gold_docs": 3,
+          "recall@5": 1.0,
+          "recall@10": 1.0
+        },
+        "firm_policy": {
+          "gold_docs": 12,
+          "recall@5": 1.0,
+          "recall@10": 1.0
+        },
+        "standards": {
+          "gold_docs": 24,
+          "recall@5": 1.0,
+          "recall@10": 1.0
+        },
+        "templates": {
+          "gold_docs": 1,
+          "recall@5": 1.0,
+          "recall@10": 1.0
+        }
+      },
+      "latency_ms_p50": 62.97730002552271,
+      "latency_ms_p95": 69.25679999403656
+    }
+  },
+  "n_questions": 63,
+  "n_reviewed": 0,
+  "as_of": "2026-11-07",
+  "k_docs": 10
+}

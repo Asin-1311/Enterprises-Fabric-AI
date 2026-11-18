@@ -1,0 +1,30 @@
+# Secrets
+.env
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Local data stores
+data/qdrant/
+data/*.db
+data/*.db-journal
+
+# ICAI material: copyright ICAI, used locally only, never redistributed
+data/corpus/standards/
+data/tyk_candidates/
+data/ca_final_not_indexed/
+/*.pdf
+/ICAI_CA_Final_All_Papers_Chapter_Wise_Latest/
+/Tax_Law/
+
+# React UI: installed packages and build output (rebuilt by scripts\run_demo.bat)
+frontend/node_modules/
+frontend/dist/
+
+# Editors / OS
+.vscode/
+Thumbs.db
+/Standards_Acts/

@@ -1,0 +1,87 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="316" viewBox="0 0 760 316" role="img" aria-label="Answer quality: full system vs single-pass baseline">
+<title>Answer quality: full system vs single-pass baseline</title>
+<style>
+.bg{fill:#fcfcfb} .ink{fill:#0b0b0b} .ink2{fill:#52514e} .muted{fill:#898781}
+.grid{stroke:#e1e0d9} .axis{stroke:#c3c2b7} .target{stroke:#0b0b0b}
+.s1{fill:#2a78d6} .s2{fill:#eb6834} .s3{fill:#1baf7a} .s4{fill:#eda100}
+.hit{fill:transparent} .hit:hover{fill:rgba(11,11,11,0.05)}
+text{font-family:system-ui,-apple-system,"Segoe UI",sans-serif}
+@media (prefers-color-scheme: dark){
+ .bg{fill:#1a1a19} .ink{fill:#f0efec} .ink2{fill:#c3c2b7}
+ .grid{stroke:#2c2c2a} .axis{stroke:#383835} .target{stroke:#f0efec}
+ .s1{fill:#3987e5} .s2{fill:#d95926} .s3{fill:#199e70} .s4{fill:#c98500}
+ .hit:hover{fill:rgba(255,255,255,0.06)}
+}
+</style>
+<rect class="bg" width="760" height="316" rx="8"/>
+<text class="ink" x="16" y="28" font-size="16" font-weight="600">Answer quality: full system vs single-pass baseline</text>
+<text class="ink2" x="16" y="48" font-size="12">63 questions, judged by anthropic/claude-opus-5.5; 0 of 63 reviewed by the author</text>
+<rect class="s1" x="16" y="62" width="12" height="12" rx="3"/>
+<text class="ink2" x="34" y="72" font-size="12">Full system</text>
+<rect class="s2" x="137.2" y="62" width="12" height="12" rx="3"/>
+<text class="ink2" x="155.2" y="72" font-size="12">Baseline</text>
+<line class="axis" x1="210.0" y1="88" x2="210.0" y2="276.0" stroke-width="1"/>
+<text class="muted" x="210.0" y="292.0" font-size="11" text-anchor="middle">0.0</text>
+<line class="grid" x1="306.0" y1="88" x2="306.0" y2="276.0" stroke-width="1"/>
+<text class="muted" x="306.0" y="292.0" font-size="11" text-anchor="middle">0.2</text>
+<line class="grid" x1="402.0" y1="88" x2="402.0" y2="276.0" stroke-width="1"/>
+<text class="muted" x="402.0" y="292.0" font-size="11" text-anchor="middle">0.4</text>
+<line class="grid" x1="498.0" y1="88" x2="498.0" y2="276.0" stroke-width="1"/>
+<text class="muted" x="498.0" y="292.0" font-size="11" text-anchor="middle">0.6</text>
+<line class="grid" x1="594.0" y1="88" x2="594.0" y2="276.0" stroke-width="1"/>
+<text class="muted" x="594.0" y="292.0" font-size="11" text-anchor="middle">0.8</text>
+<line class="grid" x1="690.0" y1="88" x2="690.0" y2="276.0" stroke-width="1"/>
+<text class="muted" x="690.0" y="292.0" font-size="11" text-anchor="middle">1.0</text>
+<text class="ink" x="198" y="115.0" font-size="12" text-anchor="end">Correctness</text>
+<g>
+<title>Correctness - Full system: 0.960</title>
+<rect class="hit" x="210" y="95" width="480" height="16"/>
+<path class="s1" d="M210.0,96.0 H667.0 A4,4 0 0 1 671.0,100.0 V106.0 A4,4 0 0 1 667.0,110.0 H210.0 Z"/>
+<text class="ink2" x="677.0" y="107" font-size="11">0.960</text>
+</g>
+<g>
+<title>Correctness - Baseline: 0.913</title>
+<rect class="hit" x="210" y="111" width="480" height="16"/>
+<path class="s2" d="M210.0,112.0 H644.1 A4,4 0 0 1 648.1,116.0 V122.0 A4,4 0 0 1 644.1,126.0 H210.0 Z"/>
+<text class="ink2" x="654.1" y="123" font-size="11">0.913</text>
+</g>
+<text class="ink" x="198" y="163.0" font-size="12" text-anchor="end">Fully correct</text>
+<g>
+<title>Fully correct - Full system: 0.921</title>
+<rect class="hit" x="210" y="143" width="480" height="16"/>
+<path class="s1" d="M210.0,144.0 H647.9 A4,4 0 0 1 651.9,148.0 V154.0 A4,4 0 0 1 647.9,158.0 H210.0 Z"/>
+<text class="ink2" x="657.9" y="155" font-size="11">0.921</text>
+</g>
+<g>
+<title>Fully correct - Baseline: 0.857</title>
+<rect class="hit" x="210" y="159" width="480" height="16"/>
+<path class="s2" d="M210.0,160.0 H617.4 A4,4 0 0 1 621.4,164.0 V170.0 A4,4 0 0 1 617.4,174.0 H210.0 Z"/>
+<text class="ink2" x="627.4" y="171" font-size="11">0.857</text>
+</g>
+<text class="ink" x="198" y="211.0" font-size="12" text-anchor="end">Faithfulness (micro)</text>
+<g>
+<title>Faithfulness (micro) - Full system: 0.954</title>
+<rect class="hit" x="210" y="191" width="480" height="16"/>
+<path class="s1" d="M210.0,192.0 H664.0 A4,4 0 0 1 668.0,196.0 V202.0 A4,4 0 0 1 664.0,206.0 H210.0 Z"/>
+<text class="ink2" x="674.0" y="203" font-size="11">0.954</text>
+</g>
+<g>
+<title>Faithfulness (micro) - Baseline: 0.477</title>
+<rect class="hit" x="210" y="207" width="480" height="16"/>
+<path class="s2" d="M210.0,208.0 H434.8 A4,4 0 0 1 438.8,212.0 V218.0 A4,4 0 0 1 434.8,222.0 H210.0 Z"/>
+<text class="ink2" x="444.8" y="219" font-size="11">0.477</text>
+</g>
+<text class="ink" x="198" y="259.0" font-size="12" text-anchor="end">Citation precision</text>
+<g>
+<title>Citation precision - Full system: 0.981</title>
+<rect class="hit" x="210" y="239" width="480" height="16"/>
+<path class="s1" d="M210.0,240.0 H676.6 A4,4 0 0 1 680.6,244.0 V250.0 A4,4 0 0 1 676.6,254.0 H210.0 Z"/>
+<text class="ink2" x="686.6" y="251" font-size="11">0.981</text>
+</g>
+<g>
+<title>Citation precision - Baseline: 0.968</title>
+<rect class="hit" x="210" y="255" width="480" height="16"/>
+<path class="s2" d="M210.0,256.0 H670.4 A4,4 0 0 1 674.4,260.0 V266.0 A4,4 0 0 1 670.4,270.0 H210.0 Z"/>
+<text class="ink2" x="680.4" y="267" font-size="11">0.968</text>
+</g>
+</svg>

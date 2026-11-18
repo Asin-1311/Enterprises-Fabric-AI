@@ -1,0 +1,5 @@
+id,category,user_id,system,reviewed,error,status,confidence,seconds,ttft_s,draft_ttft_s,tokens_in,tokens_out,est_cost_usd,access_leak,cross_engagement_leak,content_leak,correctness,score,faithfulness,factual_claims,supported_claims,citation_pairs,supporting_citations
+q001,standard,S01,full,False,,answered,1.0,36.413242999929935,36.413242999929935,18.89787649991922,11887,2121,0.056115,False,False,False,partially_correct,0.5,1.0,12,12,12,12
+q001,standard,S01,baseline,False,,answered,,4.46252050017938,1.0149344000965357,,2672,711,0.012454,False,False,False,correct,1.0,0.5625,16,9,13,13
+q046,multi_source,S03,full,False,,answered,0.9285714285714286,41.45434399996884,41.45434399996884,17.549535099882632,11564,2716,0.0652211,False,False,False,correct,1.0,0.9285714285714286,14,13,22,21
+q046,multi_source,S03,baseline,False,,answered,,5.1753039001487195,1.0601228000596166,,1532,729,0.010353999999999999,False,False,False,correct,1.0,0.6,15,9,9,9

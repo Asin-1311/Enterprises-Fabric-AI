@@ -1,0 +1,4 @@
+engagement_id,client_name,industry,fy,partner_id,member_ids
+ENG-NWT-FY26,Northwind Textiles Private Limited,manufacturing,2025-26,P01,M01;S01;S02
+ENG-MBL-FY26,Meridian Bank Limited - Lakeview Branch,banking,2025-26,P02,M02;S02;S03
+ENG-BRT-FY26,Brightpath Rural Education Trust,non_profit,2025-26,P01,M02;S03

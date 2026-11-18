@@ -1,0 +1,147 @@
+{
+  "n_questions": 2,
+  "n_reviewed": 0,
+  "judge_model": "anthropic/claude-opus-5.5",
+  "targets": {
+    "ttft_p95_s": 1.5,
+    "full_answer_p95_s": 8.0
+  },
+  "systems": {
+    "full": {
+      "overall": {
+        "questions": 2,
+        "errors": 0,
+        "judged": 2,
+        "correctness": 0.75,
+        "correct_rate": 0.5,
+        "faithfulness_macro": 0.9642857142857143,
+        "faithfulness_micro": 0.9615384615384616,
+        "citation_precision": 0.9705882352941176,
+        "access_leak_rate": 0.0,
+        "cross_engagement_leak_rate": 0.0,
+        "content_leak_rate": null,
+        "status_counts": {
+          "answered": 2
+        },
+        "ttft_s_p50": 36.413242999929935,
+        "ttft_s_p95": 41.45434399996884,
+        "full_answer_s_p50": 36.413242999929935,
+        "full_answer_s_p95": 41.45434399996884,
+        "estimated_answer_cost_usd": 0.1213
+      },
+      "by_category": {
+        "multi_source": {
+          "questions": 1,
+          "errors": 0,
+          "judged": 1,
+          "correctness": 1.0,
+          "correct_rate": 1.0,
+          "faithfulness_macro": 0.9285714285714286,
+          "faithfulness_micro": 0.9285714285714286,
+          "citation_precision": 0.9545454545454546,
+          "access_leak_rate": 0.0,
+          "cross_engagement_leak_rate": 0.0,
+          "content_leak_rate": null,
+          "status_counts": {
+            "answered": 1
+          },
+          "ttft_s_p50": 41.45434399996884,
+          "ttft_s_p95": 41.45434399996884,
+          "full_answer_s_p50": 41.45434399996884,
+          "full_answer_s_p95": 41.45434399996884,
+          "estimated_answer_cost_usd": 0.0652
+        },
+        "standard": {
+          "questions": 1,
+          "errors": 0,
+          "judged": 1,
+          "correctness": 0.5,
+          "correct_rate": 0.0,
+          "faithfulness_macro": 1.0,
+          "faithfulness_micro": 1.0,
+          "citation_precision": 1.0,
+          "access_leak_rate": 0.0,
+          "cross_engagement_leak_rate": 0.0,
+          "content_leak_rate": null,
+          "status_counts": {
+            "answered": 1
+          },
+          "ttft_s_p50": 36.413242999929935,
+          "ttft_s_p95": 36.413242999929935,
+          "full_answer_s_p50": 36.413242999929935,
+          "full_answer_s_p95": 36.413242999929935,
+          "estimated_answer_cost_usd": 0.0561
+        }
+      }
+    },
+    "baseline": {
+      "overall": {
+        "questions": 2,
+        "errors": 0,
+        "judged": 2,
+        "correctness": 1.0,
+        "correct_rate": 1.0,
+        "faithfulness_macro": 0.58125,
+        "faithfulness_micro": 0.5806451612903226,
+        "citation_precision": 1.0,
+        "access_leak_rate": 0.0,
+        "cross_engagement_leak_rate": 0.0,
+        "content_leak_rate": null,
+        "status_counts": {
+          "answered": 2
+        },
+        "ttft_s_p50": 1.0149344000965357,
+        "ttft_s_p95": 1.0601228000596166,
+        "full_answer_s_p50": 4.46252050017938,
+        "full_answer_s_p95": 5.1753039001487195,
+        "estimated_answer_cost_usd": 0.0228
+      },
+      "by_category": {
+        "multi_source": {
+          "questions": 1,
+          "errors": 0,
+          "judged": 1,
+          "correctness": 1.0,
+          "correct_rate": 1.0,
+          "faithfulness_macro": 0.6,
+          "faithfulness_micro": 0.6,
+          "citation_precision": 1.0,
+          "access_leak_rate": 0.0,
+          "cross_engagement_leak_rate": 0.0,
+          "content_leak_rate": null,
+          "status_counts": {
+            "answered": 1
+          },
+          "ttft_s_p50": 1.0601228000596166,
+          "ttft_s_p95": 1.0601228000596166,
+          "full_answer_s_p50": 5.1753039001487195,
+          "full_answer_s_p95": 5.1753039001487195,
+          "estimated_answer_cost_usd": 0.0104
+        },
+        "standard": {
+          "questions": 1,
+          "errors": 0,
+          "judged": 1,
+          "correctness": 1.0,
+          "correct_rate": 1.0,
+          "faithfulness_macro": 0.5625,
+          "faithfulness_micro": 0.5625,
+          "citation_precision": 1.0,
+          "access_leak_rate": 0.0,
+          "cross_engagement_leak_rate": 0.0,
+          "content_leak_rate": null,
+          "status_counts": {
+            "answered": 1
+          },
+          "ttft_s_p50": 1.0149344000965357,
+          "ttft_s_p95": 1.0149344000965357,
+          "full_answer_s_p50": 4.46252050017938,
+          "full_answer_s_p95": 4.46252050017938,
+          "estimated_answer_cost_usd": 0.0125
+        }
+      }
+    }
+  },
+  "estimated_judge_cost_usd": 0.1656,
+  "measured_spend_usd": 0.2773
+}
