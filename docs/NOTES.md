@@ -100,7 +100,8 @@ is in `docs/report/PROJECT_STATUS.md` section 2 (M8).
 
 ### Status
 - Tests: 9 passed (`pytest -v`, Python 3.13.14, 2026-11-07).
-- Git commit: **pending**. Git is not yet installed on the dev machine.
+- Git commit: included in the single initial commit `d4b6b6a` (2026-11-18). Per-milestone
+  commits were not possible because git was not installed while the milestones were built.
 
 ---
 
@@ -210,7 +211,8 @@ Northwind. Partners P01 and P02 see all engagements.
   (3), manifest validation (20), synthetic corpus (5).
 - **Author review of the synthetic documents: pending** (CLAUDE.md §16 requires it).
   The values to check are listed in `docs/PLACEHOLDERS.md`.
-- Git commit: pending (git not installed).
+- Git commit: included in the single initial commit `d4b6b6a` (2026-11-18). Per-milestone
+  commits were not possible because git was not installed while the milestones were built.
 
 ---
 
@@ -329,7 +331,8 @@ against a hand calculation (ln 2).
 - Tests: 75 passed (`pytest`, 2026-11-07). M2 added 27: chunker (11), indexer and watcher
   (12), BM25 (4).
 - Real index built: 943 chunks in SQLite = Qdrant = BM25.
-- Git commit: pending (git not installed).
+- Git commit: included in the single initial commit `d4b6b6a` (2026-11-18). Per-milestone
+  commits were not possible because git was not installed while the milestones were built.
 
 ---
 
@@ -428,7 +431,8 @@ What the numbers say, honestly:
   cases), metrics (6), question-set checks (25), real-index ACL sweep (7).
 - First retrieval evaluation run saved (see above).
 - Question set: 23 drafts, **0 reviewed**. Expand to 60 and review before M7.
-- Git commit: pending (git not installed).
+- Git commit: included in the single initial commit `d4b6b6a` (2026-11-18). Per-milestone
+  commits were not possible because git was not installed while the milestones were built.
 
 ---
 
@@ -556,7 +560,8 @@ Findings to carry forward (not tuned away, to be measured in M7):
 - Live smoke test: 6 questions, $0.023, results above.
 - Not yet built: verification, confidence score, loop-back and abstention (M5); the
   `answers.confidence` column is stored as null until then.
-- Git commit: pending (git not installed).
+- Git commit: included in the single initial commit `d4b6b6a` (2026-11-18). Per-milestone
+  commits were not possible because git was not installed while the milestones were built.
 
 ---
 
@@ -653,7 +658,8 @@ true sentences were given checked citations, none were removed, and the version 
 ### Status
 - Tests: 228 passed (2026-11-07). M5 added 16: verifier unit tests (10), graph-level
   verification tests (5), masking regression (1).
-- Git commit: pending (git not installed).
+- Git commit: included in the single initial commit `d4b6b6a` (2026-11-18). Per-milestone
+  commits were not possible because git was not installed while the milestones were built.
 
 ---
 
@@ -737,7 +743,8 @@ stopped.
 
 ### Status
 - Tests: 241 passed (2026-11-07). M6 added 13: API (11), UI (2).
-- Git commit: pending (git not installed).
+- Git commit: included in the single initial commit `d4b6b6a` (2026-11-18). Per-milestone
+  commits were not possible because git was not installed while the milestones were built.
 
 ---
 
@@ -1055,7 +1062,8 @@ Correctness by category:
 - Tests: 317 passed, 0 skipped (2026-11-13). This includes the real-index ACL sweep over
   the 15,705-chunk index and the new crash-recovery test for resumable runs.
 - Question review: **0 of 63**.
-- Git commit: pending (git not installed).
+- Git commit: included in the single initial commit `d4b6b6a` (2026-11-18). Per-milestone
+  commits were not possible because git was not installed while the milestones were built.
 
 ---
 
@@ -1124,7 +1132,8 @@ function of about 80 lines.
   - a second evaluation run to measure variance;
   - the latency work listed in PROJECT_STATUS.md.
 - *Why are some deliverables marked "not done" in your own report?* CLAUDE.md requires the
-  real status. Examples: no git history (git is not installed), the 63 questions not yet
+  real status. Examples: no per-milestone git history (git was not installed while the
+  milestones were built, so everything is in one initial commit), the 63 questions not yet
   reviewed, variance not measured.
 
 ### Status
@@ -1134,9 +1143,9 @@ function of about 80 lines.
 - Outstanding author actions:
   - review the 63 questions and the synthetic documents;
   - complete `docs/PLACEHOLDERS.md`;
-  - confirm the ICAI copyright use with the supervisor;
-  - install git and commit.
-- Git commit: pending (git not installed).
+  - confirm the ICAI copyright use with the supervisor.
+- Git commit: included in the single initial commit `d4b6b6a` (2026-11-18). Per-milestone
+  commits were not possible because git was not installed while the milestones were built.
 
 ---
 

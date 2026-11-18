@@ -2,7 +2,7 @@
 
 Maintained by hand. It contains no metrics: every number lives in [RESULTS.md](RESULTS.md),
 which `scripts/make_report.py` generates from `eval/results/`.
-Status as of 2026-11-14.
+Status as of 2026-11-18.
 
 The project document's "Work Completed" table lists every item as Completed. This table
 shows the real status instead. "Done" means the item exists and its tests pass.
@@ -33,7 +33,7 @@ shows the real status instead. "Done" means the item exists and its tests pass.
 | M7 Run-to-run variance | **Not done** | Needs a second paid run (about $5–6) |
 | M8 Report generator, tables, SVG figures | Done | `scripts/make_report.py`, `tests/test_make_report.py` |
 | M8 Deviations and Future Work | Done | this file |
-| One git commit per milestone | **Not done** | Git is not installed on the development laptop |
+| One git commit per milestone | **Not done**: replaced by one initial commit | Git was not installed while M0–M8 were built. All work up to 2026-11-18 is in commit `d4b6b6a`, pushed to the private GitHub repository `Asin-1311/Enterprises-Fabric-AI`. Later changes get their own commits. |
 | Copyright: supervisor confirms use of the ICAI material | **Author action** | Required before any demo outside the firm |
 
 ## 2. Deviations from the project document
