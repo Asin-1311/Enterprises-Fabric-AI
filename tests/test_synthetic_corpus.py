@@ -2,8 +2,16 @@
 
 import re
 
+import pytest
+
 from app.config import PROJECT_ROOT
-from app.ingest.manifest import load_engagement_ids, read_manifest, validate_manifest
+from app.ingest.manifest import (
+    licensed_corpus_present,
+    load_engagement_ids,
+    read_manifest,
+    synthetic_rows,
+    validate_manifest,
+)
 from scripts.make_synthetic_docs import all_synthetic_docs, manifest_rows
 from scripts.synthetic import FIRM
 from scripts.synthetic.people import ENGAGEMENTS, USERS
@@ -13,6 +21,28 @@ PAN = re.compile(r"\b[A-Z]{5}\d{4}[A-Z]\b")
 
 
 def test_committed_manifest_is_valid() -> None:
+    """Covers: R-ops-clone. The synthetic manifest lists only committed files, so it is
+    valid in a clean clone (the licensed ICAI PDFs are not in git)."""
+    header, rows = read_manifest(DATA / "manifest.synthetic.csv")
+    errors = validate_manifest(
+        rows, project_root=PROJECT_ROOT, corpus_dir=DATA / "corpus",
+        engagement_ids=load_engagement_ids(DATA / "engagements.csv"), header=header,
+        skip_orphans_in=("standards",),
+    )
+    assert errors == []
+    assert rows and all(r.is_synthetic and r.source_type != "standards" for r in rows)
+
+
+def test_synthetic_manifest_matches_the_full_manifest() -> None:
+    """manifest.synthetic.csv is exactly the synthetic rows of manifest.csv (no drift)."""
+    _, full = read_manifest(DATA / "manifest.csv")
+    _, synthetic = read_manifest(DATA / "manifest.synthetic.csv")
+    assert synthetic == synthetic_rows(full)
+
+
+@pytest.mark.skipif(not licensed_corpus_present(DATA / "corpus"),
+                    reason="ICAI PDFs are licensed and not in git")
+def test_full_manifest_is_valid() -> None:
     header, rows = read_manifest(DATA / "manifest.csv")
     errors = validate_manifest(
         rows, project_root=PROJECT_ROOT, corpus_dir=DATA / "corpus",

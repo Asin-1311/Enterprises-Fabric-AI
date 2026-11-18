@@ -2,16 +2,18 @@
 // "set a new password" step reached from a reset link (/?reset=<token>).
 //
 // The browser only collects the details; every check (password, rules, roles) is made
-// by the API. New accounts are always staff with no client engagements.
+// by the API. New accounts are always staff with no client engagements, and only when the
+// firm has switched self-registration on (it is off by default).
 
 import { ArrowLeft, BookOpen, Eye, EyeOff, Loader2 } from "lucide-react";
-import { useId, useState, type FormEvent, type ReactNode } from "react";
-import { API_DOWN_MESSAGE, ApiError, forgotPassword, login, register, resetPassword } from "../api";
+import { useEffect, useId, useState, type FormEvent, type ReactNode } from "react";
+import { API_DOWN_MESSAGE, ApiError, forgotPassword, getAuthConfig, login, register, resetPassword } from "../api";
 import type { SessionInfo } from "../types";
 
 type Mode = "signin" | "register" | "forgot" | "reset";
 
 const MIN_PASSWORD = 8;
+export const REGISTRATION_CLOSED = "Accounts are created by the firm administrator. Ask them to add you.";
 
 const TEXT: Record<Mode, { title: string; subtitle: string; submit: string; busy: string }> = {
   signin: { title: "Sign in", subtitle: "Use your firm email address and password.", submit: "Sign in", busy: "Signing in…" },
@@ -34,6 +36,21 @@ export function LoginScreen({ onSignedIn, resetToken = null }: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [selfRegistration, setSelfRegistration] = useState(false); // off until the API says on
+
+  useEffect(() => {
+    getAuthConfig()
+      .then((config) => setSelfRegistration(config.self_registration))
+      .catch(() => setSelfRegistration(false));
+  }, []);
+
+  function createAccount() {
+    if (selfRegistration) go("register");
+    else {
+      setError(null);
+      setNotice(REGISTRATION_CLOSED);
+    }
+  }
 
   function go(next: Mode, message: string | null = null) {
     setMode(next);
@@ -132,7 +149,7 @@ export function LoginScreen({ onSignedIn, resetToken = null }: Props) {
             {mode === "signin" && (
               <div className="flex items-center justify-between text-sm">
                 <button type="button" onClick={() => go("forgot")} className={LINK}>Forgot password?</button>
-                <button type="button" onClick={() => go("register")} className={LINK}>Create account</button>
+                <button type="button" onClick={createAccount} className={LINK}>Create account</button>
               </div>
             )}
 

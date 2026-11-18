@@ -19,7 +19,7 @@ Modes (for the retrieval ablation in eval/run_retrieval_eval.py):
 
 import logging
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 
 from qdrant_client import QdrantClient
@@ -33,7 +33,7 @@ from app.retrieval.acl import UserContext, allowed_chunk_ids, can_see, qdrant_fi
 from app.retrieval.bm25 import Bm25Index
 from app.retrieval.dense import BgeEmbedder, Embedder, QdrantStore, open_qdrant
 from app.retrieval.fusion import reciprocal_rank_fusion
-from app.retrieval.recency import adjustment
+from app.retrieval.recency import multipliers
 
 log = logging.getLogger(__name__)
 MODES = ("dense", "bm25", "hybrid_raw", "hybrid")
@@ -58,6 +58,8 @@ class RetrievedChunk:
     rrf_score: float
     dense_rank: int | None
     bm25_rank: int | None
+    # Every multiplier applied to rrf_score, by name (score = rrf_score x product).
+    multipliers: dict[str, float] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -140,19 +142,23 @@ class HybridSearcher:
             if cid not in allowed or not can_see(user, m.access_level, m.engagement_id):
                 log.error("ACL violation blocked: %s returned for %s", cid, user.user_id)
                 continue
-            factor = 1.0
+            applied: dict[str, float] = {}
             if mode == "hybrid":
-                factor = adjustment(superseded=m.superseded, effective_date=m.effective_date,
-                                    time_sensitive=time_sensitive, as_of=as_of,
-                                    superseded_weight=self.superseded_weight,
-                                    recency_weight=self.recency_weight,
-                                    half_life_days=self.half_life_days)
+                applied = multipliers(superseded=m.superseded, effective_date=m.effective_date,
+                                      time_sensitive=time_sensitive, as_of=as_of,
+                                      superseded_weight=self.superseded_weight,
+                                      recency_weight=self.recency_weight,
+                                      half_life_days=self.half_life_days)
+            factor = 1.0
+            for value in applied.values():
+                factor *= value
             results.append(RetrievedChunk(
                 chunk_id=cid, doc_id=m.doc_id, title=m.title, source_type=m.source_type,
                 section=m.section, section_title=m.section_title, page_start=m.page_start,
                 page_end=m.page_end, effective_date=m.effective_date, superseded=m.superseded,
                 text=m.text, score=rrf_score * factor, rrf_score=rrf_score,
-                dense_rank=dense_rank.get(cid), bm25_rank=bm25_rank.get(cid)))
+                dense_rank=dense_rank.get(cid), bm25_rank=bm25_rank.get(cid),
+                multipliers=applied))
         results.sort(key=lambda r: (-r.score, r.chunk_id))
         return results[:limit]
 

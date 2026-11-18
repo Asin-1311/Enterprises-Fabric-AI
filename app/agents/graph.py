@@ -24,6 +24,7 @@ Smoke-test from the project root (makes real LLM calls, a few cents):
 """
 
 import argparse
+import logging
 import time
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
@@ -53,7 +54,20 @@ from app.retrieval.acl import UserContext, can_see, load_user
 from app.retrieval.compress import CompressedChunk
 from app.retrieval.hybrid import HybridSearcher, RetrievedChunk, build_searcher
 from app.retrieval.rerank import CrossEncoderReranker, Reranker
+from app.security.injection import scan as scan_for_injection
 from app.security.masking import mask_text
+
+log = logging.getLogger(__name__)
+
+
+def score_records(chunks: list[RetrievedChunk]) -> list[dict]:
+    """Per chunk: the fused (RRF) score, each retriever's rank, every multiplier applied
+    and the final score, for the retrieval trace (audit finding R-8-record: every
+    adjustment must be recorded so its effect can be measured)."""
+    return [{"chunk_id": c.chunk_id, "rrf_score": round(c.rrf_score, 6),
+             "dense_rank": c.dense_rank, "keyword_rank": c.bm25_rank,
+             "multipliers": {k: round(v, 6) for k, v in c.multipliers.items()},
+             "final_score": round(c.score, 6)} for c in chunks]
 
 NO_RETRIEVAL_MESSAGE = (
     "Hello. I answer questions about the Standards on Auditing (from the ICAI study material), "
@@ -155,9 +169,18 @@ class AuditAssistant:
 
     def _understand(self, state: GraphState) -> GraphState:
         _emit(state, "understanding")
+        # The user's own question is scanned too, not only retrieved text (audit finding
+        # R-12-scan). A hit is recorded and logged; the answer pipeline is unchanged,
+        # because the question is the user's instruction channel and every safeguard
+        # (access filter, untrusted-data rule, verification) still applies.
+        question_hits = scan_for_injection(state["question"])
+        if question_hits:
+            log.warning("Instruction-like text in the question of query %s: %s",
+                        state["tracer"].query_id, ", ".join(question_hits))
         analysis, res = understand(state["question"], self.deps.llm, self.deps.clients)
         state["tracer"].log("query_understanding", {"question": state["question"]},
-                            asdict(analysis), [res])
+                            {**asdict(analysis), "question_injection_hits": question_hits},
+                            [res])
         return {"analysis": analysis}
 
     def _route(self, state: GraphState) -> GraphState:
@@ -179,6 +202,7 @@ class AuditAssistant:
         state["tracer"].log("retrieval", {"queries": state["analysis"].sub_queries,
                                           "source_types": state["routing"].source_types},
                             {"chunk_ids": [c.chunk_id for c in outcome.candidates],
+                             "scores": score_records(outcome.candidates),
                              "injection_hits": outcome.injection_hits}, latency_ms=ms)
         return {"candidates": outcome.candidates, "injection_hits": outcome.injection_hits,
                 "followup_done": False}
@@ -207,6 +231,7 @@ class AuditAssistant:
         hits = {**state.get("injection_hits", {}), **outcome.injection_hits}
         state["tracer"].log("followup_retrieval", {"queries": queries},
                             {"new_chunks": len(merged) - len(state["candidates"]),
+                             "scores": score_records(outcome.candidates),
                              "injection_hits": outcome.injection_hits}, [res])
         return {"candidates": merged, "injection_hits": hits, "followup_done": True}
 
@@ -258,6 +283,7 @@ class AuditAssistant:
         state["tracer"].log("verification_retry", {"confidence": state["confidence"],
                                                    "queries": queries},
                             {"new_chunks": len(merged) - len(state["candidates"]),
+                             "scores": score_records(outcome.candidates),
                              "injection_hits": outcome.injection_hits}, [res])
         return {"candidates": merged, "verify_retry_done": True, "followup_done": True,
                 "injection_hits": {**state.get("injection_hits", {}), **outcome.injection_hits}}

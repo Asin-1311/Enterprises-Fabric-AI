@@ -35,6 +35,7 @@ from app.db.session import init_db, make_engine, make_session_factory, write_aud
 from app.ingest.chunker import ChunkingResult, chunk_icai_chapter, chunk_markdown
 from app.ingest.manifest import (
     ManifestRow,
+    choose_manifest,
     load_engagement_ids,
     read_manifest,
     validate_manifest,
@@ -97,16 +98,31 @@ class Indexer:
         bm25: Bm25Index,
         max_tokens: int = 400,
         overlap_tokens: int = 50,
+        synthetic_manifest_path: Path | None = None,
     ) -> None:
         self.project_root = project_root
         self.corpus_dir = project_root / "data" / "corpus"
         self.manifest_path, self.users_path = manifest_path, users_path
+        # Used instead of manifest_path when the licensed ICAI PDFs are absent (clean clone).
+        self.synthetic_manifest_path = synthetic_manifest_path
+        self._fallback_warned = False
         self.engagements_path, self.tyk_dir = engagements_path, tyk_dir
         self.sessions, self.store, self.embedder, self.bm25 = (
             session_factory, store, embedder, bm25)
         self.max_tokens, self.overlap_tokens = max_tokens, overlap_tokens
         # The watcher calls us from its own thread; one change is processed at a time.
         self.lock = threading.RLock()
+
+    def active_manifest(self) -> tuple[Path, bool]:
+        """(manifest to index from, True if it is the synthetic-only fallback)."""
+        path, fallback = choose_manifest(self.manifest_path, self.synthetic_manifest_path,
+                                         self.corpus_dir)
+        if fallback and not self._fallback_warned:
+            log.warning("ICAI study material not found in %s (it is licensed and not in git). "
+                        "Indexing the synthetic documents only, from %s.",
+                        self.corpus_dir / "standards", path.name)
+            self._fallback_warned = True
+        return path, fallback
 
     # ------------------------------------------------------------ reference data
 
@@ -137,10 +153,12 @@ class Indexer:
     def sync(self, actor: str = "system") -> SyncReport:
         """Bring all indexes in line with the manifest. Refuses an invalid manifest."""
         with self.lock:
-            header, rows = read_manifest(self.manifest_path)
+            manifest, fallback = self.active_manifest()
+            header, rows = read_manifest(manifest)
             errors = validate_manifest(
                 rows, project_root=self.project_root, corpus_dir=self.corpus_dir,
-                engagement_ids=load_engagement_ids(self.engagements_path), header=header)
+                engagement_ids=load_engagement_ids(self.engagements_path), header=header,
+                skip_orphans_in=("standards",) if fallback else ())
             if errors:
                 with self.sessions() as s:
                     write_audit_log(s, actor, "sync_rejected", f"{len(errors)} manifest problem(s)")
@@ -167,7 +185,7 @@ class Indexer:
         file has no manifest row (it is then left unindexed and a warning is logged)."""
         with self.lock:
             rel = self._relative(path)
-            _, rows = read_manifest(self.manifest_path)
+            _, rows = read_manifest(self.active_manifest()[0])
             row = next((r for r in rows if r.path == rel), None)
             if row is None:
                 log.warning("File %s is not in the manifest; not indexed.", rel)
@@ -320,6 +338,7 @@ def build_indexer(settings: Settings, embedder: Embedder | None = None,
         bm25=bm25 if bm25 is not None else Bm25Index(),
         max_tokens=settings.chunk_max_tokens,
         overlap_tokens=settings.chunk_overlap_tokens,
+        synthetic_manifest_path=settings.synthetic_manifest_path,
     )
 
 

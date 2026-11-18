@@ -2,7 +2,7 @@
 
 import logging
 import re
-import threading
+from contextlib import contextmanager
 from datetime import timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from app.api.auth import RESET_SENT, SIGN_IN_FAILED, seed_demo_passwords, utc_now
+from app.concurrency import ReadWriteLock
 from app.api.main import Services, create_app
 from app.db.models import AuditLog, AuthSession, PasswordReset, User
 from app.db.session import init_db, make_engine, make_session_factory
@@ -22,8 +23,10 @@ DEMO_PASSWORD = "demo-pass-123"
 RIYA = "riya.kapoor@example-associates.test"
 
 
-@pytest.fixture()
-def app_client(tmp_path: Path):
+@contextmanager
+def _client(tmp_path: Path, **settings_overrides):
+    """A TestClient over a small user table (no models). Settings default to the real
+    defaults; tests override what they need."""
     engine = make_engine(f"sqlite:///{(tmp_path / 'auth.db').as_posix()}")
     init_db(engine)
     sessions = make_session_factory(engine)
@@ -34,11 +37,20 @@ def app_client(tmp_path: Path):
                    User(user_id="X01", name="No Email", role="staff", synthetic=True)])
         s.commit()
     settings = _settings().model_copy(update={"demo_password": DEMO_PASSWORD,
-                                              "eval_results_dir": tmp_path / "results"})
+                                              "eval_results_dir": tmp_path / "results",
+                                              **settings_overrides})
     assistant = SimpleNamespace(deps=SimpleNamespace(sessions=sessions))  # auth needs only the DB
-    services = Services(settings, assistant, None, threading.RLock())  # type: ignore[arg-type]
+    services = Services(settings, assistant, None, ReadWriteLock())  # type: ignore[arg-type]
     with TestClient(create_app(services, static_dir=None)) as client:
         client.sessions = sessions  # type: ignore[attr-defined]
+        yield client
+
+
+@pytest.fixture()
+def app_client(tmp_path: Path):
+    """Registration switched on and a generous rate limit, so the flows below can run.
+    The defaults (registration off, 5 calls a minute) have their own tests."""
+    with _client(tmp_path, allow_self_registration=True, auth_rate_per_minute=1000) as client:
         yield client
 
 
@@ -126,29 +138,29 @@ def test_user_list_is_partner_only(app_client) -> None:
 
 def test_register_creates_a_signed_in_staff_account_with_no_engagements(app_client) -> None:
     r = app_client.post("/api/v1/auth/register", json={
-        "name": "  Asha   Verma ", "email": "Asha@New.test", "password": "long-enough-1"})
+        "name": "  Asha   Verma ", "email": "Asha@Example-Associates.TEST", "password": "long-enough-1"})
     assert r.status_code == 201
     user = r.json()["user"]
     assert user == {"user_id": "U0001", "name": "Asha Verma", "role": "staff",
-                    "email": "asha@new.test", "engagements": []}
+                    "email": "asha@example-associates.test", "engagements": []}
     assert app_client.get("/api/v1/auth/me", headers=bearer(r.json()["token"])).status_code == 200
     with app_client.sessions() as s:
         row = s.get(User, "U0001")
         assert row.synthetic is False and "long-enough-1" not in row.password_hash
     assert ("U0001", "account_created") in [(a.actor, a.action) for a in audit_rows(app_client)]
     second = app_client.post("/api/v1/auth/register", json={
-        "name": "Second Person", "email": "second@new.test", "password": "long-enough-2"})
+        "name": "Second Person", "email": "second@example-associates.test", "password": "long-enough-2"})
     assert second.json()["user"]["user_id"] == "U0002"
 
 
 def test_register_cannot_choose_a_role_or_reuse_an_email(app_client) -> None:
-    base = {"name": "Eve Example", "email": "eve@new.test", "password": "long-enough-1"}
+    base = {"name": "Eve Example", "email": "eve@example-associates.test", "password": "long-enough-1"}
     assert app_client.post("/api/v1/auth/register", json={**base, "role": "partner"}).status_code == 422
     assert app_client.post("/api/v1/auth/register", json={**base, "password": "short"}).status_code == 422
     assert app_client.post("/api/v1/auth/register", json={**base, "email": "not-an-email"}).status_code == 422
     assert app_client.post("/api/v1/auth/register", json={**base, "email": RIYA}).status_code == 409
     with app_client.sessions() as s:
-        assert s.scalars(select(User).where(User.email == "eve@new.test")).first() is None
+        assert s.scalars(select(User).where(User.email == "eve@example-associates.test")).first() is None
 
 
 # --------------------------------------------------------------------------- password reset
@@ -198,3 +210,68 @@ def test_expired_reset_link_is_refused(app_client, caplog) -> None:
         s.commit()
     r = app_client.post("/api/v1/auth/reset-password", json={"token": token, "password": "brand-new-pass"})
     assert r.status_code == 400 and login(app_client).status_code == 200  # password unchanged
+
+
+# --------------------------------------------------------------------------- M9: defaults and limits
+
+def test_registration_is_off_by_default(tmp_path) -> None:
+    """Covers: R-12-auth (no open registration)."""
+    with _client(tmp_path) as client:
+        assert client.get("/api/v1/auth/config").json() == {"self_registration": False}
+        r = client.post("/api/v1/auth/register", json={
+            "name": "Asha Verma", "email": "asha@example-associates.test", "password": "long-enough-1"})
+        assert r.status_code == 403 and r.json()["detail"] == "Accounts are created by the firm administrator."
+        with client.sessions() as s:
+            assert s.scalars(select(User).where(User.email == "asha@example-associates.test")).first() is None
+
+
+def test_when_registration_is_on_only_the_firm_domain_may_register(app_client) -> None:
+    """Covers: R-12-auth (registration, when enabled, is limited to the firm's domain)."""
+    assert app_client.get("/api/v1/auth/config").json() == {"self_registration": True}
+    r = app_client.post("/api/v1/auth/register", json={
+        "name": "Mallory Outside", "email": "mallory@gmail.example", "password": "long-enough-1"})
+    assert r.status_code == 422 and "@example-associates.test" in r.json()["detail"]
+
+
+def test_sign_in_routes_allow_five_calls_a_minute_per_ip(tmp_path) -> None:
+    """Covers: R-5-serve (sign-in part): HTTP 429 with Retry-After after the limit."""
+    with _client(tmp_path) as client:
+        codes = [login(client, password="wrong-pass").status_code for _ in range(5)]
+        assert codes == [401] * 5
+        sixth = login(client)  # even the right password is refused for now
+        assert sixth.status_code == 429 and int(sixth.headers["Retry-After"]) >= 1
+        assert client.post("/api/v1/auth/forgot-password", json={"email": RIYA}).status_code == 429
+        assert client.get("/api/v1/health").status_code == 200  # other routes are not limited
+
+
+def test_ten_failed_sign_ins_in_fifteen_minutes_lock_the_ip_out(tmp_path) -> None:
+    """Covers: R-5-serve (lockout). Uses a fake clock so the test does not wait."""
+    from app.api.ratelimit import FailureLockout, TokenBucket
+
+    now = [1000.0]
+    with _client(tmp_path) as client:
+        client.app.state.auth_limits = (TokenBucket(1000, clock=lambda: now[0]),
+                                        FailureLockout(10, 15, clock=lambda: now[0]))
+        for _ in range(10):
+            assert login(client, password="wrong-pass").status_code == 401
+            now[0] += 30  # ten failures over five minutes
+        locked = login(client)
+        assert locked.status_code == 429 and "failed sign-in" in locked.json()["detail"]
+        # Failures at t=1000..1270; now t=1300. The first leaves the 900 s window at 1900.
+        assert int(locked.headers["Retry-After"]) == 600
+        actions = [a.action for a in audit_rows(client)]
+        assert "sign_in_locked_out" in actions
+        now[0] += 15 * 60  # the oldest failures leave the window
+        assert login(client).status_code == 200
+
+
+def test_token_bucket_refills_over_time() -> None:
+    from app.api.ratelimit import TokenBucket
+
+    now = [0.0]
+    bucket = TokenBucket(5, clock=lambda: now[0])
+    assert [bucket.take("ip") for _ in range(5)] == [0.0] * 5
+    assert bucket.take("ip") == pytest.approx(12.0)  # one token every 12 s at 5 a minute
+    assert bucket.take("other-ip") == 0.0  # per key
+    now[0] += 12
+    assert bucket.take("ip") == 0.0

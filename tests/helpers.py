@@ -69,8 +69,12 @@ def write_people(root: Path, users: str, engagements: str) -> None:
     (root / "data" / "engagements.csv").write_text(engagements, encoding="utf-8")
 
 
-def make_indexer(root: Path, embedder: HashingEmbedder | None = None) -> Indexer:
-    """Indexer over <root>/data with SQLite + in-memory Qdrant + BM25."""
+def make_indexer(root: Path, embedder: HashingEmbedder | None = None,
+                 synthetic_fallback: bool = False) -> Indexer:
+    """Indexer over <root>/data with SQLite + in-memory Qdrant + BM25.
+
+    With `synthetic_fallback`, the indexer may fall back to data/manifest.synthetic.csv
+    when the licensed ICAI PDFs are absent (as in a clean clone)."""
     data = root / "data"
     engine = make_engine(f"sqlite:///{(data / 'test.db').as_posix()}")
     init_db(engine)
@@ -80,7 +84,8 @@ def make_indexer(root: Path, embedder: HashingEmbedder | None = None) -> Indexer
         users_path=data / "users.csv", engagements_path=data / "engagements.csv",
         tyk_dir=data / "tyk", session_factory=make_session_factory(engine),
         store=QdrantStore(QdrantClient(":memory:"), "chunks", embedder.dim),
-        embedder=embedder, bm25=Bm25Index(), max_tokens=400, overlap_tokens=50)
+        embedder=embedder, bm25=Bm25Index(), max_tokens=400, overlap_tokens=50,
+        synthetic_manifest_path=(data / "manifest.synthetic.csv") if synthetic_fallback else None)
 
 
 def make_searcher(indexer: Indexer, **kwargs) -> HybridSearcher:

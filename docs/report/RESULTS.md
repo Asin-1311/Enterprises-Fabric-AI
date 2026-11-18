@@ -153,6 +153,6 @@ Effort settings: light = low, synth = medium, verify = medium. No sampling param
 
 ## 8. Integrity check
 
-The run's files disagree with each other, so a file was changed after the run. All numbers above come from `metrics.json` and `per_question.csv`, which are unchanged:
+These values in `answers.jsonl` were changed by hand after the run. Each change is documented in `docs/NOTES.md` (M9). All numbers above come from `metrics.json` and `per_question.csv`, which the run wrote and which are unchanged:
 
 - answers.jsonl q001 (full): judge correctness 'correct' but per_question.csv has 'partially_correct'.
