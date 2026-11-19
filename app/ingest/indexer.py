@@ -25,13 +25,12 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
-from qdrant_client import QdrantClient
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import Settings, get_settings
 from app.db.models import Chunk, Document, Engagement, EngagementMember, User
-from app.db.session import init_db, make_engine, make_session_factory, write_audit_log
+from app.db.session import write_audit_log
 from app.ingest.chunker import ChunkingResult, chunk_icai_chapter, chunk_markdown
 from app.ingest.manifest import (
     ManifestRow,
@@ -42,8 +41,8 @@ from app.ingest.manifest import (
 )
 from app.ingest.md_loader import load_markdown
 from app.ingest.pdf_loader import load_icai_pdf
-from app.retrieval.bm25 import Bm25Index
-from app.retrieval.dense import BgeEmbedder, Embedder, QdrantStore, open_qdrant
+from app.ports import KeywordIndex, VectorIndex
+from app.retrieval.dense import BgeEmbedder, Embedder
 
 log = logging.getLogger(__name__)
 
@@ -93,9 +92,9 @@ class Indexer:
         engagements_path: Path,
         tyk_dir: Path,
         session_factory: sessionmaker[Session],
-        store: QdrantStore,
+        store: VectorIndex,
         embedder: Embedder,
-        bm25: Bm25Index,
+        bm25: KeywordIndex,
         max_tokens: int = 400,
         overlap_tokens: int = 50,
         synthetic_manifest_path: Path | None = None,
@@ -211,9 +210,9 @@ class Indexer:
             return doc_id
 
     def rebuild_bm25(self) -> None:
-        """Rebuild the in-memory BM25 index from SQLite chunk text."""
-        with self.sessions() as s:
-            self.bm25.rebuild_from_db(s)
+        """Make the keyword index current: lite rebuilds BM25 from the metadata store's
+        chunk text; OpenSearch (full) makes the writes searchable."""
+        self.bm25.refresh(self.sessions)
 
     # ------------------------------------------------------------------ internal
 
@@ -253,14 +252,16 @@ class Indexer:
             for k, v in meta.items():
                 setattr(doc, k, v)
             self.store.set_document_payload(row.doc_id, self._payload_fields(row))
+            self.bm25.set_document_payload(row.doc_id, self._payload_fields(row))
             write_audit_log(s, actor, "metadata_update", row.doc_id)
             return "metadata"
 
         result = self._chunk(row, file)
         try:
-            # Remove the old version from BOTH stores before inserting the new one.
+            # Remove the old version from EVERY store before inserting the new one.
             s.execute(delete(Chunk).where(Chunk.doc_id == row.doc_id))
             self.store.delete_document(row.doc_id)
+            self.bm25.delete_document(row.doc_id)
 
             s.merge(Document(doc_id=row.doc_id, content_hash=content_hash,
                              indexed_at=datetime.now(timezone.utc), **meta))
@@ -274,6 +275,8 @@ class Indexer:
             vectors = self.embedder.embed_documents([c.text for c in result.chunks])
             base = self._payload_fields(row) | {"superseded": False}  # fixed by _refresh
             self.store.upsert([base | {"chunk_id": c.chunk_id} for c in result.chunks], vectors)
+            self.bm25.upsert_chunks([base | {"chunk_id": c.chunk_id, "text": c.text}
+                                     for c in result.chunks])
             write_audit_log(s, actor, "reindex", f"{row.doc_id} ({len(result.chunks)} chunks)")
         except Exception:
             s.rollback()
@@ -292,6 +295,7 @@ class Indexer:
         s.execute(delete(Chunk).where(Chunk.doc_id == doc_id))
         s.execute(delete(Document).where(Document.doc_id == doc_id))
         self.store.delete_document(doc_id)
+        self.bm25.delete_document(doc_id)
         write_audit_log(s, actor, "remove", doc_id)
         (self.tyk_dir / f"{doc_id}.txt").unlink(missing_ok=True)
 
@@ -302,6 +306,7 @@ class Indexer:
         superseded = {old for _, old in docs if old and old in ids}
         for doc_id in ids:
             self.store.set_document_payload(doc_id, {"superseded": doc_id in superseded})
+            self.bm25.set_document_payload(doc_id, {"superseded": doc_id in superseded})
 
     def _write_tyk(self, doc_id: str, text: str) -> None:
         if text:
@@ -313,34 +318,35 @@ class Indexer:
 
 
 def build_indexer(settings: Settings, embedder: Embedder | None = None,
-                  qdrant_client: QdrantClient | None = None,
-                  bm25: Bm25Index | None = None) -> Indexer:
-    """Create an Indexer wired to the real SQLite file, local Qdrant and BGE model.
+                  store: VectorIndex | None = None, bm25: KeywordIndex | None = None,
+                  sessions: sessionmaker[Session] | None = None) -> Indexer:
+    """Create an Indexer on the active profile's backends (lite: SQLite file, embedded
+    Qdrant, in-memory BM25; full: PostgreSQL, Qdrant server, OpenSearch).
 
-    Pass the searcher's embedder, Qdrant client and BM25 index to share them (the API does
+    Pass the searcher's embedder, indexes and session factory to share them (the API does
     this, so a re-index is immediately visible to searches in the same process)."""
+    from app.adapters import open_keyword_index, open_metadata_store, open_vector_index
     from app.config import PROJECT_ROOT
 
-    settings.data_dir.mkdir(parents=True, exist_ok=True)
-    engine = make_engine(settings.sqlite_url)
-    init_db(engine)
+    if sessions is None:
+        metadata = open_metadata_store(settings)
+        metadata.initialise()
+        sessions = metadata.sessions
     embedder = embedder or BgeEmbedder(settings.embedding_model, settings.embed_batch_size)
-    client = qdrant_client or open_qdrant(settings.qdrant_path)
     return Indexer(
         project_root=PROJECT_ROOT,
         manifest_path=settings.manifest_path,
         users_path=settings.users_path,
         engagements_path=settings.engagements_path,
         tyk_dir=settings.tyk_dir,
-        session_factory=make_session_factory(engine),
-        store=QdrantStore(client, settings.qdrant_collection, embedder.dim),
+        session_factory=sessions,
+        store=store if store is not None else open_vector_index(settings, embedder.dim),
         embedder=embedder,
-        bm25=bm25 if bm25 is not None else Bm25Index(),
+        bm25=bm25 if bm25 is not None else open_keyword_index(settings),
         max_tokens=settings.chunk_max_tokens,
         overlap_tokens=settings.chunk_overlap_tokens,
         synthetic_manifest_path=settings.synthetic_manifest_path,
     )
-
 
 def main(argv: list[str] | None = None) -> int:
     """CLI: full sync of the corpus into all indexes."""

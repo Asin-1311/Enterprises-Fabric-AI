@@ -1328,8 +1328,6 @@ error.
 
 ## M9: Audit fixes and honest baseline (2026-11-18)
 
-The q001label was kept to maintain the evaluation link
-
 Phase 2 started with an independent audit of Phase 1 against the specification (CLAUDE.md
 Appendix A, the Gap Register). M9 fixes the small, urgent findings. Work is on the branch
 `m9-audit-fixes`, made from `phase2`. `main` and the tag `phase1-final` are untouched.
@@ -1353,8 +1351,8 @@ Appendix A, the Gap Register). M9 fixes the small, urgent findings. Work is on t
   finished. The judge's label for question q001 (full system) was changed from
   `partially_correct` to `correct`. Nothing else in that file differs from the run's own
   progress log.
-- **Why:** the author's reason was not recorded at the time. **Author: add one sentence here
-  explaining why you changed it.**
+- **Why:** not recorded at the time of the edit. The author's note, added on 2026-11-18:
+  "The q001 label was kept to maintain the evaluation link."
 - **Effect on the results: none.** Every reported number comes from `metrics.json` and
   `per_question.csv`, which the run wrote and which were never changed; both still say
   `partially_correct`. The full system's correctness of 0.960 counts q001 as 0.5.
@@ -1404,3 +1402,109 @@ Appendix A, the Gap Register). M9 fixes the small, urgent findings. Work is on t
 - `COMPLIANCE.md`: 43 requirements, 2 Met, 28 Partial, 13 Not met.
 - Tests: Python 363 passed, 0 skipped (25 new); frontend 20 passed, type check clean,
   build OK (2026-11-18). `scripts/check_compliance.py --run` passes.
+
+---
+
+## M10: Ports, adapters and the full-stack skeleton (2026-11-19)
+
+Branch `m10-ports-adapters`, made from `phase2` after the M9 merge.
+
+### What was built
+- **Ports (`app/ports/`):** five small interfaces (Python `Protocol`s): `MetadataStore`,
+  `VectorIndex`, `KeywordIndex`, `Cache`, `EventBus`, plus `AccessScope` (who may see what
+  in one search). The indexer, the searcher and the API now depend only on these.
+- **Lite adapters (`app/adapters/lite/`):** the Phase 1 code behind the ports: SQLite
+  (`init_db`, unchanged), embedded Qdrant, `rank_bm25`, plus a new in-memory cache and an
+  in-process event bus. **No behaviour change:** all 363 Phase 1 and M9 tests pass with only
+  the test helper's construction changed.
+- **Full adapters (`app/adapters/full/`):** PostgreSQL 16 with Alembic migrations, the
+  Qdrant server, OpenSearch BM25, Redis and Kafka. Their client libraries are in
+  `requirements-full.txt` and are imported only when the full profile is used.
+- **Profile switch:** `PROFILE=lite|full` in `.env`, read by one factory
+  (`app/adapters/__init__.py`). `PROFILE` stays `lite`, so the app runs exactly as before.
+- **Migrations (`app/db/migrations/`, `alembic.ini`):** one hand-written migration that
+  creates every table, plus the append-only triggers on `audit_log` (PostgreSQL also blocks
+  `TRUNCATE`). SQLite keeps `init_db` (author's decision); a test proves the migration and
+  the models never drift apart.
+- **`deploy/compose.yaml`:** the five servers, with pinned image versions, health checks,
+  memory caps, ports on 127.0.0.1 only, and profiles `core` (PostgreSQL, Qdrant, OpenSearch,
+  Redis), `ingest` (Kafka) and `full` (all).
+- **`scripts/copy_lite_to_full.py`** (author's request): copies the existing index into the
+  full servers without re-embedding. It refuses a target that already holds data, because
+  the audit log cannot be cleaned up row by row.
+
+### Laptop setup (done in this milestone)
+- WSL2 and Docker Desktop were installed (author's choice: Docker Desktop; free for
+  personal, education and small-business use).
+- The Docker VM is capped at 3.5 GB (`%USERPROFILE%\.wslconfig`), because the laptop has
+  7.3 GB of RAM.
+- Measured: the five servers together use about 1.4 GB. OpenSearch alone used ~1 GB at
+  idle, so its cap was raised from 1 GB to 1.25 GB.
+- `.env` gained the full-profile settings and a randomly generated local database password.
+  `.env` is not in git.
+- **Windows pitfall found and fixed:** "localhost" first tries IPv6 (`::1`), but the
+  containers listen on IPv4 only, so every PostgreSQL connection waited minutes for a
+  timeout. All addresses now use `127.0.0.1`, including the address Kafka advertises.
+
+### How the access rule works on the full stack
+The rule is unchanged and is still enforced inside each index, before any scoring:
+- **Qdrant server:** the same payload filter as before.
+- **OpenSearch:** the same rule as a `terms` filter beside the BM25 text query
+  (`access_filter` in `app/adapters/full/keyword.py`).
+- **Defence in depth:** the searcher still re-checks every result against the metadata
+  store's allowed set and `can_see`.
+
+The integration test indexes the synthetic corpus into PostgreSQL, Qdrant and OpenSearch.
+For **every** user it checks that four statements of the rule select exactly the same
+chunks: the SQL allowed set, `can_see`, OpenSearch's filter and Qdrant's filter.
+
+### Results
+- **Default suite (lite):** 375 passed, 0 skipped. That is the 363 from before plus 12 new
+  tests: port contracts (7), migrations (3), copy script (2).
+- **Integration** (`pytest -m integration`, every server up): 7 passed in 34 s:
+  - PostgreSQL migrations match the models;
+  - the audit log refuses UPDATE, DELETE and TRUNCATE;
+  - OpenSearch, Qdrant server, Redis and Kafka each pass their contract;
+  - the synthetic corpus indexes into the full stack, with access agreement for every
+    user;
+  - the copy script runs against the real servers.
+- **Real copy:** 258 documents, 15,705 chunks, 15,705 vectors and 15,705 keyword entries
+  (17,517 metadata rows in 13 tables) in 30 s. The counts were checked directly on each
+  server; PostgreSQL has one extra audit-log row recording the copy.
+- **Smoke check, not a metric:**
+  - Searching three example questions as a staff user gave **identical dense results** on
+    both profiles (same vectors).
+  - Hybrid results differed slightly, because OpenSearch scores BM25 differently from
+    `rank_bm25`.
+  - A proper retrieval comparison on the full profile belongs to M18's evaluation.
+
+### Why it matters
+- **Swap without rewriting:** the specification asks that indexes and providers can be
+  swapped without rewriting the system (spec section 5). The ports are that seam: the
+  agents never import a database client.
+- **Production backends:** PostgreSQL gives a real multi-user database with migrations;
+  OpenSearch and the Qdrant server serve many processes; Kafka is where M12's change events
+  will flow.
+- **Same rules everywhere:** client confidentiality does not depend on which database is
+  used, because every adapter must pass the same access-control contract.
+
+### Likely viva questions
+- *What is a port and an adapter?* A port is the interface the system needs (for example
+  "search chunks this user may see"). An adapter is one way to provide it (rank_bm25 or
+  OpenSearch). The agents call the port; a setting decides the adapter.
+- *How do you know the lite refactor changed nothing?* The 363 existing tests pass, and only
+  the test helper's construction changed. The same contract tests run against both sets of
+  adapters.
+- *Why keep SQLite without Alembic?* So the lite profile is exactly Phase 1. A test builds a
+  database from the migration and compares it with the models, so the two cannot drift.
+- *Why is OpenSearch's security plugin off?* Local development only, bound to 127.0.0.1;
+  declared as a deviation. The Kubernetes deployment in M17 keeps it on.
+- *Why does the copy script refuse a non-empty target?* The audit log is append-only, so a
+  half-finished copy cannot be undone row by row. Starting again means erasing the
+  volumes, which is a deliberate, visible step.
+
+### Status
+- R-6-stack: Not met → Partial (5 of its components run in `full` with integration tests).
+- COMPLIANCE.md: 43 requirements, 2 Met, 29 Partial, 12 Not met.
+- Tests (2026-11-19): default suite 375 passed, 0 skipped; integration 7 passed with every
+  server up; frontend 20 passed, type check clean; `check_compliance.py --run` passes.

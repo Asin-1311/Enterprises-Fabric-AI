@@ -8,6 +8,7 @@ silently using the wrong model.
 
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -43,6 +44,18 @@ class Settings(BaseSettings):
     # --- Local models (sentence-transformers, CPU) -----------------------
     embedding_model: str = "BAAI/bge-small-en-v1.5"
     reranker_model: str = "BAAI/bge-reranker-base"
+
+    # --- Run profile (CLAUDE.md section 2) --------------------------------------
+    # lite: SQLite, embedded Qdrant, rank_bm25, in-process cache and event bus (laptop,
+    #       tests, clean clone). full: the specified servers in deploy/compose.yaml.
+    profile: Literal["lite", "full"] = "lite"
+    # Server addresses for the full profile (no defaults: credentials stay in .env).
+    database_url: str | None = None       # postgresql+psycopg://user:password@host:5432/db
+    qdrant_url: str | None = None         # http://localhost:6333
+    opensearch_url: str | None = None     # http://localhost:9200
+    opensearch_index: str = "chunks"
+    redis_url: str | None = None          # redis://localhost:6379/0
+    kafka_bootstrap: str | None = None    # localhost:9092
 
     # --- Paths -------------------------------------------------------------
     data_dir: Path = PROJECT_ROOT / "data"

@@ -12,7 +12,7 @@ from qdrant_client import QdrantClient
 from app.db.session import init_db, make_engine, make_session_factory
 from app.ingest.indexer import Indexer
 from app.ingest.md_loader import SYNTHETIC_BANNER
-from app.retrieval.bm25 import Bm25Index
+from app.adapters.lite.keyword import RankBm25Index
 from app.retrieval.dense import QdrantStore
 from app.retrieval.hybrid import HybridSearcher
 
@@ -84,7 +84,7 @@ def make_indexer(root: Path, embedder: HashingEmbedder | None = None,
         users_path=data / "users.csv", engagements_path=data / "engagements.csv",
         tyk_dir=data / "tyk", session_factory=make_session_factory(engine),
         store=QdrantStore(QdrantClient(":memory:"), "chunks", embedder.dim),
-        embedder=embedder, bm25=Bm25Index(), max_tokens=400, overlap_tokens=50,
+        embedder=embedder, bm25=RankBm25Index(), max_tokens=400, overlap_tokens=50,
         synthetic_manifest_path=(data / "manifest.synthetic.csv") if synthetic_fallback else None)
 
 

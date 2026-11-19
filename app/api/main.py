@@ -116,8 +116,9 @@ def build_services(settings: Settings) -> Services:
 
     assistant = build_assistant(settings)
     searcher = assistant.deps.searcher
-    indexer = build_indexer(settings, embedder=searcher.embedder,
-                            qdrant_client=searcher.store.client, bm25=searcher.bm25)
+    # Share the searcher's backends, so a re-index is visible to the next search.
+    indexer = build_indexer(settings, embedder=searcher.embedder, store=searcher.store,
+                            bm25=searcher.bm25, sessions=searcher.sessions)
     lock = ReadWriteLock()
     indexer.lock = lock.writer  # index writes run alone; questions share the read side
     stop: Callable[[], None] = lambda: None
