@@ -45,6 +45,11 @@ class Settings(BaseSettings):
     # --- Local models (sentence-transformers, CPU) -----------------------
     embedding_model: str = "BAAI/bge-small-en-v1.5"
     reranker_model: str = "BAAI/bge-reranker-base"
+    # M14b: the NLI model that gives verification its second opinion (author's choice).
+    # Empty: no NLI (claims are checked by the LLM verifier only).
+    nli_model: str = "cross-encoder/nli-deberta-v3-xsmall"
+    nli_entailment_threshold: float = 0.5
+    nli_contradiction_threshold: float = 0.5
 
     # --- Run profile (CLAUDE.md section 2) --------------------------------------
     # lite: SQLite, embedded Qdrant, rank_bm25, in-process cache and event bus (laptop,

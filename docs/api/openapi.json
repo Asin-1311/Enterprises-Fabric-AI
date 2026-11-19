@@ -233,6 +233,14 @@
             ],
             "title": "Confidence"
           },
+          "flagged_claims": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Flagged Claims",
+            "type": "array"
+          },
           "injection_flagged_chunks": {
             "title": "Injection Flagged Chunks",
             "type": "integer"
@@ -1927,7 +1935,7 @@
                 }
               }
             },
-            "description": "Server-Sent Events: `progress` (agent steps), `token` (the verified answer in pieces), then `final` (a FinalPayload as JSON) or `error` (generic message and a reference)."
+            "description": "Server-Sent Events: `progress` (agent steps), `draft_token` (the draft as it is written), `claim_verdict` (one per claim), `token` (the verified answer in pieces), then `final` (a FinalPayload as JSON) or `error` (generic message and a reference)."
           },
           "422": {
             "content": {
