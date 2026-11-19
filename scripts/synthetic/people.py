@@ -9,7 +9,13 @@ USERS: list[tuple[str, str, str]] = [
     ("M02", "Neha Kulkarni", "manager"),
     ("P01", "Vikram Sethi", "partner"),
     ("P02", "Anjali Bose", "partner"),
+    # M11: the firm's IT administrator. Role STAFF on purpose: the admin flag lets them
+    # manage sources and the admin console, but gives NO extra document access.
+    ("A01", "Kiran Rao", "staff"),
 ]
+
+# Users with the admin capability flag (CLAUDE.md section 5: grants no document access).
+ADMINS = {"A01"}
 
 # Sign-in emails (added 2026-11-14). ".test" is a reserved top-level domain, so these
 # addresses can never belong to anyone.

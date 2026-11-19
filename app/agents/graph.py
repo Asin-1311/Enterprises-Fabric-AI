@@ -25,6 +25,7 @@ Smoke-test from the project root (makes real LLM calls, a few cents):
 
 import argparse
 import logging
+import threading
 import time
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
@@ -37,7 +38,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.agents.llm import LLM, LLMCaller, LLMResult
 from app.agents.query import ClientMatcher, QueryAnalysis, understand
 from app.agents.reranker import Ranked, compress_evidence, rerank
-from app.agents.retriever import merge, reformulate, retrieve
+from app.agents.retriever import RetrievalOutcome, merge, reformulate, retrieve
 from app.agents.router import RoutingDecision, route
 from app.agents.synthesizer import (
     JUDGEMENT_NOTE,
@@ -47,11 +48,14 @@ from app.agents.synthesizer import (
     synthesize,
 )
 from app.agents.tracing import Tracer
+from app.agents.versions import ensure_active_versions
 from app.agents.verifier import Verification, verify
 from app.config import Settings, get_settings
-from app.db.models import Answer, Citation, Document, Query
+from app.db.models import Answer, Citation, Document, Query, Retrieval
+from app.ingest.indexer import folder_source_id
 from app.retrieval.acl import UserContext, can_see, load_user
 from app.retrieval.compress import CompressedChunk
+from app.retrieval.spans import supporting_span
 from app.retrieval.hybrid import HybridSearcher, RetrievedChunk, build_searcher
 from app.retrieval.rerank import CrossEncoderReranker, Reranker
 from app.security.injection import scan as scan_for_injection
@@ -130,6 +134,9 @@ class CitationInfo:
     page_start: int | None
     page_end: int | None
     superseded: bool
+    # Character range of the supporting sentences in the chunk's text (M11), or None.
+    span_start: int | None = None
+    span_end: int | None = None
 
 
 @dataclass
@@ -164,6 +171,9 @@ class AuditAssistant:
     def __init__(self, deps: AgentDeps) -> None:
         self.deps = deps
         self.graph = self._build()
+        # Looking up (and, the first time, recording) the active versions writes rows, so
+        # two questions arriving together must not both try to create version 1.
+        self._versions_lock = threading.Lock()
 
     # ------------------------------------------------------------------- nodes
 
@@ -204,8 +214,21 @@ class AuditAssistant:
                             {"chunk_ids": [c.chunk_id for c in outcome.candidates],
                              "scores": score_records(outcome.candidates),
                              "injection_hits": outcome.injection_hits}, latency_ms=ms)
+        self._save_retrievals(state, outcome, state["routing"].source_types)
         return {"candidates": outcome.candidates, "injection_hits": outcome.injection_hits,
                 "followup_done": False}
+
+    def _save_retrievals(self, state: GraphState, outcome: RetrievalOutcome,
+                         source_types: list[str] | None) -> None:
+        """One `retrievals` row per sub-query and method, plus the fused list (M11).
+        The sub-query text is masked like every stored question."""
+        source_id = folder_source_id(source_types[0]) if source_types and len(source_types) == 1 \
+            else None
+        with self.deps.sessions() as s:
+            s.add_all(Retrieval(query_id=state["tracer"].query_id, sub_query=mask_text(step["sub_query"]),
+                                source_id=source_id, method=step["method"], scores=step["scores"])
+                      for step in outcome.steps)
+            s.commit()
 
     def _rerank(self, state: GraphState) -> GraphState:
         _emit(state, "reranking", candidates=len(state["candidates"]))
@@ -233,6 +256,7 @@ class AuditAssistant:
                             {"new_chunks": len(merged) - len(state["candidates"]),
                              "scores": score_records(outcome.candidates),
                              "injection_hits": outcome.injection_hits}, [res])
+        self._save_retrievals(state, outcome, None)
         return {"candidates": merged, "injection_hits": hits, "followup_done": True}
 
     def _compress(self, state: GraphState) -> GraphState:
@@ -285,6 +309,7 @@ class AuditAssistant:
                             {"new_chunks": len(merged) - len(state["candidates"]),
                              "scores": score_records(outcome.candidates),
                              "injection_hits": outcome.injection_hits}, [res])
+        self._save_retrievals(state, outcome, None)
         return {"candidates": merged, "verify_retry_done": True, "followup_done": True,
                 "injection_hits": {**state.get("injection_hits", {}), **outcome.injection_hits}}
 
@@ -386,31 +411,40 @@ class AuditAssistant:
     def ask(self, question: str, user_id: str, on_event: EventCallback | None = None,
             on_token: Callable[[str], None] | None = None) -> AnswerResult:
         """Answer `question` for `user_id`; stores query, traces, answer and citations."""
+        with self._versions_lock:
+            versions = ensure_active_versions(self.deps.sessions)
         with self.deps.sessions() as s:
             user = load_user(s, user_id)
-            q = Query(user_id=user_id, text=mask_text(question))
+            q = Query(user_id=user_id, text=mask_text(question),
+                      injection_hits=scan_for_injection(question))
             s.add(q)
             s.commit()
             query_id = q.id
         state: GraphState = self.graph.invoke({
-            "question": question, "user": user, "tracer": Tracer(self.deps.sessions, query_id),
+            "question": question, "user": user,
+            "tracer": Tracer(self.deps.sessions, query_id, versions),
             "on_event": on_event, "on_token": on_token})
 
         synthesis = state.get("synthesis")
         v: Verification | None = state.get("verification")
         chunks = {r.chunk.chunk_id: r.chunk for r in state.get("ranked", [])}
         cited = v.cited_ids if v is not None and state["status"] == "answered" else []
-        citations = [CitationInfo(cid, chunks[cid].doc_id, chunks[cid].title, chunks[cid].section,
-                                  chunks[cid].section_title, chunks[cid].page_start,
-                                  chunks[cid].page_end, chunks[cid].superseded)
-                     for cid in cited if cid in chunks]
+        evidence = {e.chunk_id: e.sentences for e in state.get("evidence", [])}
+        citations = []
+        for cid in (c for c in cited if c in chunks):
+            span = supporting_span(chunks[cid].text, evidence.get(cid, []))
+            citations.append(CitationInfo(
+                cid, chunks[cid].doc_id, chunks[cid].title, chunks[cid].section,
+                chunks[cid].section_title, chunks[cid].page_start, chunks[cid].page_end,
+                chunks[cid].superseded, *(span or (None, None))))
         confidence = state.get("confidence")
         with self.deps.sessions() as s:
             answer = Answer(query_id=query_id, text=state["answer"], confidence=confidence,
                             status=state["status"])
             s.add(answer)
             s.flush()
-            s.add_all(Citation(answer_id=answer.id, chunk_id=c.chunk_id) for c in citations)
+            s.add_all(Citation(answer_id=answer.id, chunk_id=c.chunk_id, span_start=c.span_start,
+                               span_end=c.span_end) for c in citations)
             s.get(Query, query_id).intent = state["analysis"].intent
             s.commit()
             answer_id = answer.id

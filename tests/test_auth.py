@@ -84,7 +84,7 @@ def test_demo_users_get_the_demo_password_at_startup(app_client) -> None:
     assert r.status_code == 200
     body = r.json()
     assert body["user"] == {"user_id": "S01", "name": "Riya Kapoor", "role": "staff",
-                            "email": RIYA, "engagements": []}
+                            "email": RIYA, "engagements": [], "is_admin": False}
     assert app_client.get("/api/v1/auth/me", headers=bearer(body["token"])).json()["user_id"] == "S01"
     with app_client.sessions() as s:
         assert s.get(User, "X01").password_hash is None  # no email: nothing to sign in with
@@ -142,7 +142,8 @@ def test_register_creates_a_signed_in_staff_account_with_no_engagements(app_clie
     assert r.status_code == 201
     user = r.json()["user"]
     assert user == {"user_id": "U0001", "name": "Asha Verma", "role": "staff",
-                    "email": "asha@example-associates.test", "engagements": []}
+                    "email": "asha@example-associates.test", "engagements": [],
+                    "is_admin": False}  # a self-registered account is never an admin
     assert app_client.get("/api/v1/auth/me", headers=bearer(r.json()["token"])).status_code == 200
     with app_client.sessions() as s:
         row = s.get(User, "U0001")
