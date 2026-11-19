@@ -21,13 +21,26 @@ All documents
 - Each chunk's text starts with a one-line heading path (document > section > sub-section)
   so both BM25 and the embedding model see the context.
 - `sa_refs` lists every "SA nnn" mentioned in the chunk text.
+
+Chunk ids (M12b) are stable: `<doc_id>:<section key>:<window>`, e.g. "STD-CH06:1.1:1".
+- The section key is the section number ("1.1", "2", "0" for a chapter introduction).
+  A section without a number (a document lead, an FAQ question "Q:") gets "h-" or "q-"
+  plus six hex digits of its heading, e.g. "FAQ-01:q-3f9a2c:1".
+- A key that repeats within one document gets "-2", "-3", ... in order of appearance.
+- Windows are numbered from 1 within their section.
+So editing or inserting one section leaves the ids of every other section unchanged, and
+the indexer can re-embed only the chunks whose text changed (CLAUDE.md section 6).
+Each chunk also carries a SHA-256 of its text and the chunking profile that made it
+(app/ingest/chunking_profiles.py).
 """
 
 import bisect
+import hashlib
 import re
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 
+from app.ingest.chunking_profiles import ChunkingProfile, profile_for
 from app.ingest.md_loader import MdSection
 
 TokenCounter = Callable[[str], int]
@@ -68,6 +81,13 @@ class Chunk:
     page_start: int | None
     page_end: int | None
     sa_refs: list[str] = field(default_factory=list)
+    content_hash: str = ""       # SHA-256 of `text`: an unchanged hash needs no re-embedding
+    chunking_profile: str = ""   # e.g. "faq@1:400/50"
+
+
+def text_hash(text: str) -> str:
+    """SHA-256 of a chunk's text (what the embedding is computed from)."""
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 @dataclass
@@ -118,13 +138,23 @@ class _ChunkBuilder:
     """Packs units into token-capped windows and emits Chunk objects."""
 
     def __init__(self, doc_id: str, chapter: int | None, count: TokenCounter,
-                 max_tokens: int, overlap_tokens: int) -> None:
-        self.doc_id, self.chapter, self.count = doc_id, chapter, count
-        self.max_tokens, self.overlap_tokens = max_tokens, overlap_tokens
+                 profile: ChunkingProfile) -> None:
+        self.doc_id, self.chapter, self.count, self.profile = doc_id, chapter, count, profile
+        self.max_tokens, self.overlap_tokens = profile.max_tokens, profile.overlap_tokens
         self.chunks: list[Chunk] = []
+        self.by_id: dict[str, Chunk] = {}
+        self._key_uses: dict[str, int] = {}
 
-    def _next_id(self) -> str:
-        return f"{self.doc_id}:{len(self.chunks) + 1:04d}"
+    def section_key(self, section: str, heading: str) -> str:
+        """The stable key of one section (see the module docstring)."""
+        if section and section != "Q":
+            base = section
+        else:
+            digest = hashlib.sha256(" ".join(heading.split()).encode("utf-8")).hexdigest()[:6]
+            base = f"{'q' if section == 'Q' else 'h'}-{digest}"
+        uses = self._key_uses.get(base, 0) + 1
+        self._key_uses[base] = uses
+        return base if uses == 1 else f"{base}-{uses}"
 
     def _tokens(self, lines: Sequence[Line]) -> int:
         return self.count("\n".join(ln.text for ln in lines)) if lines else 0
@@ -186,30 +216,34 @@ class _ChunkBuilder:
             result.append(cur)
         return result
 
-    def emit(self, *, header: str, body_lines: list[Line], parent_id: str | None,
-             section: str, section_title: str, page_hint: int | None = None) -> str:
+    def emit(self, *, chunk_id: str, header: str, body_lines: list[Line],
+             parent_id: str | None, section: str, section_title: str,
+             page_hint: int | None = None) -> str:
         """Create one chunk; return its id. `page_hint` is used when the body is empty."""
         text = "\n".join([header, *(ln.text for ln in body_lines)]).strip()
         start, end = _pages(body_lines)
         if start is None:
             start = end = page_hint
         chunk = Chunk(
-            chunk_id=self._next_id(), doc_id=self.doc_id, parent_id=parent_id, text=text,
+            chunk_id=chunk_id, doc_id=self.doc_id, parent_id=parent_id, text=text,
             token_count=self.count(text), section=section, section_title=section_title,
             chapter=self.chapter, page_start=start, page_end=end, sa_refs=extract_sa_refs(text),
+            content_hash=text_hash(text), chunking_profile=self.profile.ref,
         )
         self.chunks.append(chunk)
-        return chunk.chunk_id
+        self.by_id[chunk_id] = chunk
+        return chunk_id
 
     def emit_section(self, *, header: str, units: list[_Unit], parent_id: str | None,
                      section: str, section_title: str, page_hint: int | None = None) -> list[str]:
         """Window a section's units and emit one chunk per window."""
+        key = self.section_key(section, section_title or header)
         budget = max(self.max_tokens - self.count(header), self.overlap_tokens * 2)
         ids = []
-        for window in self.windows(units, budget) or [[]]:
-            ids.append(self.emit(header=header, body_lines=window, parent_id=parent_id,
-                                 section=section, section_title=section_title,
-                                 page_hint=page_hint))
+        for n, window in enumerate(self.windows(units, budget) or [[]], start=1):
+            ids.append(self.emit(chunk_id=f"{self.doc_id}:{key}:{n}", header=header,
+                                 body_lines=window, parent_id=parent_id, section=section,
+                                 section_title=section_title, page_hint=page_hint))
         return ids
 
 
@@ -312,11 +346,14 @@ def chunk_icai_chapter(
     count_tokens: TokenCounter,
     max_tokens: int = 400,
     overlap_tokens: int = 50,
+    profile: ChunkingProfile | None = None,
 ) -> ChunkingResult:
-    """Chunk a cleaned ICAI chapter given as (page_number, text) pairs."""
+    """Chunk a cleaned ICAI chapter given as (page_number, text) pairs. `profile` (default:
+    the standards profile with these sizes) sets the window sizes and is recorded."""
     lines = [Line(t, page) for page, text in pages for t in text.splitlines() if t.strip()]
     sections, tyk = _parse_chapter(lines)
-    b = _ChunkBuilder(doc_id, chapter, count_tokens, max_tokens, overlap_tokens)
+    b = _ChunkBuilder(doc_id, chapter, count_tokens,
+                      profile or profile_for("standards", max_tokens, overlap_tokens))
 
     for top in sections:
         if not top.lines and not top.children:
@@ -330,14 +367,14 @@ def chunk_icai_chapter(
                                   page_hint=top.page)
         parent_id = lead_ids[0]
         for extra in lead_ids[1:]:  # long lead text: later windows are children
-            b.chunks[int(extra.rsplit(":", 1)[1]) - 1].parent_id = parent_id
+            b.by_id[extra].parent_id = parent_id
         first_child = len(b.chunks)
         for child in top.children:
             b.emit_section(header=f"{header} > {child.number} {child.title}",
                            units=_line_units(child.lines), parent_id=parent_id,
                            section=child.number, section_title=child.title,
                            page_hint=child.page)
-        parent = b.chunks[int(parent_id.rsplit(":", 1)[1]) - 1]
+        parent = b.by_id[parent_id]
         if parent.page_start is None:  # outline-only parent: span its sub-sections
             child_pages = [p for c in b.chunks[first_child:] for p in (c.page_start, c.page_end)
                            if p is not None]
@@ -383,9 +420,13 @@ def chunk_markdown(
     count_tokens: TokenCounter,
     max_tokens: int = 400,
     overlap_tokens: int = 50,
+    profile: ChunkingProfile | None = None,
 ) -> ChunkingResult:
-    """Chunk a synthetic Markdown document that has been split into sections."""
-    b = _ChunkBuilder(doc_id, None, count_tokens, max_tokens, overlap_tokens)
+    """Chunk a synthetic Markdown document that has been split into sections. `profile`
+    (default: the source type's profile with these sizes) sets the window sizes and the
+    keep-whole heading level, and is recorded on every chunk."""
+    profile = profile or profile_for(source_type, max_tokens, overlap_tokens)
+    b = _ChunkBuilder(doc_id, None, count_tokens, profile)
     doc_header_id: str | None = None
     parent_id: str | None = None
     parent_header = doc_title
@@ -401,8 +442,7 @@ def chunk_markdown(
             parent_header = doc_title
             continue
 
-        whole = (source_type == "checklists" and sec.level == 2) or \
-                (source_type == "faq" and sec.level == 3)
+        whole = profile.whole_level == sec.level
         if sec.level == 2:
             header = f"{doc_title} > {sec.heading}"
             children = []

@@ -9,7 +9,36 @@ USERS: list[tuple[str, str, str]] = [
     ("M02", "Neha Kulkarni", "manager"),
     ("P01", "Vikram Sethi", "partner"),
     ("P02", "Anjali Bose", "partner"),
+    # M11: the firm's IT administrator. Role STAFF on purpose: the admin flag lets them
+    # manage sources and the admin console, but gives NO extra document access.
+    ("A01", "Kiran Rao", "staff"),
 ]
+
+# Users with the admin capability flag (CLAUDE.md section 5: grants no document access).
+ADMINS = {"A01"}
+
+# Who is responsible for each kind of firm document (SYNTHETIC assignment, M12a). Engagement
+# files belong to their engagement partner; ICAI study material has no firm owner.
+OWNER_BY_SOURCE_TYPE = {"firm_policy": "P02", "circulars": "P02", "checklists": "M01",
+                        "templates": "M01", "calendar": "M02", "faq": "M02"}
+
+
+def governance(row: dict[str, str]) -> dict[str, str]:
+    """source_id, owner and classification for one manifest row (CLAUDE.md section 5).
+
+    - source_id: the corpus folder's registered source.
+    - owner: the engagement partner for engagement files, else the role above.
+    - classification: engagement files and anything above staff level are confidential;
+      the rest is internal. Nothing is "restricted" yet: that, and sending restricted text
+      only to the private model, is decided in M13.
+    """
+    source_type = row["source_type"]
+    partner = {e[0]: e[4] for e in ENGAGEMENTS}
+    owner = partner.get(row["engagement_id"], "") if source_type == "engagement" \
+        else OWNER_BY_SOURCE_TYPE.get(source_type, "")
+    confidential = source_type == "engagement" or row["access_level"] in ("manager", "partner")
+    return {"source_id": f"fs-{source_type}", "owner": owner,
+            "classification": "confidential" if confidential else "public_internal"}
 
 # Sign-in emails (added 2026-11-14). ".test" is a reserved top-level domain, so these
 # addresses can never belong to anyone.

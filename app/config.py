@@ -6,8 +6,10 @@ model IDs have no defaults, so a missing `.env` fails loudly instead of
 silently using the wrong model.
 """
 
+import os
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -44,10 +46,24 @@ class Settings(BaseSettings):
     embedding_model: str = "BAAI/bge-small-en-v1.5"
     reranker_model: str = "BAAI/bge-reranker-base"
 
+    # --- Run profile (CLAUDE.md section 2) --------------------------------------
+    # lite: SQLite, embedded Qdrant, rank_bm25, in-process cache and event bus (laptop,
+    #       tests, clean clone). full: the specified servers in deploy/compose.yaml.
+    profile: Literal["lite", "full"] = "lite"
+    # Server addresses for the full profile (no defaults: credentials stay in .env).
+    database_url: str | None = None       # postgresql+psycopg://user:password@host:5432/db
+    qdrant_url: str | None = None         # http://localhost:6333
+    opensearch_url: str | None = None     # http://localhost:9200
+    opensearch_index: str = "chunks"
+    redis_url: str | None = None          # redis://localhost:6379/0
+    kafka_bootstrap: str | None = None    # localhost:9092
+
     # --- Paths -------------------------------------------------------------
     data_dir: Path = PROJECT_ROOT / "data"
     corpus_dir: Path = PROJECT_ROOT / "data" / "corpus"
     manifest_path: Path = PROJECT_ROOT / "data" / "manifest.csv"
+    # The committed synthetic documents only; used when the ICAI PDFs are absent (clean clone).
+    synthetic_manifest_path: Path = PROJECT_ROOT / "data" / "manifest.synthetic.csv"
     users_path: Path = PROJECT_ROOT / "data" / "users.csv"
     engagements_path: Path = PROJECT_ROOT / "data" / "engagements.csv"
     qdrant_path: Path = PROJECT_ROOT / "data" / "qdrant"
@@ -62,6 +78,19 @@ class Settings(BaseSettings):
     embed_batch_size: int = 32
     watcher_debounce_seconds: float = 1.5
     api_watch_corpus: bool = True  # the API process also runs the folder watcher
+    # The API process also runs the ingestion worker (M12a). Right for lite (in-process
+    # event bus). In the full profile the worker usually runs as its own process
+    # (python -m app.ingest.worker), so set API_RUN_WORKER=false there.
+    api_run_worker: bool = True
+    # Push connectors (the webhook) store received content here for the worker.
+    landing_dir: Path = PROJECT_ROOT / "data" / "landing"
+    # Polling connectors (M12c: git, s3, confluence, jira, sharepoint): how often each active
+    # source is checked, and whether the API process runs the poller (lite). In the full
+    # profile it usually runs as its own process: python -m app.connectors.runner
+    connector_poll_seconds: float = 30.0
+    api_run_connectors: bool = True
+    # Working copies kept by connectors (the git connector's local mirror); git-ignored.
+    connectors_dir: Path = PROJECT_ROOT / "data" / "connectors"
 
     # --- Chunking -----------------------------------------------------------
     chunk_max_tokens: int = 400
@@ -90,6 +119,15 @@ class Settings(BaseSettings):
     demo_password: str | None = None
     session_hours: float = 8.0  # a sign-in token is valid this long
     reset_link_minutes: float = 15.0  # a password-reset link is valid this long
+    # Open self-registration is OFF by default (audit finding). When switched on, only
+    # addresses at the firm's (synthetic) domain may register.
+    allow_self_registration: bool = False
+    self_registration_domain: str = "example-associates.test"
+    # Sign-in protection, per client IP (CLAUDE.md section 10): calls per minute to the
+    # /auth/* routes, and a lockout after repeated failed sign-ins.
+    auth_rate_per_minute: float = 5.0
+    auth_lockout_failures: int = 10
+    auth_lockout_minutes: float = 15.0
 
     @model_validator(mode="after")
     def _check_llm_settings(self) -> "Settings":
@@ -114,3 +152,21 @@ class Settings(BaseSettings):
 def get_settings() -> Settings:
     """Return the cached settings object (read `.env` once per process)."""
     return Settings()
+
+
+@lru_cache
+def _dotenv_values() -> dict[str, str | None]:
+    from dotenv import dotenv_values
+
+    path = PROJECT_ROOT / ".env"
+    return dict(dotenv_values(path)) if path.is_file() else {}
+
+
+def env_reference(ref: object) -> str | None:
+    """The value behind an "env:NAME" reference (how connector and webhook settings point at
+    secrets): the process environment first, then the `.env` file. None if `ref` is not a
+    reference or the name is not set. Read once per process, like the settings."""
+    if not (isinstance(ref, str) and ref.startswith("env:")):
+        return None
+    name = ref.removeprefix("env:")
+    return os.environ.get(name) or _dotenv_values().get(name) or None

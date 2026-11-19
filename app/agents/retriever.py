@@ -7,7 +7,7 @@
   (the decision is taken after re-ranking, see graph.py).
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from app.agents.llm import LLMCaller, LLMResult
 from app.retrieval.acl import UserContext
@@ -33,15 +33,17 @@ REFORMULATE_SYSTEM = (
 class RetrievalOutcome:
     candidates: list[RetrievedChunk]
     injection_hits: dict[str, list[str]]  # chunk_id -> pattern names
+    steps: list[dict] = field(default_factory=list)  # for the `retrievals` table
 
 
 def retrieve(searcher: HybridSearcher, queries: list[str], user: UserContext, *,
              source_types: list[str] | None, time_sensitive: bool, limit: int) -> RetrievalOutcome:
     """Run hybrid search and scan the results for injection attempts."""
+    steps: list[dict] = []
     hits = searcher.search(queries, user, source_types=source_types or None,
-                           time_sensitive=time_sensitive, limit=limit)
+                           time_sensitive=time_sensitive, limit=limit, record=steps)
     flagged = {h.chunk_id: found for h in hits if (found := scan(h.text))}
-    return RetrievalOutcome(hits, flagged)
+    return RetrievalOutcome(hits, flagged, steps)
 
 
 def reformulate(question: str, llm: LLMCaller) -> tuple[list[str], LLMResult]:

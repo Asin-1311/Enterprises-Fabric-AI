@@ -1057,7 +1057,8 @@ Correctness by category:
 - Integrity: after the run, `answers.jsonl` was edited for q001 (full): the judge label was
   changed from partially_correct to correct. `metrics.json` and `per_question.csv` are
   unchanged, and every reported number comes from them. `scripts/make_report.py` flags
-  this difference on every run.
+  this difference on every run. (Explained, and handled as a documented edit, in the
+  M9 section.)
 - Run-to-run variance: not measured. A second run would cost about another $5–6.
 - Tests: 317 passed, 0 skipped (2026-11-13). This includes the real-index ACL sweep over
   the 15,705-chunk index and the new crash-recovery test for resumable runs.
@@ -1320,3 +1321,651 @@ error.
   traces already hold every agent's output (masked) for auditability, so History reads
   the same records an auditor would. Adding a second copy would risk the two
   disagreeing.
+
+---
+
+# Phase 2
+
+## M9: Audit fixes and honest baseline (2026-11-18)
+
+Phase 2 started with an independent audit of Phase 1 against the specification (CLAUDE.md
+Appendix A, the Gap Register). M9 fixes the small, urgent findings. Work is on the branch
+`m9-audit-fixes`, made from `phase2`. `main` and the tag `phase1-final` are untouched.
+
+### What was built
+| Finding | What changed | Proved by |
+|---|---|---|
+| Not runnable from a clean clone (R-ops-clone) | New `data/manifest.synthetic.csv` (the 40 committed synthetic documents). When `data/corpus/standards/` has no PDFs, the indexer uses it and logs a clear warning instead of refusing the whole sync. `make_synthetic_docs.py` writes both manifests. The manifest test that failed in a clean clone now checks the synthetic manifest; the full one is checked only when the PDFs are present. | `tests/test_clean_clone.py`, `tests/test_synthetic_corpus.py` |
+| Global query lock (R-5-par) | `app/concurrency.py`: a readers-writer lock. Questions share the read side, so any number run together. Re-index and watcher updates take the write side, so they wait for running questions and run alone. Embedded Qdrant's search call keeps a tiny per-call lock (milliseconds), because local mode is not documented as safe for simultaneous searches. | `tests/test_concurrency.py`, `tests/test_api.py::test_two_questions_are_answered_at_the_same_time` |
+| Open registration, no sign-in limits (R-12-auth, R-5-serve) | `ALLOW_SELF_REGISTRATION=false` by default; when on, only `@example-associates.test` addresses. `app/api/ratelimit.py`: 5 calls a minute per IP on `/auth/*`, and a lockout after 10 failed sign-ins in 15 minutes. Both answer 429 with `Retry-After`. The sign-in screen asks `GET /auth/config`; with registration off, "Create account" says "Accounts are created by the firm administrator." | `tests/test_auth.py` (5 new tests), `frontend/src/App.test.tsx` |
+| User questions not scanned (R-12-scan) | The question goes through `app/security/injection.py` in the query-understanding step; hits are stored in that trace row and logged with the query id. | `tests/test_agents.py::test_injection_in_the_users_question_is_logged` |
+| `/metrics/quality` returned any latest file (R-10-metrics) | Only `retrieval` and `answers` runs; optional `from`/`to` window; calibration and known-invalid runs left out. The run-folder rules live in `app/quality_runs.py`, shared with the report generator. | `tests/test_api.py::test_metrics_quality_reads_saved_quality_runs_in_a_window` |
+| Error details sent to clients | Stream errors and unexpected 500s now say "Something went wrong..." with a short reference; the details are logged under that reference. | `tests/test_api.py::test_errors_shown_to_clients_are_generic_with_a_reference`, `::test_unhandled_route_errors_are_generic` |
+| Score adjustments not recorded (R-8-record) | Each search result carries its named multipliers (`superseded`, `recency`). Every retrieval trace stores, per chunk, the fused score, each retriever's rank, every multiplier and the final score. | `tests/test_agents.py::test_retrieval_trace_records_every_score_multiplier` |
+| Edited evaluation output (R-ops-integrity) | See "The q001 edit" below. `make_report.py` now **refuses** a run whose files disagree, unless the difference is a documented known edit. | `tests/test_make_report.py` (2 new tests) |
+| No requirement-level status | `docs/report/COMPLIANCE.md`: one row per Gap Register requirement. `scripts/check_compliance.py` fails if a Met row has no test that names its ID, if that test is skipped, or if the summary is stale (`--run` also runs the Met tests). | `tests/test_check_compliance.py` |
+
+### The q001 edit (explained, as the audit asked)
+- **What happened:** in the answer evaluation run `eval/results/20261113-101102_answers/`,
+  the file `answers.jsonl` was changed by hand on 14 November 2026, after the run had
+  finished. The judge's label for question q001 (full system) was changed from
+  `partially_correct` to `correct`. Nothing else in that file differs from the run's own
+  progress log.
+- **Why:** not recorded at the time of the edit. The author's note, added on 2026-11-18:
+  "The q001 label was kept to maintain the evaluation link."
+- **Effect on the results: none.** Every reported number comes from `metrics.json` and
+  `per_question.csv`, which the run wrote and which were never changed; both still say
+  `partially_correct`. The full system's correctness of 0.960 counts q001 as 0.5.
+- **How it is handled (author's decision, 2026-11-18):** the file is kept as it is, because
+  results are never edited again, not even to undo an edit. The difference is listed
+  in `KNOWN_EDITS` in `app/quality_runs.py` with the exact before and after values. The
+  report builds from the untouched files and prints the edit in its integrity section.
+  Any other difference, or a different value for q001, makes `make_report.py` refuse the
+  run.
+- `docs/report/RESULTS.md` was regenerated. Only its integrity paragraph changed; every
+  number is identical.
+
+### Why these matter for an audit firm
+- **Concurrency:** with one global lock, a partner waited behind every article assistant's
+  40-second question. Busy periods such as the bank audit season need many people asking at
+  once. The access rules are unchanged: concurrency touches only how requests share the
+  indexes.
+- **Sign-in limits and closed registration:** an open sign-up form on a confidential
+  knowledge base is an invitation. Accounts in a firm are created by the firm, and password
+  guessing must be slowed down.
+- **Injection in the question:** a user may paste text from a client email that contains
+  instructions. Logging it makes such attempts visible to the firm.
+- **Recorded multipliers and the integrity gate:** working papers must show how a
+  conclusion was reached (the evidence-and-documentation mindset of SA 230). The same applies
+  to the system: every ranking adjustment and every evaluation number must be traceable.
+
+### Likely viva questions
+- *Why a readers-writer lock and not no lock at all?* Answering a question only reads the
+  indexes, and reads can safely overlap. A re-index changes the indexes, so a question must
+  never see half of it. The write side waits for running questions and blocks new ones until
+  it is done ("writer preference"), so re-indexing cannot be postponed for ever.
+- *Why not just delete the edited q001 value?* Because results are never edited, not even to
+  undo an edit. The honest fix is to document it and use only the untouched files. A new run
+  in M18 will supersede this one.
+- *How do you stop the compliance table from claiming more than is true?* A script checks
+  every Met row against a test that names it, and fails the build if that test is missing or
+  skipped.
+- *Does the clean-clone fallback weaken anything?* No. It is used only when the licensed PDFs
+  are absent. With them present, the full manifest is required and validated exactly as
+  before, and an indexer without the fallback still refuses an incomplete manifest (tested).
+
+### Status
+- Requirements closed (Met): R-12-scan, R-10-metrics.
+- Advanced (still Partial; the rest comes later): R-ops-clone (CI job: M17), R-5-par
+  (parallel sub-queries: M14), R-5-serve (`/query` limit and cache: M16), R-12-auth
+  (OIDC/JWT: M13), R-8-record (`retrievals` table: M11), R-ops-integrity (PDF table: M19).
+- `COMPLIANCE.md`: 43 requirements, 2 Met, 28 Partial, 13 Not met.
+- Tests: Python 363 passed, 0 skipped (25 new); frontend 20 passed, type check clean,
+  build OK (2026-11-18). `scripts/check_compliance.py --run` passes.
+
+---
+
+## M10: Ports, adapters and the full-stack skeleton (2026-11-19)
+
+Branch `m10-ports-adapters`, made from `phase2` after the M9 merge.
+
+### What was built
+- **Ports (`app/ports/`):** five small interfaces (Python `Protocol`s): `MetadataStore`,
+  `VectorIndex`, `KeywordIndex`, `Cache`, `EventBus`, plus `AccessScope` (who may see what
+  in one search). The indexer, the searcher and the API now depend only on these.
+- **Lite adapters (`app/adapters/lite/`):** the Phase 1 code behind the ports: SQLite
+  (`init_db`, unchanged), embedded Qdrant, `rank_bm25`, plus a new in-memory cache and an
+  in-process event bus. **No behaviour change:** all 363 Phase 1 and M9 tests pass with only
+  the test helper's construction changed.
+- **Full adapters (`app/adapters/full/`):** PostgreSQL 16 with Alembic migrations, the
+  Qdrant server, OpenSearch BM25, Redis and Kafka. Their client libraries are in
+  `requirements-full.txt` and are imported only when the full profile is used.
+- **Profile switch:** `PROFILE=lite|full` in `.env`, read by one factory
+  (`app/adapters/__init__.py`). `PROFILE` stays `lite`, so the app runs exactly as before.
+- **Migrations (`app/db/migrations/`, `alembic.ini`):** one hand-written migration that
+  creates every table, plus the append-only triggers on `audit_log` (PostgreSQL also blocks
+  `TRUNCATE`). SQLite keeps `init_db` (author's decision); a test proves the migration and
+  the models never drift apart.
+- **`deploy/compose.yaml`:** the five servers, with pinned image versions, health checks,
+  memory caps, ports on 127.0.0.1 only, and profiles `core` (PostgreSQL, Qdrant, OpenSearch,
+  Redis), `ingest` (Kafka) and `full` (all).
+- **`scripts/copy_lite_to_full.py`** (author's request): copies the existing index into the
+  full servers without re-embedding. It refuses a target that already holds data, because
+  the audit log cannot be cleaned up row by row.
+
+### Laptop setup (done in this milestone)
+- WSL2 and Docker Desktop were installed (author's choice: Docker Desktop; free for
+  personal, education and small-business use).
+- The Docker VM is capped at 3.5 GB (`%USERPROFILE%\.wslconfig`), because the laptop has
+  7.3 GB of RAM.
+- Measured: the five servers together use about 1.4 GB. OpenSearch alone used ~1 GB at
+  idle, so its cap was raised from 1 GB to 1.25 GB.
+- `.env` gained the full-profile settings and a randomly generated local database password.
+  `.env` is not in git.
+- **Windows pitfall found and fixed:** "localhost" first tries IPv6 (`::1`), but the
+  containers listen on IPv4 only, so every PostgreSQL connection waited minutes for a
+  timeout. All addresses now use `127.0.0.1`, including the address Kafka advertises.
+
+### How the access rule works on the full stack
+The rule is unchanged and is still enforced inside each index, before any scoring:
+- **Qdrant server:** the same payload filter as before.
+- **OpenSearch:** the same rule as a `terms` filter beside the BM25 text query
+  (`access_filter` in `app/adapters/full/keyword.py`).
+- **Defence in depth:** the searcher still re-checks every result against the metadata
+  store's allowed set and `can_see`.
+
+The integration test indexes the synthetic corpus into PostgreSQL, Qdrant and OpenSearch.
+For **every** user it checks that four statements of the rule select exactly the same
+chunks: the SQL allowed set, `can_see`, OpenSearch's filter and Qdrant's filter.
+
+### Results
+- **Default suite (lite):** 375 passed, 0 skipped. That is the 363 from before plus 12 new
+  tests: port contracts (7), migrations (3), copy script (2).
+- **Integration** (`pytest -m integration`, every server up): 7 passed in 34 s:
+  - PostgreSQL migrations match the models;
+  - the audit log refuses UPDATE, DELETE and TRUNCATE;
+  - OpenSearch, Qdrant server, Redis and Kafka each pass their contract;
+  - the synthetic corpus indexes into the full stack, with access agreement for every
+    user;
+  - the copy script runs against the real servers.
+- **Real copy:** 258 documents, 15,705 chunks, 15,705 vectors and 15,705 keyword entries
+  (17,517 metadata rows in 13 tables) in 30 s. The counts were checked directly on each
+  server; PostgreSQL has one extra audit-log row recording the copy.
+- **Smoke check, not a metric:**
+  - Searching three example questions as a staff user gave **identical dense results** on
+    both profiles (same vectors).
+  - Hybrid results differed slightly, because OpenSearch scores BM25 differently from
+    `rank_bm25`.
+  - A proper retrieval comparison on the full profile belongs to M18's evaluation.
+
+### Why it matters
+- **Swap without rewriting:** the specification asks that indexes and providers can be
+  swapped without rewriting the system (spec section 5). The ports are that seam: the
+  agents never import a database client.
+- **Production backends:** PostgreSQL gives a real multi-user database with migrations;
+  OpenSearch and the Qdrant server serve many processes; Kafka is where M12's change events
+  will flow.
+- **Same rules everywhere:** client confidentiality does not depend on which database is
+  used, because every adapter must pass the same access-control contract.
+
+### Likely viva questions
+- *What is a port and an adapter?* A port is the interface the system needs (for example
+  "search chunks this user may see"). An adapter is one way to provide it (rank_bm25 or
+  OpenSearch). The agents call the port; a setting decides the adapter.
+- *How do you know the lite refactor changed nothing?* The 363 existing tests pass, and only
+  the test helper's construction changed. The same contract tests run against both sets of
+  adapters.
+- *Why keep SQLite without Alembic?* So the lite profile is exactly Phase 1. A test builds a
+  database from the migration and compares it with the models, so the two cannot drift.
+- *Why is OpenSearch's security plugin off?* Local development only, bound to 127.0.0.1;
+  declared as a deviation. The Kubernetes deployment in M17 keeps it on.
+- *Why does the copy script refuse a non-empty target?* The audit log is append-only, so a
+  half-finished copy cannot be undone row by row. Starting again means erasing the
+  volumes, which is a deliberate, visible step.
+
+### Status
+- R-6-stack: Not met → Partial (5 of its components run in `full` with integration tests).
+- COMPLIANCE.md: 43 requirements, 2 Met, 29 Partial, 12 Not met.
+- Tests (2026-11-19): default suite 375 passed, 0 skipped; integration 7 passed with every
+  server up; frontend 20 passed, type check clean; `check_compliance.py --run` passes.
+
+---
+
+## M11: Data model and API completion (2026-11-19)
+
+Branch `m11-data-model-api`, made from `m10-ports-adapters` (M10 is pushed with its pull
+request open). Once M10 is merged into `phase2`, M11's pull request shows only its own
+commits.
+
+### What was built
+- **Data model (CLAUDE.md section 9):**
+  - five new tables: `sources`, `retrievals`, `routing_policies`, `prompt_versions`,
+    `feedback_signals`;
+  - new columns: `users.is_admin`, documents' source/uri/owner/classification/updated_at,
+    chunks' content hash/chunking profile/embedding ref, `queries.injection_hits`,
+    traces' prompt and policy versions, `answers.degraded/flagged_claims`, and citation spans.
+  - PostgreSQL gets Alembic migration `0002`; SQLite gets the same columns through
+    `init_db` (author's decision in M10).
+  - Copies of the real SQLite database and of the real PostgreSQL database (15,705 chunks)
+    were upgraded in place: every row count unchanged, no schema drift.
+- **Seeds:**
+  - one filesystem source per corpus folder (`fs-standards`, `fs-engagement`, ...), with
+    every document linked to its source; the engagement folder is classified
+    `confidential`, the others `public_internal`;
+  - routing policy **v1** = the Phase 1 rule-based router;
+  - prompt **v1** for each of the six model-calling steps = the prompts in the code. If
+    the code's prompt changes, the next version is recorded automatically, so a trace never
+    points at an older text than the one actually sent.
+- **Administrator (decision in the plan):** new synthetic user **A01 Kiran Rao**, role
+  **staff** with the admin flag. Admin rights let them manage the system, but give **no**
+  extra document access.
+- **What an answer now records:**
+  - every trace row names the routing-policy version, and model steps name their prompt
+    version;
+  - every search step is a `retrievals` row, one per sub-query and method, with raw scores
+    and ranks; the fused row stores each chunk's retriever weights, named multipliers and
+    final score;
+  - the question's injection-scan hits are stored on `queries`;
+  - each citation stores the character span of its supporting evidence in the chunk.
+- **Endpoints:**
+  - `POST /sources` (admin): checks each connector type's settings and **refuses secrets
+    written into them**, which must be referenced as `env:NAME`.
+  - `GET /sources/{id}/status` (admin): counts, last change, last indexed time and
+    freshness lag.
+  - `POST /documents/reindex`: `{doc_id}`, `{source_id}` or `{all: true}`; now
+    admin-only (it was partner-only).
+  - `PUT /routing-policy` (admin): activation needs a passing replay report, or a version
+    that was active before (a rollback).
+  - `POST /feedback/signals`: implicit signals about your own answers; stored only.
+  - Traces: partners or admins.
+  - `GET /sources/status` (counts per type) is kept, as decided in the plan.
+- **Contract tests:**
+  - every endpoint declares a typed response;
+  - `docs/api/openapi.json` (written by `scripts/export_openapi.py`) must equal what the
+    code generates;
+  - a test calls all 22 endpoints with valid input and checks each response against its
+    schema; a new endpoint without a test case fails.
+
+### A security decision made during M11 (please confirm)
+- **What the live check found:** an administrator could read the full trace of another
+  user's question. Traces contain draft answers and the evidence sentences, so a
+  staff-level admin could have read a partner's engagement material through them. That
+  would break "admin gives no extra document access".
+- **The fix:**
+  - an admin who is **not a partner** now sees each step's agent, model, tokens, timing and
+    versions, with input and output withheld (`content_hidden: true`);
+  - partners see everything, as before;
+  - a test proves both.
+- **Still visible to admins:** operational metadata such as document ids in a re-index
+  report and document counts per source. These are needed to run the system. No document
+  text is ever returned to an admin through admin endpoints.
+
+### Why it matters
+- **Traceability:** a firm must be able to say which instructions and which routing rules
+  produced a given answer. Versions in every trace make that possible, and the gated
+  activation means a new routing policy cannot reach users untested.
+- **Retrieval steps are evidence:** recording every score and multiplier lets the
+  evaluation measure what each adjustment does, instead of guessing.
+- **Secrets stay out of the database:** connector settings live in the database and are
+  shown to admins. A password typed there would leak; references to `.env` do not.
+- **Citation spans:** they let a reviewer jump to the exact sentences an answer rests on,
+  the same discipline as referencing a working paper.
+
+### Likely viva questions
+- *Why is A01 a staff member with an admin flag, not a partner?* To show that
+  administering the system and seeing client files are separate permissions, as in a real
+  firm, where IT staff run the document system without reading the audit files.
+- *What happens when someone tries to activate an untested routing policy?* HTTP 409.
+  Only a version with a passing replay report, or one that served users before, can be
+  activated, and every activation is written to the append-only audit log.
+- *How do you know the OpenAPI document is up to date?* A test compares it with the code on
+  every run. Changing the API without re-exporting it fails the build.
+- *Why are spans "Partial" and not "Met"?* The span covers the compressed evidence region
+  of the chunk. Per-claim spans need the claim-level verification of M14.
+
+### Status
+- Met: R-9-tables, R-10-sources, R-8-record, R-10-reindex, R-10-policy.
+- Advanced (still Partial): R-9-span, R-13.3-contract (API part), R-7.9 (signals stored).
+- COMPLIANCE.md: 43 requirements, 7 Met, 26 Partial, 10 Not met.
+- Tests (2026-11-19): default suite 386 passed, 0 skipped (11 new); integration 7 passed
+  (PostgreSQL drift check now includes migration 0002); frontend 20 passed, type check
+  clean; `check_compliance.py --run` passes.
+
+---
+
+## M12a: Change events, the ingestion worker, enrichment and the webhook (2026-11-19)
+
+M12 is split into four parts (author's decision): M12a events and worker, M12b chunk-level
+updates, M12c connectors, M12d change data capture and scheduling. Branch
+`m12a-events-worker`, made from `phase2` after M11 was merged.
+
+### What was built
+- **Change events (`app/ingest/events.py`):** every change to a source becomes one
+  `DocumentChanged` event, `{event_id, source_id, doc_id, uri, op, content_hash, metadata,
+  occurred_at}`, published on topic `doc-changes`. Events are keyed by document, so changes
+  to one document stay in order.
+- **The ingestion worker (`app/ingest/worker.py`):** the only consumer of events. It
+  applies each event to the metadata store, the vector index and the keyword index
+  together.
+  - **At-least-once:** events are committed only after they are applied. If something
+    fails, the same events come again; applying an event twice changes nothing (same
+    content and metadata are detected).
+  - **Refused, not blocked:** a malformed event, or one that fails enrichment, is refused,
+    written to `audit_log` and committed, so it cannot block the queue.
+  - **Where it runs:** in lite, a background thread of the API on the in-process bus; in
+    full, its own process (`python -m app.ingest.worker`) on Kafka.
+- **Enrichment (`app/ingest/enrich.py`):** every change gets owner, classification,
+  timestamp and access fields before it is indexed.
+  - Owner and classification come from the document, else from its source.
+  - A default classification is never below `confidential` for an engagement file or for
+    anything above staff level. The live Kafka test found that a manager-only document
+    pushed without a classification would otherwise have been `public_internal`.
+  - Access level and engagement are checked; anything invalid is refused, never guessed.
+  - Both indexes now carry `source_id` and `classification` beside the access fields.
+- **Manifest:** three optional columns, `source_id`, `owner` and `classification`, filled
+  for all 258 rows by one rule (`scripts/synthetic/people.py`):
+  - **Owners (synthetic):** engagement files belong to their engagement partner; policies
+    and circulars to P02; checklists and templates to M01; the calendar and FAQ to M02; ICAI
+    material has no firm owner.
+  - **Classification:** engagement files and anything above staff level are
+    `confidential`; the rest is `public_internal`.
+  - No original value changed (checked row by row).
+- **Folder watcher:** no longer indexes anything itself. It publishes events for the
+  worker. Run on its own (command line, tests), it brings its own bus and worker, so files
+  are still indexed as soon as they change.
+- **Webhook (`POST /api/v1/webhooks/documents`):** for registered sources of type
+  `webhook`.
+  - The caller signs the exact body with HMAC-SHA256 using the source's secret. The secret
+    lives in `.env`; the source stores only `env:NAME`.
+  - An unknown source, a non-webhook source and a wrong signature all get the same 401, so
+    the endpoint reveals nothing. Changing even one byte of a signed body breaks the
+    signature (tested).
+  - The content goes to the landing folder (`data/landing/`, git-ignored) and an event is
+    queued (HTTP 202).
+  - A document id that belongs to another source is refused (409).
+- **A full sync no longer removes documents that came from other sources:** only
+  documents of the folder sources are compared with the manifest.
+
+### Found and fixed by the live check
+The real API (on copies of the database and index) accepted a pushed document, but its
+worker failed to index it. The tests had always put the landing folder inside the project,
+and computing a project-relative path crashed when it was elsewhere. A document's location
+is now its event `uri`, which is valid wherever the folder is; a regression test covers
+it. After the fix, the API's worker indexed the pushed document about 1.9 s after the
+webhook accepted it.
+
+### Known limitation (for M12d)
+An event that fails for an unexpected reason is retried every 5 seconds until it
+succeeds. That is right for a temporary fault (a database restart). A permanently broken
+event would hold up the queue, however, so M12d adds a retry limit and a dead-letter log.
+
+### Why it matters
+- **Consistent indexes:** with one event applied to all three stores by one worker, the
+  metadata store and both indexes cannot drift apart. That is the property that keeps
+  access control trustworthy, because the access fields are checked inside each index.
+- **Classification travels with every chunk:** M13 needs it, so that `restricted` text is
+  sent only to the private model.
+- **Same rule for everyone:** a pushed document is enriched and checked by exactly the
+  same rules as a document in the corpus folder.
+
+### Likely viva questions
+- *What is at-least-once delivery, and why is it safe here?* A change may be delivered
+  more than once, but never lost. Applying the same change twice is harmless, because the
+  worker compares the content hash and metadata first. "Exactly once" would need much more
+  machinery for no benefit.
+- *Why does the webhook not use a sign-in token?* It is called by a machine, not a person.
+  The HMAC signature proves the sender knows the shared secret, and also that nobody
+  changed the body on the way.
+- *Can a webhook overwrite a corpus document?* No. A document belongs to one source; a
+  change from another source is refused with 409 at the endpoint, and again by the worker.
+
+### Status
+- Met: R-7.1-a.
+- Advanced: R-5-ing (events and worker), R-7.1-c (Not met → Partial: webhook).
+- COMPLIANCE.md: 43 requirements, 8 Met, 26 Partial, 9 Not met.
+- Tests (2026-11-19): default suite 408 passed, 0 skipped (22 new); integration 8 passed
+  (including events over Kafka into PostgreSQL, Qdrant and OpenSearch); frontend 20 passed;
+  `check_compliance.py --run` passes.
+
+
+## M12b: Stable chunk ids, chunk-level updates and chunking profiles (2026-11-19)
+
+Branch `m12b-chunk-updates`, made from `phase2` after M12a was merged.
+
+### What was built
+- **Stable chunk ids (`app/ingest/chunker.py`):** `<doc_id>:<section>:<window>`, for
+  example `STD-CH06:1.9:1`.
+  - The section part is the section number. A section without one (a document lead, an
+    FAQ question) gets `h-` or `q-` plus six hex digits of its heading, e.g.
+    `FAQ-01:q-3f9a2c:1`.
+  - A section key that repeats in one document gets `-2`, `-3`.
+  - Windows are numbered from 1 within their section.
+  - Before, ids were a running number (`STD-CH06:0004`), so inserting one section
+    renumbered every chunk after it.
+- **A content hash per chunk:** SHA-256 of the chunk text, which is exactly what the
+  embedding is computed from.
+- **Chunk-level updates (`app/ingest/indexer.py`, `_plan`):** when a document changes, it
+  is re-chunked and each new chunk is one of:
+  - **kept:** same id and text, so it is not touched in any index;
+  - **reused:** the same text existed under another id, so the stored vector is copied;
+  - **embedded:** the text is new or changed.
+
+  Old chunks whose id disappeared are deleted from SQLite, Qdrant and the keyword index.
+  A forced re-index (`POST /documents/reindex`) still embeds every chunk of that document.
+- **Two new port methods:** `delete_chunks` (both index ports) and `vectors` (the vector
+  port, to read stored vectors back). All four adapters implement them, and the shared
+  port contract tests them in lite and, in the integration job, in OpenSearch and the
+  Qdrant server.
+- **Chunking profiles (`app/ingest/chunking_profiles.py`):** one per source type. Each
+  holds the window size, the overlap and the keep-whole rule:
+  - FAQ: each question and answer whole;
+  - checklists: each item group whole;
+  - standards: ICAI illustration blocks whole;
+  - tables are always whole.
+
+  Every chunk records its profile, for example `faq@1:400/50`. A chunk also records the
+  embedding model that made its vector (`embedding_ref`). Changing a profile re-chunks only
+  that source type's documents; changing the embedding model re-embeds everything.
+- **Old ids keep working:** each chunk stores the Phase 1 id that had the same text
+  (`legacy_chunk_id`; migration `0003`, and `init_db` for SQLite).
+  - The API resolves old citations through it, so answers in History still open their
+    sources.
+  - The citation pattern in the answer checker, the verifier and the UI accepts both
+    forms.
+  - Text that changed gets no old id, so an old citation never silently points at
+    different text.
+- **One-time conversion (`scripts/migrate_chunk_ids.py`):**
+  - backs up `data/fabric.db` and `data/qdrant` to `data/backups/` (git-ignored);
+  - runs a sync, which converts every document and reuses stored vectors;
+  - checks the result and writes a JSON report.
+
+### The conversion of the author's index (2026-11-19)
+- **Re-chunked:** 257 documents. One document (`CAF-P1-50`) has no chunks, before and
+  after.
+- **Chunks:** 15,705 before and after.
+  - 15,562 reused their stored vector.
+  - 143 were embedded again.
+  - 15,705 old ids were deleted, from SQLite and Qdrant alike.
+- **Ids:** no Phase 1 ids are left; 15,562 chunks carry their old id.
+- **Why 143 chunks had different text:** the stored Phase 1 chunks of some ICAI/CA Final
+  PDFs were not what the Phase 1 code produces today.
+  - Checked on three documents, by running the chunker from tag `phase1-final` against the
+    stored text. The M12b chunker produced exactly what the Phase 1 code produces today;
+    the stored chunks differed.
+  - For example, the stored chunks titled CA Final Paper 3, Chapter 7, section 6 "SA 706
+    EMPHASIS OF MATTER PARAGRAPHS"; today's parser falls back to "Section 6". So the
+    heading line and some window boundaries differ.
+  - Those PDFs were indexed on 7–8 November and never re-chunked, because their files did
+    not change. Git history starts on 18 November, so which earlier change caused it cannot
+    be shown.
+- **Three old citations no longer resolve:** `CAF-P3-08:0065`, `0066` and `0072`, all from
+  one stored answer (#75, 13 November). Their text changed, so they got no old id. The
+  author chose to leave them unresolved rather than point them at different text.
+- **The full profile:** its volumes were erased (`down -v`, approved by the author) and
+  the converted index was copied in again. PostgreSQL is at migration `0003` with the same
+  counts.
+- **Peak Qdrant size:** while converting, embedded Qdrant held new and old points
+  together, about 20,000 at most (it warns above 20,000), before the old points were
+  deleted.
+
+### Retrieval before and after (no LLM calls)
+- **Runs:** `eval/results/20261119-145815_retrieval` (before) and
+  `20261119-151731_retrieval` (after).
+- **Unchanged:** `hybrid` (the system), `dense` and `bm25` have identical recall@5,
+  recall@10, MRR, nDCG@10 and superseded ordering. Role and engagement leaks are 0.000 in
+  both runs.
+- **One mode changed:** `hybrid_raw` (plain RRF, not used by the system).
+  - MRR went from 0.804 to 0.816 and nDCG@10 from 0.845 to 0.853.
+  - superseded ordering went from 0.500 to 0.583.
+  - The cause is one question (q024): two versions of the materiality policy swapped
+    places.
+- **Why rankings moved at all:** ranking ties are broken by chunk id
+  (`app/retrieval/fusion.py`, `app/retrieval/hybrid.py`), and the ids changed. In one
+  dense result (q042), one of the 143 re-chunked texts now reaches the top 10.
+- **Reviewed questions:** 0 of 63.
+
+### Kept as it was, on purpose
+- **The audit log:** the `reindex` entry keeps its Phase 1 wording, `<doc> (<n> chunks)`.
+  The kept/reused/embedded/deleted counts go to the server log and the sync report.
+- **The prompts:** the synthesis prompts still give `[STD-CH06:0012]` as an example of a
+  cite id. The model is told to copy ids exactly from the evidence, which now shows the new
+  form. Changing the example is a prompt version change, which needs the prompt registry
+  and replay tests (M14, M15).
+
+### Why it matters
+- **Freshness at low cost:** an edit to one policy section re-embeds that section only.
+  That is what makes frequent change events (M12a, M12d) affordable on a laptop.
+- **Indexes stay in step:** one plan decides what changes, and the same plan is applied to
+  all three stores, so they cannot disagree about which chunks exist.
+- **Old answers stay checkable:** a citation in an old answer still opens the text it was
+  based on, or visibly does not, never a different text.
+
+### Likely viva questions
+- *Why not just re-embed the whole document?* It is simple, but the cost grows with the
+  document. The largest ICAI chapter has over 600 chunks; editing one paragraph should
+  not cost 600 embeddings.
+- *What if two sections have the same text?* Each old chunk is matched to at most one
+  new chunk, so a duplicate is embedded once more rather than shared.
+- *How do you know the conversion changed nothing?* The retrieval evaluation was run before
+  and after on the same 63 questions. The system's metrics are identical, and every
+  difference is listed above with its cause.
+
+### Status
+- **Met:** R-7.1-b, R-7.2.
+- **COMPLIANCE.md:** 43 requirements; 10 Met, 24 Partial, 9 Not met.
+- **Tests (2026-11-19):**
+  - default suite: 424 passed (16 new);
+  - integration: 8 passed (port contracts with `delete_chunks` and `vectors` in OpenSearch
+    and the Qdrant server);
+  - frontend: 21 passed (1 new);
+  - `check_compliance.py --run`: passes.
+
+
+## M12c: Connectors (2026-11-19)
+
+Branch `m12c-connectors`, made from `phase2` after M12b was merged. Author's choices:
+- MinIO in Docker;
+- S3 changes found by polling;
+- a local mock server for Confluence, Jira and SharePoint;
+- after MinIO's own image proved unavailable, the `bitnamilegacy/minio` image.
+
+### What was built
+- **A `Connector` port** (`app/ports/`) and a shared base (`app/connectors/base.py`).
+  - A polling connector answers only two questions: which documents exist now, each with
+    a version token that changes when its content changes; and what is this document's
+    text, as Markdown.
+  - The base compares the listing with the snapshot saved last time. A new or changed
+    item is fetched, written to the landing folder and sent as an upsert event; a vanished
+    item becomes a delete event. Unchanged items are not even fetched.
+- **The connectors:**
+
+  | Type | Backend | Version token |
+  |---|---|---|
+  | git | local mirror of one branch (`git` command line) | blob hash |
+  | s3 | MinIO bucket `firm-documents` (boto3) | ETag |
+  | confluence | Cloud REST v2: space pages with body | page version number |
+  | jira | Cloud REST v3 issue search | `updated` |
+  | sharepoint | Microsoft Graph drive delta | cTag |
+  | filesystem | the existing watcher; `poll` reconciles with the manifest | file hash |
+
+- **Metadata:** every polling source has `defaults` (source type and access level, at
+  least).
+  - Items can override them with labels: `access-manager`, `access-partner`,
+    `engagement-<ID>`, `type-<source type>`, `classification-<value>`.
+  - Enrichment then applies the same checks as for every other document. For example, a
+    Confluence page labelled `access-manager` became `confidential` automatically.
+- **The runner (`app/connectors/runner.py`)** polls every active git, s3, confluence,
+  jira and sharepoint source every 30 s.
+  - The new state is saved (`sources.sync_state`, migration `0004`) only after the events
+    are published. If publishing fails, the same changes are sent next time.
+  - One unreachable source is logged (`last_error`) and the others continue. A paused
+    source is not polled.
+  - It runs inside the API in lite, or as `python -m app.connectors.runner` in full.
+- **Safety:**
+  - **Git:** only `https://` URLs or folders under `data/sources/`; git may use only the
+    `file` and `https` transports, so a URL can never run a command (`ext::`); no
+    credentials inside URLs.
+  - **SaaS:** API tokens are `env:NAME` references; a "next page" link to another host is
+    refused, so a token is never sent elsewhere.
+  - **Jira:** the project key must look like a key, because it goes into a JQL query.
+- **Registration:** `POST /sources` checks all of the above for a polling source.
+- **Synthetic enterprise systems:**
+  - `scripts/make_synthetic_git_repo.py` (a repository with two commits);
+  - `scripts/seed_minio.py` (two documents in the bucket);
+  - `scripts/mock_saas_server.py` with fixtures in `tests/fixtures/connectors/`;
+  - `scripts/register_demo_sources.py` (one demo source of each type).
+  - All content describes fictional firm procedures only and carries the banner.
+- **MinIO in `deploy/compose.yaml`** (profiles `ingest` and `full`).
+  - MinIO no longer publishes its server image: `minio/minio` and `quay.io/minio/minio`
+    could not be pulled.
+  - The author chose `bitnamilegacy/minio:2025.7.23`: the real MinIO server, but a frozen
+    image with no further security fixes. That is acceptable here because it listens on
+    127.0.0.1 only and holds synthetic data.
+  - It needed 384 MB, not 256 MB. All six services together use about 1.7 GB of the
+    3.5 GB Docker cap.
+
+### No live tenant was used
+The Confluence, Jira and SharePoint connectors follow the documented API shapes, but they
+were tested only against fixtures written for this project and served locally. Getting a
+Microsoft Graph token (an Entra ID app registration) is outside the project. The report
+must say this plainly.
+
+### Found and fixed on the way
+- **Secrets in `.env` were not seen (from M12a).**
+  - `env:NAME` references were read from the process environment only, but `.env` values
+    go into the settings object, not the environment. So a webhook secret written in
+    `.env`, as the documentation says, was never found unless the variable was also
+    exported in the shell.
+  - The tests set the variable directly, which hid this.
+  - Now `app/config.py:env_reference` checks the environment, then `.env`. There is a
+    regression test.
+- **Every change rewrote the `superseded` flag on all documents (from Phase 1).**
+  - The live check showed a small batch taking minutes, because embedded Qdrant writes
+    every point it touches to disk (about 15,700 points per batch).
+  - Now only the documents whose flag is wrong are updated. Two filtered scans find them;
+    there is a new port method `doc_ids_with` and a test.
+- **The runner held a database session while talking to the network:** with SQLite that
+  can block the worker's writes. It now reads, closes the session, polls, then saves.
+
+### Live check (2026-11-19, lite profile, on copies of the database and index)
+- **Setup:** the real API, five demo sources (git, MinIO S3, and the mock Confluence, Jira
+  and SharePoint), and a poll interval of 10 s.
+- **Before the refresh fix:** only the first source's 3 documents were indexed; the
+  worker spent minutes rewriting flags.
+- **After the fix:**
+  - All 11 documents were indexed 17 s after the API came up.
+  - A commit that edits one section of one Git document was visible in the index 4 s
+    later. Only that document was re-indexed; the other document's `indexed_at` and
+    chunk hashes did not change.
+  - The demo edit was then reverted in the synthetic repository.
+
+### Why it matters
+- **Freshness from where the firm actually keeps knowledge:** a wiki, a query log, a
+  document library, a repository or a bucket, without anyone exporting files.
+- **One path for every source:** every connector produces the same events, so every
+  document gets the same enrichment, access checks and consistent indexing as a file in
+  the corpus folder.
+
+### Likely viva questions
+- *Why compare snapshots instead of using each system's change feed?* One simple rule
+  works for every system and can be explained and tested once; change feeds (Graph delta
+  links, Confluence webhooks) differ per product. The cost is listing everything each
+  poll, which is fine for a firm's knowledge base but would need change feeds at much
+  larger scale.
+- *What if the server is down?* The poll fails, the error is stored on the source, the
+  old snapshot is kept, and the next poll tries again; nothing is lost or duplicated in
+  the index.
+- *Could a connector leak a restricted document?* It only fetches; access is decided by
+  enrichment and enforced in both indexes exactly as for any other document. A label can
+  raise access; the classification floor still applies.
+
+### Status
+- **Met:** R-7.1-c, R-13.3-contract.
+- **Advanced:** R-5-ing (still Partial: DMS change data capture is M12d).
+- **COMPLIANCE.md:** 43 requirements; 12 Met, 22 Partial, 9 Not met.
+- **Tests (2026-11-19):**
+  - default suite: 441 passed (17 new);
+  - integration: 11 passed (new: git and S3 on MinIO through Kafka; a signed webhook
+    through Kafka);
+  - frontend: 21 passed;
+  - `check_compliance.py --run`: passes.

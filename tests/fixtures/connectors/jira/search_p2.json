@@ -1,0 +1,73 @@
+{
+  "issues": [
+    {
+      "id": "20002",
+      "key": "AUDQ-2",
+      "fields": {
+        "summary": "Who signs off the engagement file archive checklist?",
+        "updated": "2026-11-05T16:40:00.000+0530",
+        "labels": [
+          "access-manager"
+        ],
+        "description": {
+          "type": "doc",
+          "version": 1,
+          "content": [
+            {
+              "type": "paragraph",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "SYNTHETIC — created for an internship demonstration. Not real firm or client data."
+                }
+              ]
+            },
+            {
+              "type": "heading",
+              "attrs": {
+                "level": 2
+              },
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Question"
+                }
+              ]
+            },
+            {
+              "type": "paragraph",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Who signs the archive checklist before a file is locked?"
+                }
+              ]
+            },
+            {
+              "type": "heading",
+              "attrs": {
+                "level": 2
+              },
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Answer from the technical desk"
+                }
+              ]
+            },
+            {
+              "type": "paragraph",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "The engagement manager signs it; the partner is informed by the practice management system."
+                }
+              ]
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "isLast": true
+}

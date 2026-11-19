@@ -28,3 +28,12 @@ frontend/dist/
 .vscode/
 Thumbs.db
 /Standards_Acts/
+
+# Content received by the webhook, waiting for the ingestion worker (M12a)
+data/landing/
+# Backups made by scripts (e.g. scripts/migrate_chunk_ids.py); they hold the local index.
+data/backups/
+# Working copies kept by connectors (e.g. the git connector mirror) and the synthetic
+# enterprise systems made by scripts (M12c).
+data/connectors/
+data/sources/

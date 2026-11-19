@@ -89,9 +89,67 @@ def test_extract_sa_refs() -> None:
     assert extract_sa_refs(text) == ["SA 230", "SA 500", "SA 705"]
 
 
-def test_chunk_ids_unique_and_sequential(chapter) -> None:
+def test_chunk_ids_are_stable_section_ids(chapter) -> None:
+    """M12b: ids are <doc>:<section>:<window>, unique within the document."""
     ids = [c.chunk_id for c in chapter.chunks]
-    assert ids == [f"STD-CH04:{i:04d}" for i in range(1, len(ids) + 1)]
+    assert len(set(ids)) == len(ids)
+    assert ids[:4] == ["STD-CH04:0:1", "STD-CH04:1:1", "STD-CH04:1.1:1", "STD-CH04:1.2:1"]
+
+
+def test_editing_one_section_changes_only_that_sections_chunks() -> None:
+    """Covers: R-7.1-b (the chunker half: ids and hashes elsewhere stay the same)."""
+    def run(text_11: str):
+        pages = [(4, "1.\nAUDIT EVIDENCE\nIntro.\n1.1 Introduction\n" + text_11 +
+                  "\n1.2 Sufficiency\nSufficiency is the measure of quantity.")]
+        r = chunk_icai_chapter(doc_id="D", doc_title="T", chapter=4, pages=pages,
+                               count_tokens=words, max_tokens=60, overlap_tokens=8)
+        return {c.chunk_id: c.content_hash for c in r.chunks}
+
+    before = run("Audit evidence is information used by the auditor.")
+    long_text = "\n".join(f"Inserted line {i} about evidence." for i in range(30))
+    after = run(long_text)
+    assert set(after) > set(before)  # 1.1 grew into several windows; nothing renumbered
+    changed = {cid for cid in after if before.get(cid) != after[cid]}
+    assert changed and all(cid.startswith("D:1.1:") for cid in changed)
+
+
+def test_unnumbered_and_repeated_sections_get_stable_keys() -> None:
+    r = chunk_markdown(doc_id="FAQ-01", doc_title="FAQ", source_type="faq",
+                       sections=split_sections(FAQ_MD + "\n### Q: How long are files kept?\n"
+                                               "A: See policy.\n"),
+                       count_tokens=words, max_tokens=400, overlap_tokens=50)
+    ids = [c.chunk_id for c in r.chunks]
+    assert len(set(ids)) == len(ids)
+    lead = ids[0]
+    assert lead.startswith("FAQ-01:h-") and lead.endswith(":1")
+    questions = [c.chunk_id for c in r.chunks if c.section == "Q"]
+    assert all(q.startswith("FAQ-01:q-") for q in questions)
+    # The same question twice: the second copy gets "-2" ("FAQ-01:q-abc123-2:1").
+    assert questions[2] == questions[1].removesuffix(":1") + "-2:1"
+
+
+def test_every_chunk_records_its_chunking_profile() -> None:
+    """Covers: R-7.2"""
+    faq = chunk_markdown(doc_id="FAQ-01", doc_title="FAQ", source_type="faq",
+                         sections=split_sections(FAQ_MD), count_tokens=words)
+    chk = chunk_markdown(doc_id="CHK", doc_title="Checklist", source_type="checklists",
+                         sections=split_sections(CHECKLIST_MD), count_tokens=words)
+    std = chunk_icai_chapter(doc_id="STD-CH04", doc_title="Audit Evidence", chapter=4,
+                             pages=PAGES, count_tokens=words)
+    assert {c.chunking_profile for c in faq.chunks} == {"faq@1:400/50"}
+    assert {c.chunking_profile for c in chk.chunks} == {"checklists@1:400/50"}
+    assert {c.chunking_profile for c in std.chunks} == {"standards@1:400/50"}
+
+
+def test_profiles_exist_for_every_source_type() -> None:
+    """Covers: R-7.2"""
+    from app.ingest.chunking_profiles import all_profiles
+    from app.ingest.manifest import SOURCE_TYPES
+
+    profiles = all_profiles(300, 30)
+    assert set(profiles) == set(SOURCE_TYPES)
+    assert profiles["faq"].whole_level == 3 and profiles["checklists"].whole_level == 2
+    assert profiles["templates"].ref == "templates@1:300/30"
 
 
 # ------------------------------------------------------------------- Markdown

@@ -1,0 +1,41 @@
+doc_id,path,source_type,title,version,effective_date,supersedes,access_level,engagement_id,synthetic,source_id,owner,classification
+POL-METH-01,data/corpus/firm_policy/audit_methodology_manual_v3.md,firm_policy,Audit Methodology Manual,3.0,2024-04-01,,staff,,true,fs-firm_policy,P02,public_internal
+POL-MAT-01,data/corpus/firm_policy/materiality_policy_v1.md,firm_policy,Materiality Policy,1.0,2023-04-01,,manager,,true,fs-firm_policy,P02,confidential
+POL-MAT-02,data/corpus/firm_policy/materiality_policy_v2.md,firm_policy,Materiality Policy,2.0,2025-04-01,POL-MAT-01,manager,,true,fs-firm_policy,P02,confidential
+POL-DOC-01,data/corpus/firm_policy/documentation_retention_policy_v1.md,firm_policy,Documentation and Retention Policy,1.0,2022-04-01,,staff,,true,fs-firm_policy,P02,public_internal
+POL-DOC-02,data/corpus/firm_policy/documentation_retention_policy_v2.md,firm_policy,Documentation and Retention Policy,2.0,2025-04-01,POL-DOC-01,staff,,true,fs-firm_policy,P02,public_internal
+POL-IND-01,data/corpus/firm_policy/independence_ethics_policy_v1.md,firm_policy,Independence and Ethics Policy,1.0,2023-04-01,,staff,,true,fs-firm_policy,P02,public_internal
+POL-IND-02,data/corpus/firm_policy/independence_ethics_policy_v2.md,firm_policy,Independence and Ethics Policy,2.0,2025-07-01,POL-IND-01,staff,,true,fs-firm_policy,P02,public_internal
+POL-QM-01,data/corpus/firm_policy/quality_management_policy.md,firm_policy,Quality Management Policy (SA 220 / SQC 1 aligned),1.0,2024-04-01,,manager,,true,fs-firm_policy,P02,confidential
+POL-ACC-01,data/corpus/firm_policy/client_acceptance_continuance_procedure.md,firm_policy,Client Acceptance and Continuance Procedure,1.0,2024-04-01,,partner,,true,fs-firm_policy,P02,confidential
+CIR-2025-02,data/corpus/circulars/cir_2025_02_bank_branch_audit_fy2024_25.md,circulars,"Technical Circular 2025/02: Bank Branch Audit, FY 2024-25",1.0,2025-03-01,,staff,,true,fs-circulars,P02,public_internal
+CIR-2026-03,data/corpus/circulars/cir_2026_03_bank_branch_audit_fy2025_26.md,circulars,"Technical Circular 2026/03: Bank Branch Audit, FY 2025-26",2.0,2026-03-02,CIR-2025-02,staff,,true,fs-circulars,P02,public_internal
+CIR-2023-05,data/corpus/circulars/cir_2023_05_audit_sampling_guidance.md,circulars,Technical Circular 2023/05: Audit Sampling Guidance,1.0,2023-06-01,,staff,,true,fs-circulars,P02,public_internal
+CIR-2025-04,data/corpus/circulars/cir_2025_04_audit_sampling_guidance_revised.md,circulars,Technical Circular 2025/04: Audit Sampling Guidance (Revised),2.0,2025-06-15,CIR-2023-05,staff,,true,fs-circulars,P02,public_internal
+CIR-2025-05,data/corpus/circulars/cir_2025_05_regulatory_update_fy2024_25.md,circulars,Regulatory Update Note 2025/05: Filing Due Dates for FY 2024-25,1.0,2025-04-08,,staff,,true,fs-circulars,P02,public_internal
+CIR-2026-01,data/corpus/circulars/cir_2026_01_regulatory_update_fy2025_26.md,circulars,Regulatory Update Note 2026/01: Filing Due Dates for FY 2025-26,1.0,2026-04-10,,staff,,true,fs-circulars,P02,public_internal
+CIR-2025-06,data/corpus/circulars/cir_2025_06_client_confidentiality.md,circulars,Technical Circular 2025/06: Client Confidentiality and Engagement Data,1.0,2025-09-01,,staff,,true,fs-circulars,P02,public_internal
+CIR-2025-07,data/corpus/circulars/cir_2025_07_going_concern_consultation.md,circulars,Technical Circular 2025/07: Going Concern Consultation,1.0,2025-11-01,,manager,,true,fs-circulars,P02,confidential
+CIR-2026-02,data/corpus/circulars/cir_2026_02_fee_dependence_review.md,circulars,Partner Circular 2026/02: Fee Dependence Review for FY 2026-27 Continuance,1.0,2026-02-01,,partner,,true,fs-circulars,P02,confidential
+CIR-2025-08,data/corpus/circulars/cir_2025_08_working_paper_software_note.md,circulars,Technical Note 2025/08: Working Paper Software Update (contains injection test text),1.0,2025-08-20,,staff,,true,fs-circulars,P02,public_internal
+CHK-INV-01,data/corpus/checklists/inventory_observation_checklist.md,checklists,Checklist: Attendance at Physical Inventory Counting,2.1,2024-10-01,,staff,,true,fs-checklists,M01,public_internal
+CHK-CONF-01,data/corpus/checklists/external_confirmations_checklist.md,checklists,Checklist: External Confirmations,1.3,2024-10-01,,staff,,true,fs-checklists,M01,public_internal
+CHK-BANK-01,data/corpus/checklists/bank_branch_audit_checklist.md,checklists,Checklist: Bank Branch Audit - Advances and NPA Classification,3.0,2025-03-01,,staff,,true,fs-checklists,M01,public_internal
+CHK-GC-01,data/corpus/checklists/going_concern_checklist.md,checklists,Checklist: Going Concern Evaluation,1.0,2024-04-01,,manager,,true,fs-checklists,M01,confidential
+CHK-SE-01,data/corpus/checklists/subsequent_events_checklist.md,checklists,Checklist: Subsequent Events Review,1.1,2024-04-01,,staff,,true,fs-checklists,M01,public_internal
+TPL-EL-01,data/corpus/templates/engagement_letter_template.md,templates,Template: Audit Engagement Letter (SA 210),2.0,2024-04-01,,manager,,true,fs-templates,M01,confidential
+TPL-MRL-01,data/corpus/templates/management_representation_letter_template.md,templates,Template: Management Representation Letter (SA 580),1.2,2024-04-01,,staff,,true,fs-templates,M01,public_internal
+TPL-AR-01,data/corpus/templates/audit_report_formats.md,templates,Template: Auditor's Report Formats (SA 700 / 705 / 706),1.0,2024-04-01,,manager,,true,fs-templates,M01,confidential
+CAL-FY2526,data/corpus/calendar/compliance_calendar_fy2025_26.md,calendar,Compliance Calendar FY 2025-26,1.0,2025-04-01,,staff,,true,fs-calendar,M02,public_internal
+CAL-FY2627,data/corpus/calendar/compliance_calendar_fy2026_27.md,calendar,Compliance Calendar FY 2026-27,1.0,2026-04-01,,staff,,true,fs-calendar,M02,public_internal
+FAQ-01,data/corpus/faq/article_assistant_helpdesk_faq.md,faq,Article Assistant Helpdesk FAQ,4.0,2025-09-15,,staff,,true,fs-faq,M02,public_internal
+ENG-NWT-PLAN,data/corpus/engagement/northwind_textiles/planning_memo_fy2025_26.md,engagement,Northwind Textiles: Audit Planning Memo FY 2025-26,1.0,2026-01-12,,staff,ENG-NWT-FY26,true,fs-engagement,P01,confidential
+ENG-NWT-MAT,data/corpus/engagement/northwind_textiles/materiality_working_fy2025_26.md,engagement,Northwind Textiles: Materiality Working FY 2025-26,1.0,2026-01-12,,manager,ENG-NWT-FY26,true,fs-engagement,P01,confidential
+ENG-NWT-RISK,data/corpus/engagement/northwind_textiles/risk_assessment_fy2025_26.md,engagement,Northwind Textiles: Risk Assessment Summary FY 2025-26,1.0,2026-01-20,,staff,ENG-NWT-FY26,true,fs-engagement,P01,confidential
+ENG-NWT-REV,data/corpus/engagement/northwind_textiles/review_notes_fy2025_26.md,engagement,Northwind Textiles: Manager Review Notes FY 2025-26,1.0,2026-05-18,,manager,ENG-NWT-FY26,true,fs-engagement,P01,confidential
+ENG-MBL-PLAN,data/corpus/engagement/meridian_bank_lakeview/planning_memo_fy2025_26.md,engagement,Meridian Bank Lakeview Branch: Audit Planning Memo FY 2025-26,1.0,2026-03-20,,staff,ENG-MBL-FY26,true,fs-engagement,P02,confidential
+ENG-MBL-NPA,data/corpus/engagement/meridian_bank_lakeview/npa_review_working_fy2025_26.md,engagement,Meridian Bank Lakeview Branch: NPA Review Working FY 2025-26,1.0,2026-04-14,,staff,ENG-MBL-FY26,true,fs-engagement,P02,confidential
+ENG-MBL-REV,data/corpus/engagement/meridian_bank_lakeview/review_notes_fy2025_26.md,engagement,Meridian Bank Lakeview Branch: Manager Review Notes FY 2025-26,1.0,2026-04-22,,manager,ENG-MBL-FY26,true,fs-engagement,P02,confidential
+ENG-BRT-PLAN,data/corpus/engagement/brightpath_trust/planning_memo_fy2025_26.md,engagement,Brightpath Rural Education Trust: Audit Planning Memo FY 2025-26,1.0,2026-02-02,,staff,ENG-BRT-FY26,true,fs-engagement,P01,confidential
+ENG-BRT-RISK,data/corpus/engagement/brightpath_trust/risk_assessment_fy2025_26.md,engagement,Brightpath Rural Education Trust: Risk Assessment Summary FY 2025-26,1.0,2026-02-10,,staff,ENG-BRT-FY26,true,fs-engagement,P01,confidential
+ENG-BRT-REV,data/corpus/engagement/brightpath_trust/partner_review_note_fy2025_26.md,engagement,Brightpath Rural Education Trust: Partner Review Note FY 2025-26,1.0,2026-06-05,,partner,ENG-BRT-FY26,true,fs-engagement,P01,confidential

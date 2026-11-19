@@ -1,8 +1,9 @@
 """Hybrid search: dense (Qdrant) + BM25, fused with RRF, then adjusted.
 
 Order of operations for one request (CLAUDE.md section 7.3):
-1. ACL first: build the Qdrant payload filter and the BM25 candidate set for this user.
-   Restricted chunks are never scored by either retriever.
+1. ACL first: build the access scope for this user (app/ports.AccessScope). Each index
+   applies it inside its own query (Qdrant payload filter; BM25 candidate set or
+   OpenSearch filter), so restricted chunks are never scored by either retriever.
 2. For each sub-query: dense top-k and BM25 top-k.
 3. Reciprocal rank fusion of all ranked lists (k = 60).
 4. Multiply by the superseded weight (and, for time-sensitive questions, the recency
@@ -19,7 +20,7 @@ Modes (for the retrieval ablation in eval/run_retrieval_eval.py):
 
 import logging
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 
 from qdrant_client import QdrantClient
@@ -28,15 +29,17 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import Settings
 from app.db.models import Chunk, Document
-from app.db.session import init_db, make_engine, make_session_factory
-from app.retrieval.acl import UserContext, allowed_chunk_ids, can_see, qdrant_filter
-from app.retrieval.bm25 import Bm25Index
-from app.retrieval.dense import BgeEmbedder, Embedder, QdrantStore, open_qdrant
+from app.ports import AccessScope, KeywordIndex, VectorIndex
+from app.retrieval.acl import UserContext, allowed_chunk_ids, can_see
+from app.retrieval.dense import BgeEmbedder, Embedder
 from app.retrieval.fusion import reciprocal_rank_fusion
-from app.retrieval.recency import adjustment
+from app.retrieval.recency import multipliers
 
 log = logging.getLogger(__name__)
 MODES = ("dense", "bm25", "hybrid_raw", "hybrid")
+# Each retriever's weight in the fusion. Plain RRF weighs every ranked list equally (1.0);
+# M14 makes the weights depend on the question type. Recorded with every fused result.
+RETRIEVER_WEIGHTS = {"dense": 1.0, "keyword": 1.0}
 
 
 @dataclass
@@ -58,6 +61,8 @@ class RetrievedChunk:
     rrf_score: float
     dense_rank: int | None
     bm25_rank: int | None
+    # Every multiplier applied to rrf_score, by name (score = rrf_score x product).
+    multipliers: dict[str, float] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -76,11 +81,20 @@ class _Meta:
     text: str
 
 
+def _record_ranked(record: list[dict] | None, query: str, method: str,
+                   hits: list[tuple[str, float]]) -> None:
+    """One retriever's raw output for one sub-query: chunk, raw score, rank."""
+    if record is not None:
+        record.append({"sub_query": query, "method": method, "scores": [
+            {"chunk_id": cid, "score": round(score, 6), "rank": rank}
+            for rank, (cid, score) in enumerate(hits, 1)]})
+
+
 class HybridSearcher:
     """ACL-filtered hybrid retrieval over the shared indexes."""
 
-    def __init__(self, *, session_factory: sessionmaker[Session], store: QdrantStore,
-                 embedder: Embedder, bm25: Bm25Index, rrf_k: int = 60, top_k: int = 20,
+    def __init__(self, *, session_factory: sessionmaker[Session], store: VectorIndex,
+                 embedder: Embedder, bm25: KeywordIndex, rrf_k: int = 60, top_k: int = 20,
                  superseded_weight: float = 0.5, recency_weight: float = 0.2,
                  half_life_days: float = 365.0) -> None:
         self.sessions, self.store, self.embedder, self.bm25 = session_factory, store, embedder, bm25
@@ -98,8 +112,13 @@ class HybridSearcher:
         time_sensitive: bool = False,
         limit: int = 20,
         as_of: date | None = None,
+        record: list[dict] | None = None,
     ) -> list[RetrievedChunk]:
-        """Search for one query or several sub-queries on behalf of `user`."""
+        """Search for one query or several sub-queries on behalf of `user`.
+
+        With `record`, appends what each step did (for the `retrievals` table): per
+        sub-query and method the raw scores and ranks, then the fused list with every
+        weight and multiplier applied."""
         if mode not in MODES:
             raise ValueError(f"mode must be one of {MODES}")
         queries = [queries] if isinstance(queries, str) else list(queries)
@@ -108,7 +127,8 @@ class HybridSearcher:
         # 1. ACL first: both retrievers only ever see permitted chunks.
         with self.sessions() as s:
             allowed = allowed_chunk_ids(s, user, source_types)
-        flt = qdrant_filter(user, source_types)
+        scope = AccessScope(user, tuple(source_types) if source_types else None,
+                            frozenset(allowed))
 
         # 2. Ranked lists per sub-query.
         rankings: list[list[str]] = []
@@ -116,15 +136,19 @@ class HybridSearcher:
         bm25_rank: dict[str, int] = {}
         for q in queries:
             if mode in ("dense", "hybrid_raw", "hybrid"):
-                ids = [cid for cid, _ in self.store.search(self.embedder.embed_query(q), flt, self.top_k)]
+                hits = self.store.search_scoped(self.embedder.embed_query(q), scope, self.top_k)
+                ids = [cid for cid, _ in hits]
                 rankings.append(ids)
                 for r, cid in enumerate(ids, 1):
                     dense_rank[cid] = min(r, dense_rank.get(cid, r))
+                _record_ranked(record, q, "dense", hits)
             if mode in ("bm25", "hybrid_raw", "hybrid"):
-                ids = [cid for cid, _ in self.bm25.search(q, self.top_k, allowed)]
+                hits = self.bm25.search_scoped(q, scope, self.top_k)
+                ids = [cid for cid, _ in hits]
                 rankings.append(ids)
                 for r, cid in enumerate(ids, 1):
                     bm25_rank[cid] = min(r, bm25_rank.get(cid, r))
+                _record_ranked(record, q, "keyword", hits)
 
         # 3. Fuse.
         fused = reciprocal_rank_fusion(rankings, k=self.rrf_k)
@@ -140,21 +164,32 @@ class HybridSearcher:
             if cid not in allowed or not can_see(user, m.access_level, m.engagement_id):
                 log.error("ACL violation blocked: %s returned for %s", cid, user.user_id)
                 continue
-            factor = 1.0
+            applied: dict[str, float] = {}
             if mode == "hybrid":
-                factor = adjustment(superseded=m.superseded, effective_date=m.effective_date,
-                                    time_sensitive=time_sensitive, as_of=as_of,
-                                    superseded_weight=self.superseded_weight,
-                                    recency_weight=self.recency_weight,
-                                    half_life_days=self.half_life_days)
+                applied = multipliers(superseded=m.superseded, effective_date=m.effective_date,
+                                      time_sensitive=time_sensitive, as_of=as_of,
+                                      superseded_weight=self.superseded_weight,
+                                      recency_weight=self.recency_weight,
+                                      half_life_days=self.half_life_days)
+            factor = 1.0
+            for value in applied.values():
+                factor *= value
             results.append(RetrievedChunk(
                 chunk_id=cid, doc_id=m.doc_id, title=m.title, source_type=m.source_type,
                 section=m.section, section_title=m.section_title, page_start=m.page_start,
                 page_end=m.page_end, effective_date=m.effective_date, superseded=m.superseded,
                 text=m.text, score=rrf_score * factor, rrf_score=rrf_score,
-                dense_rank=dense_rank.get(cid), bm25_rank=bm25_rank.get(cid)))
+                dense_rank=dense_rank.get(cid), bm25_rank=bm25_rank.get(cid),
+                multipliers=applied))
         results.sort(key=lambda r: (-r.score, r.chunk_id))
-        return results[:limit]
+        results = results[:limit]
+        if record is not None:
+            record.append({"sub_query": " || ".join(queries), "method": "fused", "scores": [
+                {"chunk_id": r.chunk_id, "rank": rank, "rrf_score": round(r.rrf_score, 6),
+                 "weights": dict(RETRIEVER_WEIGHTS),
+                 "multipliers": {k: round(v, 6) for k, v in r.multipliers.items()},
+                 "final_score": round(r.score, 6)} for rank, r in enumerate(results, 1)]})
+        return results
 
     def _metadata(self, chunk_ids: list[str]) -> dict[str, _Meta]:
         if not chunk_ids:
@@ -177,18 +212,18 @@ class HybridSearcher:
 
 def build_searcher(settings: Settings, embedder: Embedder | None = None,
                    qdrant_client: QdrantClient | None = None) -> HybridSearcher:
-    """Searcher over the real local indexes (SQLite file, data/qdrant, BGE model)."""
-    engine = make_engine(settings.sqlite_url)
-    init_db(engine)  # idempotent; also adds columns introduced after the DB was created
-    sessions = make_session_factory(engine)
+    """Searcher over the real indexes of the active profile (lite: SQLite file,
+    data/qdrant, in-memory BM25; full: PostgreSQL, Qdrant server, OpenSearch)."""
+    from app.adapters import open_keyword_index, open_metadata_store, open_vector_index
+
+    metadata = open_metadata_store(settings)
+    metadata.initialise()  # idempotent: creates or upgrades the schema
     embedder = embedder or BgeEmbedder(settings.embedding_model, settings.embed_batch_size)
-    client = qdrant_client or open_qdrant(settings.qdrant_path)
-    bm25 = Bm25Index()
-    with sessions() as s:
-        bm25.rebuild_from_db(s)
+    keyword = open_keyword_index(settings)
+    keyword.refresh(metadata.sessions)  # lite: load BM25 from the metadata store
     return HybridSearcher(
-        session_factory=sessions,
-        store=QdrantStore(client, settings.qdrant_collection, embedder.dim),
-        embedder=embedder, bm25=bm25, rrf_k=settings.rrf_k, top_k=settings.retrieval_top_k,
+        session_factory=metadata.sessions,
+        store=open_vector_index(settings, embedder.dim, embedded_client=qdrant_client),
+        embedder=embedder, bm25=keyword, rrf_k=settings.rrf_k, top_k=settings.retrieval_top_k,
         superseded_weight=settings.superseded_weight, recency_weight=settings.recency_weight,
         half_life_days=settings.recency_half_life_days)

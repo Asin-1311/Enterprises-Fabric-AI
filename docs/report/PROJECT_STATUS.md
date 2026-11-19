@@ -4,6 +4,10 @@ Maintained by hand. It contains no metrics: every number lives in [RESULTS.md](R
 which `scripts/make_report.py` generates from `eval/results/`.
 Status as of 2026-11-18.
 
+> **Phase 2:** requirement-by-requirement status now lives in
+> [COMPLIANCE.md](COMPLIANCE.md), the single source of truth (CLAUDE.md section 16).
+> This file records Phase 1 (M0-M8) as audited.
+
 The project document's "Work Completed" table lists every item as Completed. This table
 shows the real status instead. "Done" means the item exists and its tests pass.
 
