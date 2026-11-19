@@ -23,6 +23,7 @@ from sqlalchemy.exc import DBAPIError
 
 from app.config import get_settings
 from app.db.models import Chunk, Document, User
+from app.ingest.manifest import read_manifest
 from app.ports import AccessScope
 from app.retrieval.acl import allowed_chunk_ids, can_see, load_user, qdrant_filter
 from tests import port_contracts as contract
@@ -165,7 +166,7 @@ def test_synthetic_corpus_on_the_full_stack_and_access_agreement(
                       store=qdrant_server, embedder=HashingEmbedder(), bm25=opensearch_index,
                       synthetic_manifest_path=data / "manifest.synthetic.csv")
     report = indexer.sync(actor="integration-test")
-    assert len(report.indexed) == 40
+    assert len(report.indexed) == len(read_manifest(root / "data" / "manifest.synthetic.csv")[1])  # 42 since M13a
 
     with pg_store.sessions() as s:
         n_chunks = s.query(Chunk).count()
@@ -550,3 +551,43 @@ def test_a_dms_row_update_reaches_every_index_through_debezium_within_60_seconds
         bridge.close()
         worker.close()
         bus.close()
+
+
+# ----------------------------------------------------------------- OPA (M13a)
+
+def test_opa_policy_tests_pass() -> None:
+    """Covers: R-12-opa (`opa test policy/`, run in the pinned OPA image)."""
+    import shutil
+    import subprocess
+    from pathlib import Path
+
+    if shutil.which("docker") is None:
+        pytest.skip("docker is not available")
+    policy = Path(__file__).resolve().parents[2] / "policy"
+    done = subprocess.run(["docker", "run", "--rm", "-v", f"{policy}:/policy:ro",
+                           "openpolicyagent/opa:1.4.2", "test", "/policy", "-v"],
+                          capture_output=True, text=True, timeout=300)
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert "PASS: 7/7" in done.stdout
+
+
+def test_opa_server_agrees_with_the_prefilter_on_every_chunk_for_every_user(tmp_path, settings) -> None:
+    """Covers: R-12-opa. For every synthetic user and every chunk of the synthetic corpus,
+    the OPA server (policy/document_access.rego) allows exactly what the index pre-filter
+    allows: one batch call per user."""
+    from app.adapters.full.policy import OpaPolicyEngine
+    from app.db.models import User
+    from tests.helpers import make_indexer
+    from tests.test_policy import candidates
+
+    engine = OpaPolicyEngine(_need(settings.opa_url, "OPA_URL", "identity", 8181))
+    root = _clean_clone(tmp_path)
+    indexer = make_indexer(root, synthetic_fallback=True)
+    indexer.sync(actor="test")
+    with indexer.sessions() as s:
+        ids, docs = candidates(s)
+        users = [load_user(s, u) for u in s.scalars(select(User.user_id))]
+        for user in users:
+            decided = {cid for cid, ok in zip(ids, engine.allowed(user, docs)) if ok}
+            assert decided == allowed_chunk_ids(s, user), user.user_id
+    assert len(users) >= 8 and len(ids) > 100

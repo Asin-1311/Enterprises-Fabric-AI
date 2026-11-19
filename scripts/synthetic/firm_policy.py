@@ -435,7 +435,36 @@ client register.
 """,
 )
 
+KEY_CUSTODY = SynthDoc(
+    doc_id="POL-SEC-01",
+    filename="client_data_key_custody_procedure_v1.md",
+    source_type="firm_policy",
+    title="Client Data Encryption Key Custody Procedure",
+    version="1.0",
+    effective_date="2026-03-01",
+    access_level="staff",
+    classification="restricted",
+    body=f"""# Client Data Encryption Key Custody Procedure
+
+{FIRM}. Version 1.0, effective 1 March 2026. Restricted: not to be sent to any external
+service.
+
+## 1. Purpose
+Engagement files are encrypted; this procedure says who holds the keys and how a lost key
+is recovered.
+
+## 2. Custody
+Each engagement's key is held in the firm's key vault. Two custodians, the IT manager and
+the quality partner, must both approve a key recovery.
+
+## 3. Recovery
+A recovery request names the engagement, the reason and the requesting partner, and is
+logged in the IT register with both custodians' approvals.
+""",
+)
+
 DOCS: list[SynthDoc] = [
+    KEY_CUSTODY,
     METHODOLOGY,
     MATERIALITY_V1,
     MATERIALITY_V2,

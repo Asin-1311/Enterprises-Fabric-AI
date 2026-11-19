@@ -156,7 +156,8 @@ def test_scheduled_jobs_name_real_commands() -> None:
 
     from flows.jobs import JOBS
 
-    assert set(JOBS) == {"nightly-reconciliation", "nightly-retrieval-eval"}
+    assert set(JOBS) == {"nightly-retention-purge", "nightly-reconciliation",
+                         "nightly-retrieval-eval"}
     for job in JOBS.values():
         assert len(job.cron.split()) == 5
         assert job.argv[:1] == ["-m"] and importlib.util.find_spec(job.argv[1]) is not None

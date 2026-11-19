@@ -181,3 +181,21 @@ class Connector(Protocol):
         """(events for every change since `state`, the new state to save after the
         events are published). `state` is what the previous poll returned ({} at first)."""
         ...
+
+
+class PolicyUnavailable(RuntimeError):
+    """The policy engine could not decide: the search fails closed (nothing is shown)."""
+
+
+@runtime_checkable
+class PolicyEngine(Protocol):
+    """Decides which candidate chunks a user may see (spec section 12; M13): OPA in the
+    full profile, the same rules in code in lite. Called once per search with every
+    candidate, after retrieval and before re-ranking."""
+
+    name: str
+
+    def allowed(self, user: UserContext, documents: Sequence[dict[str, Any]]) -> list[bool]:
+        """One decision per document (keys: doc_id, access_level, engagement_id,
+        source_type, classification). Raises PolicyUnavailable if it cannot decide."""
+        ...

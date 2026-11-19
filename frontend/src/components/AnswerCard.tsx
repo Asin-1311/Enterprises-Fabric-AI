@@ -23,6 +23,10 @@ const STATUS_NOTE: Partial<Record<AnswerStatus, { tone: string; text: string }>>
     tone: "bg-amber-50 text-amber-800",
     text: "Not enough could be verified. Rephrase the question, or ask your engagement manager.",
   },
+  restricted_unavailable: {
+    tone: "bg-amber-50 text-amber-800",
+    text: "Restricted material is read only by the firm's private model, which is not available now.",
+  },
 };
 
 interface Props {

@@ -8,11 +8,12 @@ exit code and output. flows/serve.py turns this list into Prefect deployments.
 
 | job                     | when (Asia/Kolkata) | what                                          |
 |-------------------------|---------------------|-----------------------------------------------|
+| nightly-retention-purge | 01:00 daily         | python -m app.security.retention (M13a)       |
 | nightly-reconciliation  | 01:30 daily         | python -m app.ingest.reconcile                |
 | nightly-retrieval-eval  | 02:00 daily         | python -m eval.run_retrieval_eval (no LLM calls) |
 
-Added by later milestones: the weekly answer sample for human review (M18) and the trace
-retention purge (M13). The retrieval regression gate itself is M18.
+Added by a later milestone: the weekly answer sample for human review (M18). The
+retrieval regression gate itself is M18.
 """
 
 import os
@@ -34,6 +35,9 @@ class Job:
 
 
 JOBS: dict[str, Job] = {
+    "nightly-retention-purge": Job(
+        "Delete traces and retrieval records older than TRACE_RETENTION_DAYS.", "0 1 * * *",
+        ["-m", "app.security.retention"]),
     "nightly-reconciliation": Job(
         "Compare every source with the indexes and repair drift.", "30 1 * * *",
         ["-m", "app.ingest.reconcile"]),

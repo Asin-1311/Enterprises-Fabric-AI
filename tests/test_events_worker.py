@@ -122,12 +122,18 @@ def test_every_document_and_index_payload_carries_the_enriched_fields(tmp_path) 
     indexer.sync(actor="test")
     with indexer.sessions() as s:
         docs = list(s.scalars(select(Document)))
-    assert len(docs) == 40
+    from app.ingest.manifest import read_manifest
+    from tests.test_clean_clone import DATA
+
+    assert len(docs) == len(read_manifest(DATA / "manifest.synthetic.csv")[1])  # 42 since M13a
+    # M13a: exactly the two documents defined as restricted.
+    assert {d.doc_id for d in docs if d.classification == "restricted"} == {"POL-SEC-01", "ENG-NWT-ALLEG"}
     for d in docs:
         assert d.source_id == f"fs-{d.source_type}" and d.uri == d.path and d.updated_at
-        assert d.classification in ("public_internal", "confidential") and d.owner, d.doc_id
-        assert (d.classification == "confidential") == (
-            d.source_type == "engagement" or d.access_level != "staff"), d.doc_id
+        assert d.classification in ("public_internal", "confidential", "restricted") and d.owner, d.doc_id
+        if d.classification != "restricted":
+            assert (d.classification == "confidential") == (
+                d.source_type == "engagement" or d.access_level != "staff"), d.doc_id
         for payload in indexer.store.payloads(d.doc_id):
             assert payload["source_id"] == d.source_id
             assert payload["classification"] == d.classification

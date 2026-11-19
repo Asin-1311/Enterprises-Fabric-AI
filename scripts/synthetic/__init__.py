@@ -25,3 +25,6 @@ class SynthDoc:
     body: str  # Markdown, WITHOUT the banner line (the writer adds it)
     supersedes: str = ""
     engagement_id: str = ""
+    # M13: "" = the default rule in people.governance(); "restricted" = sent only to the
+    # private model (CLAUDE.md section 12).
+    classification: str = ""

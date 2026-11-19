@@ -7,6 +7,7 @@ STD-CH08,data/corpus/standards/ch08_audit_report.pdf,standards,"ICAI Auditing an
 STD-CH09,data/corpus/standards/ch09_special_features_of_audit_of_different_entities.pdf,standards,"ICAI Auditing and Ethics, Chapter 9: Special Features of Audit of Different Types of Entities",ICAI study material,2025-04-01,,staff,,false,fs-standards,,public_internal
 STD-CH10,data/corpus/standards/ch10_audit_of_banks.pdf,standards,"ICAI Auditing and Ethics, Chapter 10: Audit of Banks",ICAI study material,2025-04-01,,staff,,false,fs-standards,,public_internal
 STD-CH11,data/corpus/standards/ch11_ethics_and_terms_of_audit_engagements.pdf,standards,"ICAI Auditing and Ethics, Chapter 11: Ethics and Terms of Audit Engagements",ICAI study material,2025-04-01,,staff,,false,fs-standards,,public_internal
+POL-SEC-01,data/corpus/firm_policy/client_data_key_custody_procedure_v1.md,firm_policy,Client Data Encryption Key Custody Procedure,1.0,2026-03-01,,staff,,true,fs-firm_policy,P02,restricted
 POL-METH-01,data/corpus/firm_policy/audit_methodology_manual_v3.md,firm_policy,Audit Methodology Manual,3.0,2024-04-01,,staff,,true,fs-firm_policy,P02,public_internal
 POL-MAT-01,data/corpus/firm_policy/materiality_policy_v1.md,firm_policy,Materiality Policy,1.0,2023-04-01,,manager,,true,fs-firm_policy,P02,confidential
 POL-MAT-02,data/corpus/firm_policy/materiality_policy_v2.md,firm_policy,Materiality Policy,2.0,2025-04-01,POL-MAT-01,manager,,true,fs-firm_policy,P02,confidential
@@ -37,6 +38,7 @@ TPL-AR-01,data/corpus/templates/audit_report_formats.md,templates,Template: Audi
 CAL-FY2526,data/corpus/calendar/compliance_calendar_fy2025_26.md,calendar,Compliance Calendar FY 2025-26,1.0,2025-04-01,,staff,,true,fs-calendar,M02,public_internal
 CAL-FY2627,data/corpus/calendar/compliance_calendar_fy2026_27.md,calendar,Compliance Calendar FY 2026-27,1.0,2026-04-01,,staff,,true,fs-calendar,M02,public_internal
 FAQ-01,data/corpus/faq/article_assistant_helpdesk_faq.md,faq,Article Assistant Helpdesk FAQ,4.0,2025-09-15,,staff,,true,fs-faq,M02,public_internal
+ENG-NWT-ALLEG,data/corpus/engagement/northwind_textiles/anonymous_allegation_note_fy2025_26.md,engagement,Northwind Textiles: Note on an Anonymous Allegation FY 2025-26,1.0,2026-02-03,,manager,ENG-NWT-FY26,true,fs-engagement,P01,restricted
 ENG-NWT-PLAN,data/corpus/engagement/northwind_textiles/planning_memo_fy2025_26.md,engagement,Northwind Textiles: Audit Planning Memo FY 2025-26,1.0,2026-01-12,,staff,ENG-NWT-FY26,true,fs-engagement,P01,confidential
 ENG-NWT-MAT,data/corpus/engagement/northwind_textiles/materiality_working_fy2025_26.md,engagement,Northwind Textiles: Materiality Working FY 2025-26,1.0,2026-01-12,,manager,ENG-NWT-FY26,true,fs-engagement,P01,confidential
 ENG-NWT-RISK,data/corpus/engagement/northwind_textiles/risk_assessment_fy2025_26.md,engagement,Northwind Textiles: Risk Assessment Summary FY 2025-26,1.0,2026-01-20,,staff,ENG-NWT-FY26,true,fs-engagement,P01,confidential

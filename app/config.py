@@ -95,6 +95,17 @@ class Settings(BaseSettings):
     # Working copies kept by connectors (the git connector's local mirror); git-ignored.
     connectors_dir: Path = PROJECT_ROOT / "data" / "connectors"
 
+    # --- Policy and data handling (M13) ----------------------------------------
+    # Who decides per-chunk access after retrieval: OPA (full) or the same rules in code.
+    policy_engine: Literal["auto", "code", "opa"] = "auto"
+    opa_url: str = "http://127.0.0.1:8181"
+    # Traces and retrieval records older than this are purged (audit_log never is).
+    trace_retention_days: int = 90
+    # The private model for documents classified "restricted" (Ollama). Empty: none, and
+    # restricted content is refused rather than sent to an external model.
+    private_model: str = ""
+    ollama_url: str = "http://127.0.0.1:11434"
+
     # --- Chunking -----------------------------------------------------------
     chunk_max_tokens: int = 400
     chunk_overlap_tokens: int = 50

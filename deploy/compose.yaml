@@ -3,6 +3,7 @@
 # Start a group (from the project root; credentials come from .env, never from git):
 #   docker compose --env-file .env -f deploy/compose.yaml --profile core up -d     # PostgreSQL, Qdrant, OpenSearch, Redis
 #   docker compose --env-file .env -f deploy/compose.yaml --profile ingest up -d   # Kafka, MinIO
+#   docker compose --env-file .env -f deploy/compose.yaml --profile identity up -d # OPA (Keycloak: M13b)
 #   docker compose --env-file .env -f deploy/compose.yaml --profile full up -d     # all of the above + Debezium
 # Stop:            docker compose --env-file .env -f deploy/compose.yaml --profile full down
 # Stop and ERASE:  ... --profile full down -v   (deletes the volumes: all full-profile data)
@@ -179,6 +180,19 @@ services:
     deploy:
       resources:
         limits: {memory: 768m}
+
+  opa:
+    # Open Policy Agent: decides per candidate chunk whether the user may see it, from
+    # policy/document_access.rego (M13). The policy folder is mounted read-only; OPA
+    # reloads it when the files change (--watch).
+    image: openpolicyagent/opa:1.4.2
+    profiles: [identity, full]
+    command: ["run", "--server", "--addr", "0.0.0.0:8181", "--watch", "/policy/document_access.rego"]
+    volumes: ["../policy:/policy:ro"]
+    ports: ["127.0.0.1:8181:8181"]
+    deploy:
+      resources:
+        limits: {memory: 128m}
 
 volumes:
   postgres-data:

@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from app.agents.llm import LLMCaller, LLMResult
 from app.agents.synthesizer import CITATION
 from app.agents.verifier import extract_claims
-from app.security.injection import UNTRUSTED_DATA_RULE, wrap_document
+from app.security.injection import UNTRUSTED_DATA_RULE, restricted_attributes, wrap_document
 
 SCORES = {"correct": 1.0, "partially_correct": 0.5, "incorrect": 0.0}
 
@@ -86,14 +86,16 @@ class Judgement:
 
 
 def judge_answer(*, question: dict, answer_text: str, cited_texts: dict[str, str],
-                 llm: LLMCaller) -> tuple[Judgement, LLMResult]:
-    """Grade one answer. `cited_texts` maps chunk_id -> full chunk text."""
+                 llm: LLMCaller, restricted: frozenset[str] = frozenset()) -> tuple[Judgement, LLMResult]:
+    """Grade one answer. `cited_texts` maps chunk_id -> full chunk text. Chunks in
+    `restricted` are marked, so a model router never sends them to an external judge."""
     _, claims = extract_claims(answer_text)
     pairs = [(c.id, cid) for c in claims for cid in c.citations]
     listed = "\n".join(f"[claim {c.id}] cites: {', '.join(c.citations) or 'NONE'}\n"
                        f"{CITATION.sub('', c.text).strip()}" for c in claims) or "(no claims)"
     pair_list = "\n".join(f"- claim {i} / {cid}" for i, cid in pairs) or "(none)"
-    docs = "\n\n".join(wrap_document(t, cite=cid) for cid, t in cited_texts.items()) or "(none)"
+    docs = "\n\n".join(wrap_document(t, cite=cid, **restricted_attributes(
+        "restricted" if cid in restricted else None)) for cid, t in cited_texts.items()) or "(none)"
     forbidden = question.get("forbidden_facts") or []
     user = (f"Category: {question.get('category', '')}\nQuestion: {question['question']}\n"
             f"GOLD answer: {question['gold_answer']}\n"

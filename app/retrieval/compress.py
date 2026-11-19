@@ -14,7 +14,7 @@ import re
 from dataclasses import dataclass
 
 from app.agents.llm import LLMCaller, LLMResult
-from app.security.injection import UNTRUSTED_DATA_RULE, wrap_document
+from app.security.injection import UNTRUSTED_DATA_RULE, restricted_attributes, wrap_document
 
 _SENTENCE_END = re.compile(r"(?<=[.;:?!])\s+(?=[A-Z(\-\d₹\"'])")
 FALLBACK_SENTENCES = 3
@@ -77,13 +77,16 @@ def _parts(text: str) -> tuple[str, list[str]]:
     return heading, split_sentences(body)
 
 
-def compress(question: str, chunks: list[tuple[str, str]], llm: LLMCaller) -> tuple[list[CompressedChunk], LLMResult]:
-    """Compress (chunk_id, text) pairs, in rank order. Returns kept chunks and the LLM result."""
+def compress(question: str, chunks: list[tuple[str, str]], llm: LLMCaller,
+             restricted: frozenset[str] = frozenset()) -> tuple[list[CompressedChunk], LLMResult]:
+    """Compress (chunk_id, text) pairs, in rank order. Returns kept chunks and the LLM result.
+    Chunks in `restricted` are marked, so only the private model reads them (M13a)."""
     parsed = {cid: _parts(text) for cid, text in chunks}
     blocks = []
     for cid, (heading, sentences) in parsed.items():
         numbered = "\n".join(f"[{i}] {s}" for i, s in enumerate(sentences, 1))
-        blocks.append(wrap_document(f"{heading}\n{numbered}", chunk_id=cid))
+        blocks.append(wrap_document(f"{heading}\n{numbered}", chunk_id=cid,
+                                    **restricted_attributes("restricted" if cid in restricted else None)))
     user = f"Question: {question}\n\n" + "\n\n".join(blocks)
     result = llm.call(purpose="compress", role="light", system=SYSTEM, user=user,
                       max_tokens=2000, schema=SCHEMA)
