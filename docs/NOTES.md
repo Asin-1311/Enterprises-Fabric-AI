@@ -1706,3 +1706,136 @@ event would hold up the queue, however, so M12d adds a retry limit and a dead-le
 - Tests (2026-11-19): default suite 408 passed, 0 skipped (22 new); integration 8 passed
   (including events over Kafka into PostgreSQL, Qdrant and OpenSearch); frontend 20 passed;
   `check_compliance.py --run` passes.
+
+
+## M12b: Stable chunk ids, chunk-level updates and chunking profiles (2026-11-19)
+
+Branch `m12b-chunk-updates`, made from `phase2` after M12a was merged.
+
+### What was built
+- **Stable chunk ids (`app/ingest/chunker.py`):** `<doc_id>:<section>:<window>`, for
+  example `STD-CH06:1.9:1`.
+  - The section part is the section number. A section without one (a document lead, an
+    FAQ question) gets `h-` or `q-` plus six hex digits of its heading, e.g.
+    `FAQ-01:q-3f9a2c:1`.
+  - A section key that repeats in one document gets `-2`, `-3`.
+  - Windows are numbered from 1 within their section.
+  - Before, ids were a running number (`STD-CH06:0004`), so inserting one section
+    renumbered every chunk after it.
+- **A content hash per chunk:** SHA-256 of the chunk text, which is exactly what the
+  embedding is computed from.
+- **Chunk-level updates (`app/ingest/indexer.py`, `_plan`):** when a document changes, it
+  is re-chunked and each new chunk is one of:
+  - **kept:** same id and text, so it is not touched in any index;
+  - **reused:** the same text existed under another id, so the stored vector is copied;
+  - **embedded:** the text is new or changed.
+
+  Old chunks whose id disappeared are deleted from SQLite, Qdrant and the keyword index.
+  A forced re-index (`POST /documents/reindex`) still embeds every chunk of that document.
+- **Two new port methods:** `delete_chunks` (both index ports) and `vectors` (the vector
+  port, to read stored vectors back). All four adapters implement them, and the shared
+  port contract tests them in lite and, in the integration job, in OpenSearch and the
+  Qdrant server.
+- **Chunking profiles (`app/ingest/chunking_profiles.py`):** one per source type. Each
+  holds the window size, the overlap and the keep-whole rule:
+  - FAQ: each question and answer whole;
+  - checklists: each item group whole;
+  - standards: ICAI illustration blocks whole;
+  - tables are always whole.
+
+  Every chunk records its profile, for example `faq@1:400/50`. A chunk also records the
+  embedding model that made its vector (`embedding_ref`). Changing a profile re-chunks only
+  that source type's documents; changing the embedding model re-embeds everything.
+- **Old ids keep working:** each chunk stores the Phase 1 id that had the same text
+  (`legacy_chunk_id`; migration `0003`, and `init_db` for SQLite).
+  - The API resolves old citations through it, so answers in History still open their
+    sources.
+  - The citation pattern in the answer checker, the verifier and the UI accepts both
+    forms.
+  - Text that changed gets no old id, so an old citation never silently points at
+    different text.
+- **One-time conversion (`scripts/migrate_chunk_ids.py`):**
+  - backs up `data/fabric.db` and `data/qdrant` to `data/backups/` (git-ignored);
+  - runs a sync, which converts every document and reuses stored vectors;
+  - checks the result and writes a JSON report.
+
+### The conversion of the author's index (2026-11-19)
+- **Re-chunked:** 257 documents. One document (`CAF-P1-50`) has no chunks, before and
+  after.
+- **Chunks:** 15,705 before and after.
+  - 15,562 reused their stored vector.
+  - 143 were embedded again.
+  - 15,705 old ids were deleted, from SQLite and Qdrant alike.
+- **Ids:** no Phase 1 ids are left; 15,562 chunks carry their old id.
+- **Why 143 chunks had different text:** the stored Phase 1 chunks of some ICAI/CA Final
+  PDFs were not what the Phase 1 code produces today.
+  - Checked on three documents, by running the chunker from tag `phase1-final` against the
+    stored text. The M12b chunker produced exactly what the Phase 1 code produces today;
+    the stored chunks differed.
+  - For example, the stored chunks titled CA Final Paper 3, Chapter 7, section 6 "SA 706
+    EMPHASIS OF MATTER PARAGRAPHS"; today's parser falls back to "Section 6". So the
+    heading line and some window boundaries differ.
+  - Those PDFs were indexed on 7–8 November and never re-chunked, because their files did
+    not change. Git history starts on 18 November, so which earlier change caused it cannot
+    be shown.
+- **Three old citations no longer resolve:** `CAF-P3-08:0065`, `0066` and `0072`, all from
+  one stored answer (#75, 13 November). Their text changed, so they got no old id. The
+  author chose to leave them unresolved rather than point them at different text.
+- **The full profile:** its volumes were erased (`down -v`, approved by the author) and
+  the converted index was copied in again. PostgreSQL is at migration `0003` with the same
+  counts.
+- **Peak Qdrant size:** while converting, embedded Qdrant held new and old points
+  together, about 20,000 at most (it warns above 20,000), before the old points were
+  deleted.
+
+### Retrieval before and after (no LLM calls)
+- **Runs:** `eval/results/20261119-145815_retrieval` (before) and
+  `20261119-151731_retrieval` (after).
+- **Unchanged:** `hybrid` (the system), `dense` and `bm25` have identical recall@5,
+  recall@10, MRR, nDCG@10 and superseded ordering. Role and engagement leaks are 0.000 in
+  both runs.
+- **One mode changed:** `hybrid_raw` (plain RRF, not used by the system).
+  - MRR went from 0.804 to 0.816 and nDCG@10 from 0.845 to 0.853.
+  - superseded ordering went from 0.500 to 0.583.
+  - The cause is one question (q024): two versions of the materiality policy swapped
+    places.
+- **Why rankings moved at all:** ranking ties are broken by chunk id
+  (`app/retrieval/fusion.py`, `app/retrieval/hybrid.py`), and the ids changed. In one
+  dense result (q042), one of the 143 re-chunked texts now reaches the top 10.
+- **Reviewed questions:** 0 of 63.
+
+### Kept as it was, on purpose
+- **The audit log:** the `reindex` entry keeps its Phase 1 wording, `<doc> (<n> chunks)`.
+  The kept/reused/embedded/deleted counts go to the server log and the sync report.
+- **The prompts:** the synthesis prompts still give `[STD-CH06:0012]` as an example of a
+  cite id. The model is told to copy ids exactly from the evidence, which now shows the new
+  form. Changing the example is a prompt version change, which needs the prompt registry
+  and replay tests (M14, M15).
+
+### Why it matters
+- **Freshness at low cost:** an edit to one policy section re-embeds that section only.
+  That is what makes frequent change events (M12a, M12d) affordable on a laptop.
+- **Indexes stay in step:** one plan decides what changes, and the same plan is applied to
+  all three stores, so they cannot disagree about which chunks exist.
+- **Old answers stay checkable:** a citation in an old answer still opens the text it was
+  based on, or visibly does not, never a different text.
+
+### Likely viva questions
+- *Why not just re-embed the whole document?* It is simple, but the cost grows with the
+  document. The largest ICAI chapter has over 600 chunks; editing one paragraph should
+  not cost 600 embeddings.
+- *What if two sections have the same text?* Each old chunk is matched to at most one
+  new chunk, so a duplicate is embedded once more rather than shared.
+- *How do you know the conversion changed nothing?* The retrieval evaluation was run before
+  and after on the same 63 questions. The system's metrics are identical, and every
+  difference is listed above with its cause.
+
+### Status
+- **Met:** R-7.1-b, R-7.2.
+- **COMPLIANCE.md:** 43 requirements; 10 Met, 24 Partial, 9 Not met.
+- **Tests (2026-11-19):**
+  - default suite: 424 passed (16 new);
+  - integration: 8 passed (port contracts with `delete_chunks` and `vectors` in OpenSearch
+    and the Qdrant server);
+  - frontend: 21 passed (1 new);
+  - `check_compliance.py --run`: passes.

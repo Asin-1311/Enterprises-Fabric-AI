@@ -52,12 +52,15 @@ _ADDED_COLUMNS = [
     ("answers", "flagged_claims", "JSON"),
     ("citations", "span_start", "INTEGER"),
     ("citations", "span_end", "INTEGER"),
+    # M12b
+    ("chunks", "legacy_chunk_id", "VARCHAR"),
 ]
 # SQLite cannot add a UNIQUE column with ALTER TABLE, so an older database gets a
 # unique index instead (a new database has the constraint from create_all as well).
 _ADDED_INDEXES = [
     "CREATE UNIQUE INDEX IF NOT EXISTS ux_users_email ON users(email)",
     "CREATE INDEX IF NOT EXISTS ix_documents_source_id ON documents(source_id)",
+    "CREATE INDEX IF NOT EXISTS ix_chunks_legacy_chunk_id ON chunks(legacy_chunk_id)",
 ]
 
 

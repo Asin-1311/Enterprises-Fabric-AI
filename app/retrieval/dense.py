@@ -46,6 +46,7 @@ class BgeEmbedder:
         from sentence_transformers import SentenceTransformer  # heavy import, load lazily
 
         self.model = SentenceTransformer(model_name, device="cpu")
+        self.model_name = model_name  # recorded on every chunk as embedding_ref (M12b)
         self.batch_size = batch_size
         self.dim = int(self.model.get_embedding_dimension())
 
@@ -125,6 +126,24 @@ class QdrantStore:
         self.client.delete(self.collection,
                            points_selector=models.FilterSelector(filter=_doc_filter(doc_id)),
                            wait=True)
+
+    def delete_chunks(self, chunk_ids: Sequence[str]) -> None:
+        """Remove the points of these chunks only (M12b)."""
+        if chunk_ids:
+            self.client.delete(self.collection, wait=True, points_selector=models.PointIdsList(
+                points=[point_id(c) for c in chunk_ids]))
+
+    def vectors(self, chunk_ids: Sequence[str]) -> dict[str, list[float]]:
+        """Stored vectors by chunk id (ids without a point are left out)."""
+        out: dict[str, list[float]] = {}
+        ids = list(chunk_ids)
+        for start in range(0, len(ids), 256):
+            points = self.client.retrieve(self.collection, ids=[point_id(c) for c in ids[start:start + 256]],
+                                          with_payload=["chunk_id"], with_vectors=True)
+            for p in points:
+                if p.payload and p.vector is not None:
+                    out[p.payload["chunk_id"]] = list(p.vector)  # type: ignore[arg-type]
+        return out
 
     def set_document_payload(self, doc_id: str, payload: dict) -> None:
         """Update payload fields (e.g. access_level, superseded) on all points of a document."""

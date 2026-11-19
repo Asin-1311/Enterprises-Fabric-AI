@@ -254,6 +254,15 @@ def test_invalid_citations_are_removed() -> None:
     assert "[FAKE:9999]" not in text and "[X:0001]" in text
 
 
+def test_stable_and_phase1_citation_ids_are_both_recognised() -> None:
+    """M12b: stable ids (<doc>:<section>:<window>) and Phase 1 ids are both citations."""
+    text, valid, invalid = check_citations(
+        "A [STD-CH06:1.9:1]. B [FAQ-01:q-3f9a2c:2]. C [POL-2:0003]. D [GONE:2.1:1]. E [note].",
+        {"STD-CH06:1.9:1", "FAQ-01:q-3f9a2c:2", "POL-2:0003"})
+    assert valid == ["STD-CH06:1.9:1", "FAQ-01:q-3f9a2c:2", "POL-2:0003"]
+    assert invalid == ["GONE:2.1:1"] and "[note]" in text
+
+
 # ------------------------------------------------------------ graph end-to-end
 
 def test_answer_has_citations_traces_and_judgement_note(world) -> None:

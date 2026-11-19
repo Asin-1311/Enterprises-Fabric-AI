@@ -34,7 +34,8 @@ from app.security.injection import UNTRUSTED_DATA_RULE, wrap_document
 _SENTENCE = re.compile(
     r"(?:(?<!\bvs\.)(?<!\be\.g\.)(?<!\bi\.e\.)(?<!\bpp\.)(?<!\bp\.)(?<!\bno\.)(?<!\bNo\.)(?<!\bviz\.)"
     r"(?<=[.!?])\s+(?=[^\[\s])"
-    r"|(?<=:\d{4}\])\s+(?=[A-Z*(]))")
+    # After a citation: ":" + 1-4 digits + "]" ends both id forms (fixed-width lookbehinds).
+    r"|(?:(?<=:\d\])|(?<=:\d\d\])|(?<=:\d\d\d\])|(?<=:\d{4}\]))\s+(?=[A-Z*(]))")
 _BULLET = re.compile(r"^(\s*(?:[-*•]|\d+[.)])\s+)(.*)$")
 
 SCHEMA = {

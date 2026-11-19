@@ -91,6 +91,14 @@ def check_keyword_index(index: KeywordIndex, sessions: sessionmaker[Session]) ->
     index.refresh(sessions)
     assert _docs(index.search_scoped("materiality", scope(sessions, PARTNER), 10)) == {"POL-1", "ENG-A-1"}
 
+    # M12b: one chunk removed, the rest of its document's index entries stay.
+    with sessions() as s:
+        s.query(Chunk).filter(Chunk.chunk_id == "ENG-A-1:0001").delete()
+        s.commit()
+    index.delete_chunks(["ENG-A-1:0001", "NO-SUCH:0001"])
+    index.refresh(sessions)
+    assert _docs(index.search_scoped("materiality", scope(sessions, PARTNER), 10)) == {"POL-1"}
+
 
 def check_vector_index(index: VectorIndex, sessions: sessionmaker[Session], embed) -> None:
     """Covers: R-6-stack (vector index contract, ACL inside the index)."""
@@ -105,6 +113,13 @@ def check_vector_index(index: VectorIndex, sessions: sessionmaker[Session], embe
     assert index.payloads("POL-1")[0]["access_level"] == "manager"
     index.delete_document("MGR-1")
     assert index.count("MGR-1") == 0 and index.count() == 2
+
+    # M12b: stored vectors can be read back (reused for unchanged text), and single
+    # chunks deleted.
+    stored = index.vectors(["POL-1:0001", "NO-SUCH:0001"])
+    assert set(stored) == {"POL-1:0001"} and len(stored["POL-1:0001"]) == index.dim
+    index.delete_chunks(["ENG-A-1:0001", "NO-SUCH:0001"])
+    assert index.count() == 1 and index.chunk_ids("POL-1") == {"POL-1:0001"}
 
 
 def check_cache(cache: Cache) -> None:

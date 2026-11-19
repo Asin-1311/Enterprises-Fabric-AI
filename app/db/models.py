@@ -150,10 +150,13 @@ class Chunk(Base):
     page_start: Mapped[int | None] = mapped_column(Integer, nullable=True)
     page_end: Mapped[int | None] = mapped_column(Integer, nullable=True)
     sa_refs: Mapped[str | None] = mapped_column(String, nullable=True)  # comma-separated
-    # M11: for chunk-level incremental updates and chunking profiles (filled by M12).
-    content_hash: Mapped[str | None] = mapped_column(String, nullable=True)
-    chunking_profile: Mapped[str | None] = mapped_column(String, nullable=True)
-    embedding_ref: Mapped[str | None] = mapped_column(String, nullable=True)
+    # M11/M12b: chunk-level incremental updates and chunking profiles.
+    content_hash: Mapped[str | None] = mapped_column(String, nullable=True)  # SHA-256 of text
+    chunking_profile: Mapped[str | None] = mapped_column(String, nullable=True)  # "faq@1:400/50"
+    embedding_ref: Mapped[str | None] = mapped_column(String, nullable=True)  # embedding model
+    # M12b: the Phase 1 position id ("STD-CH06:0004") this chunk had before stable ids, so
+    # citations in answers written before M12b still resolve. None for newer chunks.
+    legacy_chunk_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
 
 
 class Query(Base):
