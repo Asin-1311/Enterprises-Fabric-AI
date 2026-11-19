@@ -1508,3 +1508,105 @@ chunks: the SQL allowed set, `can_see`, OpenSearch's filter and Qdrant's filter.
 - COMPLIANCE.md: 43 requirements, 2 Met, 29 Partial, 12 Not met.
 - Tests (2026-11-19): default suite 375 passed, 0 skipped; integration 7 passed with every
   server up; frontend 20 passed, type check clean; `check_compliance.py --run` passes.
+
+---
+
+## M11: Data model and API completion (2026-11-19)
+
+Branch `m11-data-model-api`, made from `m10-ports-adapters` (M10 is pushed with its pull
+request open). Once M10 is merged into `phase2`, M11's pull request shows only its own
+commits.
+
+### What was built
+- **Data model (CLAUDE.md section 9):**
+  - five new tables: `sources`, `retrievals`, `routing_policies`, `prompt_versions`,
+    `feedback_signals`;
+  - new columns: `users.is_admin`, documents' source/uri/owner/classification/updated_at,
+    chunks' content hash/chunking profile/embedding ref, `queries.injection_hits`,
+    traces' prompt and policy versions, `answers.degraded/flagged_claims`, and citation spans.
+  - PostgreSQL gets Alembic migration `0002`; SQLite gets the same columns through
+    `init_db` (author's decision in M10).
+  - Copies of the real SQLite database and of the real PostgreSQL database (15,705 chunks)
+    were upgraded in place: every row count unchanged, no schema drift.
+- **Seeds:**
+  - one filesystem source per corpus folder (`fs-standards`, `fs-engagement`, ...), with
+    every document linked to its source; the engagement folder is classified
+    `confidential`, the others `public_internal`;
+  - routing policy **v1** = the Phase 1 rule-based router;
+  - prompt **v1** for each of the six model-calling steps = the prompts in the code. If
+    the code's prompt changes, the next version is recorded automatically, so a trace never
+    points at an older text than the one actually sent.
+- **Administrator (decision in the plan):** new synthetic user **A01 Kiran Rao**, role
+  **staff** with the admin flag. Admin rights let them manage the system, but give **no**
+  extra document access.
+- **What an answer now records:**
+  - every trace row names the routing-policy version, and model steps name their prompt
+    version;
+  - every search step is a `retrievals` row, one per sub-query and method, with raw scores
+    and ranks; the fused row stores each chunk's retriever weights, named multipliers and
+    final score;
+  - the question's injection-scan hits are stored on `queries`;
+  - each citation stores the character span of its supporting evidence in the chunk.
+- **Endpoints:**
+  - `POST /sources` (admin): checks each connector type's settings and **refuses secrets
+    written into them**, which must be referenced as `env:NAME`.
+  - `GET /sources/{id}/status` (admin): counts, last change, last indexed time and
+    freshness lag.
+  - `POST /documents/reindex`: `{doc_id}`, `{source_id}` or `{all: true}`; now
+    admin-only (it was partner-only).
+  - `PUT /routing-policy` (admin): activation needs a passing replay report, or a version
+    that was active before (a rollback).
+  - `POST /feedback/signals`: implicit signals about your own answers; stored only.
+  - Traces: partners or admins.
+  - `GET /sources/status` (counts per type) is kept, as decided in the plan.
+- **Contract tests:**
+  - every endpoint declares a typed response;
+  - `docs/api/openapi.json` (written by `scripts/export_openapi.py`) must equal what the
+    code generates;
+  - a test calls all 22 endpoints with valid input and checks each response against its
+    schema; a new endpoint without a test case fails.
+
+### A security decision made during M11 (please confirm)
+- **What the live check found:** an administrator could read the full trace of another
+  user's question. Traces contain draft answers and the evidence sentences, so a
+  staff-level admin could have read a partner's engagement material through them. That
+  would break "admin gives no extra document access".
+- **The fix:**
+  - an admin who is **not a partner** now sees each step's agent, model, tokens, timing and
+    versions, with input and output withheld (`content_hidden: true`);
+  - partners see everything, as before;
+  - a test proves both.
+- **Still visible to admins:** operational metadata such as document ids in a re-index
+  report and document counts per source. These are needed to run the system. No document
+  text is ever returned to an admin through admin endpoints.
+
+### Why it matters
+- **Traceability:** a firm must be able to say which instructions and which routing rules
+  produced a given answer. Versions in every trace make that possible, and the gated
+  activation means a new routing policy cannot reach users untested.
+- **Retrieval steps are evidence:** recording every score and multiplier lets the
+  evaluation measure what each adjustment does, instead of guessing.
+- **Secrets stay out of the database:** connector settings live in the database and are
+  shown to admins. A password typed there would leak; references to `.env` do not.
+- **Citation spans:** they let a reviewer jump to the exact sentences an answer rests on,
+  the same discipline as referencing a working paper.
+
+### Likely viva questions
+- *Why is A01 a staff member with an admin flag, not a partner?* To show that
+  administering the system and seeing client files are separate permissions, as in a real
+  firm, where IT staff run the document system without reading the audit files.
+- *What happens when someone tries to activate an untested routing policy?* HTTP 409.
+  Only a version with a passing replay report, or one that served users before, can be
+  activated, and every activation is written to the append-only audit log.
+- *How do you know the OpenAPI document is up to date?* A test compares it with the code on
+  every run. Changing the API without re-exporting it fails the build.
+- *Why are spans "Partial" and not "Met"?* The span covers the compressed evidence region
+  of the chunk. Per-claim spans need the claim-level verification of M14.
+
+### Status
+- Met: R-9-tables, R-10-sources, R-8-record, R-10-reindex, R-10-policy.
+- Advanced (still Partial): R-9-span, R-13.3-contract (API part), R-7.9 (signals stored).
+- COMPLIANCE.md: 43 requirements, 7 Met, 26 Partial, 10 Not met.
+- Tests (2026-11-19): default suite 386 passed, 0 skipped (11 new); integration 7 passed
+  (PostgreSQL drift check now includes migration 0002); frontend 20 passed, type check
+  clean; `check_compliance.py --run` passes.

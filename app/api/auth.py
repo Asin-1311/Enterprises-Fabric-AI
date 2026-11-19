@@ -31,7 +31,11 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.schemas import (
+    AuthConfigOut,
     ForgotPasswordRequest,
+    MessageOut,
+    PasswordResetOut,
+    SignedOutOut,
     LoginRequest,
     RegisterRequest,
     ResetPasswordRequest,
@@ -107,6 +111,7 @@ def user_out(s: Session, user: User) -> UserOut:
             .join(EngagementMember, EngagementMember.engagement_id == Engagement.engagement_id)
             .where(EngagementMember.user_id == user.user_id)))
     return UserOut(user_id=user.user_id, name=user.name, role=user.role, email=user.email,
+                   is_admin=bool(user.is_admin),
                    engagements=engagements)
 
 
@@ -147,7 +152,7 @@ def _next_user_id(s: Session) -> str:
 
 # --------------------------------------------------------------------------- routes
 
-@router.get("/config")
+@router.get("/config", response_model=AuthConfigOut)
 def auth_config(request: Request) -> dict:
     """What the sign-in screen may offer (public: no secrets, no user data)."""
     return {"self_registration": request.app.state.services.settings.allow_self_registration}
@@ -205,7 +210,7 @@ def me(request: Request, user: User = Depends(current_user)) -> UserOut:
         return user_out(s, user)
 
 
-@router.post("/logout")
+@router.post("/logout", response_model=SignedOutOut)
 def logout(request: Request, creds: HTTPAuthorizationCredentials | None = Depends(_bearer),
            user: User = Depends(current_user)) -> dict:
     """End this session (the token stops working immediately)."""
@@ -216,7 +221,8 @@ def logout(request: Request, creds: HTTPAuthorizationCredentials | None = Depend
     return {"signed_out": True}
 
 
-@router.post("/forgot-password", dependencies=[Depends(guard_auth_route)])
+@router.post("/forgot-password", response_model=MessageOut,
+             dependencies=[Depends(guard_auth_route)])
 def forgot_password(req: ForgotPasswordRequest, request: Request) -> dict:
     """Same reply whether or not the email exists. If it does, the one-time link is
     written to the API console (no email server in this project)."""
@@ -236,7 +242,8 @@ def forgot_password(req: ForgotPasswordRequest, request: Request) -> dict:
     return {"message": RESET_SENT}
 
 
-@router.post("/reset-password", dependencies=[Depends(guard_auth_route)])
+@router.post("/reset-password", response_model=PasswordResetOut,
+             dependencies=[Depends(guard_auth_route)])
 def reset_password(req: ResetPasswordRequest, request: Request) -> dict:
     """Set a new password with a valid, unused link; sign the user out everywhere."""
     problem = password_problem(req.password)

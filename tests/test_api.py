@@ -23,10 +23,12 @@ _tokens: dict[str, str] = {}
 
 
 def with_emails(users_csv: str) -> str:
-    """Add an email column (<id>@test.example) to a users.csv text."""
+    """Add email (<id>@test.example) and is_admin columns to a users.csv text, plus an
+    administrator A1: role staff, no engagements, admin flag (M11)."""
     lines = users_csv.strip().splitlines()
-    rows = [lines[0] + ",email"] + [f"{line},{line.split(',')[0].lower()}@test.example"
-                                    for line in lines[1:]]
+    rows = [lines[0] + ",email,is_admin"] + [
+        f"{line},{line.split(',')[0].lower()}@test.example,false" for line in lines[1:]]
+    rows.append("A1,Admin A,staff,true,a1@test.example,true")
     return "\n".join(rows) + "\n"
 
 
@@ -203,6 +205,14 @@ def test_traces_are_partner_only(client) -> None:
     rows = client.get(f"/api/v1/traces/{query_id}", headers=as_user(client, "P1")).json()
     assert [r["agent"] for r in rows][:2] == ["query_understanding", "source_routing"]
     assert rows[0]["model"] == "fake-light" and isinstance(rows[0]["output"], dict)
+    assert not any(r["content_hidden"] for r in rows)
+    # Administrators may inspect traces too (CLAUDE.md section 10), but an admin who is not a
+    # partner sees how each step ran, not the document text or drafts inside it.
+    admin_rows = client.get(f"/api/v1/traces/{query_id}", headers=as_user(client, "A1")).json()
+    assert [r["agent"] for r in admin_rows] == [r["agent"] for r in rows]
+    assert all(r["content_hidden"] and r["input"] is None and r["output"] is None
+               for r in admin_rows)
+    assert admin_rows[0]["model"] == "fake-light" and admin_rows[0]["policy_version_id"]
 
 
 def test_feedback_is_stored_masked(client) -> None:
@@ -225,12 +235,16 @@ def test_feedback_is_stored_masked(client) -> None:
                        headers=as_user(client, "S2")).status_code == 404
 
 
-def test_reindex_is_partner_only_and_logged(client) -> None:
-    assert client.post("/api/v1/documents/reindex", headers=as_user(client, "S1")).status_code == 403
-    r = client.post("/api/v1/documents/reindex", headers=as_user(client, "P1"))
-    assert r.status_code == 200 and r.json()["unchanged"] == len(DOCS)
+def test_reindex_is_admin_only_and_logged(client) -> None:
+    """Re-indexing is an administrative action (M11): not even a partner may do it."""
+    everything = {"all": True}
+    for user in ("S1", "P1"):
+        r = client.post("/api/v1/documents/reindex", json=everything, headers=as_user(client, user))
+        assert r.status_code == 403
+    r = client.post("/api/v1/documents/reindex", json=everything, headers=as_user(client, "A1"))
+    assert r.status_code == 200 and r.json()["unchanged"] == len(DOCS) and r.json()["scope"] == "all"
     with client.indexer.sessions() as s:
-        actions = [a.action for a in s.scalars(select(AuditLog).where(AuditLog.actor == "P1"))]
+        actions = [a.action for a in s.scalars(select(AuditLog).where(AuditLog.actor == "A1"))]
     assert "manual_reindex_requested" in actions
 
 

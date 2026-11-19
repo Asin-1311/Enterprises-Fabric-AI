@@ -29,10 +29,11 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import Settings, get_settings
-from app.db.models import Chunk, Document, Engagement, EngagementMember, User
+from app.db.models import Chunk, Document, Engagement, EngagementMember, Source, User
 from app.db.session import write_audit_log
 from app.ingest.chunker import ChunkingResult, chunk_icai_chapter, chunk_markdown
 from app.ingest.manifest import (
+    SOURCE_TYPES,
     ManifestRow,
     choose_manifest,
     load_engagement_ids,
@@ -70,6 +71,17 @@ def file_hash(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def folder_source_id(source_type: str) -> str:
+    """The registered filesystem source for one corpus folder (M11)."""
+    return f"fs-{source_type}"
+
+
+# Seed classification of each corpus folder's source (M11). Engagement files are client
+# confidential; everything else is internal. Admins can change a source's classification;
+# the per-document classification and the private-model routing come in M12/M13.
+FOLDER_CLASSIFICATION = {"engagement": "confidential"}
+
+
 def _metadata(row: ManifestRow) -> dict:
     """Document fields taken from a manifest row (everything except hash/indexed_at)."""
     return dict(
@@ -77,6 +89,7 @@ def _metadata(row: ManifestRow) -> dict:
         version=row.version or None, effective_date=row.effective_date,
         supersedes=row.supersedes or None, access_level=row.access_level,
         engagement_id=row.engagement_id or None, synthetic=row.is_synthetic,
+        source_id=folder_source_id(row.source_type), uri=row.path,
     )
 
 
@@ -135,7 +148,8 @@ class Indexer:
             for u in csv.DictReader(fu):
                 s.merge(User(user_id=u["user_id"], name=u["name"], role=u["role"],
                              synthetic=u["synthetic"] == "true",
-                             email=(u.get("email") or "").strip().lower() or None))
+                             email=(u.get("email") or "").strip().lower() or None,
+                             is_admin=(u.get("is_admin") or "").strip() == "true"))
             s.flush()
             for e in csv.DictReader(fe):
                 s.merge(Engagement(engagement_id=e["engagement_id"], client_name=e["client_name"],
@@ -145,24 +159,90 @@ class Indexer:
                           .where(EngagementMember.engagement_id == e["engagement_id"]))
                 for uid in filter(None, e["member_ids"].split(";")):
                     s.add(EngagementMember(engagement_id=e["engagement_id"], user_id=uid.strip()))
+            self._ensure_folder_sources(s)
             s.commit()
 
+    def _ensure_folder_sources(self, s: Session) -> None:
+        """Register one filesystem source per corpus folder, and link documents indexed
+        before sources existed (M11). Never overwrites what an admin has changed."""
+        now = datetime.now(timezone.utc)
+        for source_type in SOURCE_TYPES:
+            sid = folder_source_id(source_type)
+            if s.get(Source, sid) is None:
+                s.add(Source(id=sid, type="filesystem",
+                             connector_config={"path": f"data/corpus/{source_type}"},
+                             classification=FOLDER_CLASSIFICATION.get(source_type, "public_internal"),
+                             status="active", created_at=now))
+        s.flush()
+        for doc in s.scalars(select(Document).where(Document.source_id.is_(None))):
+            doc.source_id, doc.uri = folder_source_id(doc.source_type), doc.uri or doc.path
+            doc.updated_at = doc.updated_at or doc.indexed_at
+        s.flush()
+        for sid, last in s.execute(select(Document.source_id, func.max(Document.indexed_at))
+                                   .group_by(Document.source_id)).all():
+            source = s.get(Source, sid)
+            if source is not None and source.last_event_at is None:
+                source.last_event_at = last
+
+    def _touch_source(self, s: Session, source_type: str) -> None:
+        """A document of this folder changed: record when, for freshness lag (M11)."""
+        source = s.get(Source, folder_source_id(source_type))
+        if source is not None:
+            source.last_event_at = datetime.now(timezone.utc)
+
     # ------------------------------------------------------------------- public
+
+    def _valid_rows(self, actor: str) -> list[ManifestRow]:
+        """The active manifest's rows; refuses (and logs) an invalid manifest."""
+        manifest, fallback = self.active_manifest()
+        header, rows = read_manifest(manifest)
+        errors = validate_manifest(
+            rows, project_root=self.project_root, corpus_dir=self.corpus_dir,
+            engagement_ids=load_engagement_ids(self.engagements_path), header=header,
+            skip_orphans_in=("standards",) if fallback else ())
+        if errors:
+            with self.sessions() as s:
+                write_audit_log(s, actor, "sync_rejected", f"{len(errors)} manifest problem(s)")
+            raise ManifestError(errors)
+        return rows
+
+    def reindex_document(self, doc_id: str, actor: str = "system") -> SyncReport:
+        """Re-chunk and re-embed ONE document now, even if its file is unchanged (M11).
+        Raises KeyError if the manifest has no such document."""
+        with self.lock:
+            rows = [r for r in self._valid_rows(actor) if r.doc_id == doc_id]
+            if not rows:
+                raise KeyError(doc_id)
+            return self._force(rows, actor)
+
+    def reindex_source(self, source_id: str, actor: str = "system") -> SyncReport:
+        """Re-chunk and re-embed every document of ONE source now (M11). A registered
+        source with no documents yet (connectors arrive in M12) gives an empty report."""
+        with self.lock:
+            rows = [r for r in self._valid_rows(actor)
+                    if folder_source_id(r.source_type) == source_id]
+            return self._force(rows, actor)
+
+    def _force(self, rows: list[ManifestRow], actor: str) -> SyncReport:
+        """Index exactly these rows from scratch; every other document is left alone."""
+        self.load_reference_data()
+        report = SyncReport()
+        with self.sessions() as s:
+            for row in rows:
+                doc = s.get(Document, row.doc_id)
+                if doc is not None:
+                    doc.content_hash = None  # forces a full re-chunk and re-embed
+                    s.flush()
+                self._index_row(s, row, actor)
+                report.indexed.append(row.doc_id)
+            self._refresh_superseded(s)
+        self.rebuild_bm25()
+        return report
 
     def sync(self, actor: str = "system") -> SyncReport:
         """Bring all indexes in line with the manifest. Refuses an invalid manifest."""
         with self.lock:
-            manifest, fallback = self.active_manifest()
-            header, rows = read_manifest(manifest)
-            errors = validate_manifest(
-                rows, project_root=self.project_root, corpus_dir=self.corpus_dir,
-                engagement_ids=load_engagement_ids(self.engagements_path), header=header,
-                skip_orphans_in=("standards",) if fallback else ())
-            if errors:
-                with self.sessions() as s:
-                    write_audit_log(s, actor, "sync_rejected", f"{len(errors)} manifest problem(s)")
-                raise ManifestError(errors)
-
+            rows = self._valid_rows(actor)
             self.load_reference_data()
             report = SyncReport()
             with self.sessions() as s:
@@ -253,6 +333,7 @@ class Indexer:
                 setattr(doc, k, v)
             self.store.set_document_payload(row.doc_id, self._payload_fields(row))
             self.bm25.set_document_payload(row.doc_id, self._payload_fields(row))
+            self._touch_source(s, row.source_type)
             write_audit_log(s, actor, "metadata_update", row.doc_id)
             return "metadata"
 
@@ -263,8 +344,10 @@ class Indexer:
             self.store.delete_document(row.doc_id)
             self.bm25.delete_document(row.doc_id)
 
+            now = datetime.now(timezone.utc)
             s.merge(Document(doc_id=row.doc_id, content_hash=content_hash,
-                             indexed_at=datetime.now(timezone.utc), **meta))
+                             indexed_at=now, updated_at=now, **meta))
+            self._touch_source(s, row.source_type)
             s.flush()
             for c in result.chunks:
                 s.add(Chunk(chunk_id=c.chunk_id, doc_id=c.doc_id, parent_id=c.parent_id,
@@ -292,6 +375,9 @@ class Indexer:
         return "indexed"
 
     def _remove(self, s: Session, doc_id: str, actor: str) -> None:
+        doc = s.get(Document, doc_id)
+        if doc is not None:
+            self._touch_source(s, doc.source_type)
         s.execute(delete(Chunk).where(Chunk.doc_id == doc_id))
         s.execute(delete(Document).where(Document.doc_id == doc_id))
         self.store.delete_document(doc_id)

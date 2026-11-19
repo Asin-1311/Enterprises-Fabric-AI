@@ -49,15 +49,26 @@ from sqlalchemy import func, select
 from sse_starlette.sse import EventSourceResponse
 
 from app.agents.graph import AnswerResult, AuditAssistant
+from app.agents.versions import ensure_active_versions
 from app.api.auth import current_user, seed_demo_passwords, user_out
+from app.api.admin import require_admin
+from app.api.admin import router as admin_router
 from app.api.auth import router as auth_router
 from app.api.schemas import (
     CitationOut,
+    FeedbackOut,
     FeedbackRequest,
     FinalPayload,
+    HealthOut,
     HistoryItem,
+    QualityMetricsOut,
     QueryDetail,
     QueryRequest,
+    ReindexOut,
+    ReindexRequest,
+    SignalOut,
+    SignalRequest,
+    SourceTypeStatus,
     TraceRow,
     UserOut,
 )
@@ -69,7 +80,9 @@ from app.db.models import (
     Citation,
     Document,
     Feedback,
+    FeedbackSignal,
     Query,
+    Source,
     Trace,
     User,
 )
@@ -146,23 +159,26 @@ def _preview(text: str) -> str:
     return body if len(body) <= PREVIEW_CHARS else body[:PREVIEW_CHARS].rsplit(" ", 1)[0] + " …"
 
 
-def _citations(svc: Services, chunk_ids: list[str]) -> list[CitationOut]:
-    """Resolve chunk ids to title, section, page and a preview."""
-    if not chunk_ids:
+def _citations(svc: Services, cited: list[tuple[str, int | None, int | None]]) -> list[CitationOut]:
+    """Resolve (chunk id, span start, span end) to title, section, page, a preview and
+    the supporting span."""
+    if not cited:
         return []
+    chunk_ids = [cid for cid, _, _ in cited]
     with svc.sessions() as s:
         superseded = {d for d in s.scalars(select(Document.supersedes)) if d}
         rows = {c.chunk_id: (c, d) for c, d in s.execute(
             select(Chunk, Document).join(Document, Document.doc_id == Chunk.doc_id)
             .where(Chunk.chunk_id.in_(chunk_ids))).all()}
     out = []
-    for cid in chunk_ids:
+    for cid, span_start, span_end in cited:
         if cid in rows:
             c, d = rows[cid]
             out.append(CitationOut(
                 chunk_id=cid, doc_id=d.doc_id, title=d.title, section=c.section,
                 section_title=c.section_title, page_start=c.page_start, page_end=c.page_end,
-                superseded=d.doc_id in superseded, preview=_preview(c.text)))
+                superseded=d.doc_id in superseded, preview=_preview(c.text),
+                span_start=span_start, span_end=span_end))
     return out
 
 
@@ -173,7 +189,7 @@ def _final(svc: Services, r: AnswerResult, seconds: float) -> FinalPayload:
         claims_factual=r.claims_factual, removed_claims=len(r.removed_claims),
         superseded_involved=r.superseded_involved,
         injection_flagged_chunks=len(r.injection_hits),
-        citations=_citations(svc, [c.chunk_id for c in r.citations]),
+        citations=_citations(svc, [(c.chunk_id, c.span_start, c.span_end) for c in r.citations]),
         seconds_to_answer=round(seconds, 2))
 
 
@@ -194,7 +210,11 @@ def _load_json(text: str | None) -> object:
 router = APIRouter(prefix="/api/v1")
 
 
-@router.post("/query")
+@router.post("/query", response_class=EventSourceResponse, responses={200: {
+    "description": "Server-Sent Events: `progress` (agent steps), `token` (the verified answer "
+                   "in pieces), then `final` (a FinalPayload as JSON) or `error` (generic "
+                   "message and a reference).",
+    "content": {"text/event-stream": {"schema": {"type": "string"}}}}})
 async def query(req: QueryRequest, request: Request,
                 user: User = Depends(current_user)) -> EventSourceResponse:
     """Answer a question, streaming progress, then the verified answer, then citations."""
@@ -252,7 +272,7 @@ def get_query(query_id: int, request: Request,
         if q.user_id != viewer.user_id and viewer.role != "partner":
             raise HTTPException(403, "only the person who asked, or a partner, may view this")
         answer = s.scalars(select(Answer).where(Answer.query_id == query_id)).first()
-        cited = [c.chunk_id for c in s.scalars(select(Citation).where(
+        cited = [(c.chunk_id, c.span_start, c.span_end) for c in s.scalars(select(Citation).where(
             Citation.answer_id == answer.id).order_by(Citation.id))] if answer else []
         traces = s.scalars(select(Trace).where(Trace.query_id == query_id).order_by(Trace.id)).all()
         trace = [TraceRow(agent=t.agent, model=t.model, effort=t.effort, tokens_in=t.tokens_in,
@@ -297,7 +317,7 @@ def history_answer(query_id: int, request: Request,
         answer = s.scalars(select(Answer).where(Answer.query_id == query_id)).first()
         if q is None or answer is None or q.user_id != user.user_id:
             raise HTTPException(404, "unknown query")  # same reply whether or not it exists
-        cited = [c.chunk_id for c in s.scalars(
+        cited = [(c.chunk_id, c.span_start, c.span_end) for c in s.scalars(
             select(Citation).where(Citation.answer_id == answer.id).order_by(Citation.id))]
         traces = s.scalars(select(Trace).where(Trace.query_id == query_id).order_by(Trace.id)).all()
     outputs: dict[str, dict] = {}  # agent -> its LAST output (a retry can verify twice)
@@ -324,20 +344,28 @@ def history_answer(query_id: int, request: Request,
 @router.get("/traces/{query_id}", response_model=list[TraceRow])
 def get_traces(query_id: int, request: Request,
                viewer: User = Depends(current_user)) -> list[TraceRow]:
-    """Agent-by-agent trace of a query. Partners only."""
+    """Agent-by-agent trace of a query. Partners see everything. Administrators who are not
+    partners see how each step ran (model, tokens, timing, versions) but not its input or
+    output: those contain document text and draft answers, and the admin flag grants no
+    document access."""
     svc = _services(request)
-    if viewer.role != "partner":
-        raise HTTPException(403, "traces are available to partners only")
+    if viewer.role != "partner" and not viewer.is_admin:
+        raise HTTPException(403, "traces are available to partners and administrators only")
+    hide = viewer.role != "partner"
     with svc.sessions() as s:
         if s.get(Query, query_id) is None:
             raise HTTPException(404, "unknown query")
         rows = s.scalars(select(Trace).where(Trace.query_id == query_id).order_by(Trace.id)).all()
         return [TraceRow(agent=t.agent, model=t.model, effort=t.effort, tokens_in=t.tokens_in,
                          tokens_out=t.tokens_out, latency_ms=t.latency_ms,
-                         input=_load_json(t.input), output=_load_json(t.output)) for t in rows]
+                         input=None if hide else _load_json(t.input),
+                         output=None if hide else _load_json(t.output),
+                         prompt_version_id=t.prompt_version_id,
+                         policy_version_id=t.policy_version_id, content_hidden=hide)
+                for t in rows]
 
 
-@router.post("/feedback")
+@router.post("/feedback", response_model=FeedbackOut)
 def feedback(req: FeedbackRequest, request: Request, user: User = Depends(current_user)) -> dict:
     """Store helpful / not helpful plus an optional correction (masked). Stored only.
     Only the person who asked may rate an answer."""
@@ -353,26 +381,55 @@ def feedback(req: FeedbackRequest, request: Request, user: User = Depends(curren
         return {"feedback_id": row.id, "stored": True}
 
 
-@router.post("/documents/reindex")
-def reindex(request: Request, user: User = Depends(current_user)) -> dict:
-    """Manual full re-index (unchanged files are skipped). Partners only; logged."""
+@router.post("/feedback/signals", response_model=SignalOut, status_code=201)
+def feedback_signal(req: SignalRequest, request: Request,
+                    user: User = Depends(current_user)) -> SignalOut:
+    """Store an implicit signal (copy, citation click, follow-up, rephrase) about one of
+    the user's own answers. Stored only; the learning loop uses them from M15."""
+    with _services(request).sessions() as s:
+        answer = s.get(Answer, req.answer_id)
+        if answer is None or s.get(Query, answer.query_id).user_id != user.user_id:
+            raise HTTPException(404, "unknown answer")
+        row = FeedbackSignal(answer_id=req.answer_id, user_id=user.user_id, kind=req.kind)
+        s.add(row)
+        s.commit()
+        return SignalOut(signal_id=row.id, stored=True)
+
+
+@router.post("/documents/reindex", response_model=ReindexOut)
+def reindex(req: ReindexRequest, request: Request, user: User = Depends(require_admin)) -> ReindexOut:
+    """Re-index one document, one source, or everything (administrators; logged).
+
+    A document or a source is rebuilt from scratch even if unchanged, and nothing else is
+    touched. `all` brings every index in line with the manifest (unchanged files skipped)."""
     svc = _services(request)
-    if user.role != "partner":
-        raise HTTPException(403, "re-indexing is restricted to partners")
     if svc.indexer is None:
         raise HTTPException(503, "indexer not available")
+    scope, target = (("document", req.doc_id) if req.doc_id is not None else
+                     ("source", req.source_id) if req.source_id is not None else ("all", None))
     with svc.sessions() as s:
-        write_audit_log(s, user.user_id, "manual_reindex_requested", "all")
+        if scope == "source" and s.get(Source, target) is None:
+            raise HTTPException(404, "unknown source")
+        write_audit_log(s, user.user_id, "manual_reindex_requested", f"{scope}: {target or 'all'}")
     try:
         with svc.lock.writing():
-            report = svc.indexer.sync(actor=user.user_id)
+            if scope == "document":
+                report = svc.indexer.reindex_document(target, actor=user.user_id)
+            elif scope == "source":
+                report = svc.indexer.reindex_source(target, actor=user.user_id)
+            else:
+                report = svc.indexer.sync(actor=user.user_id)
+    except KeyError:
+        raise HTTPException(404, "unknown document") from None
     except ManifestError as exc:
         raise HTTPException(422, {"manifest_errors": exc.errors}) from exc
-    return {"indexed": report.indexed, "metadata_updated": report.metadata_updated,
-            "unchanged": len(report.unchanged), "removed": report.removed}
+    return ReindexOut(scope=scope, target=target, indexed=report.indexed,
+                      metadata_updated=report.metadata_updated,
+                      unchanged=len(report.unchanged), removed=report.removed)
 
 
-@router.get("/sources/status", dependencies=[Depends(current_user)])
+@router.get("/sources/status", response_model=list[SourceTypeStatus],
+            dependencies=[Depends(current_user)])
 def sources_status(request: Request) -> list[dict]:
     """Document and chunk counts, and last indexed time, per source type."""
     svc = _services(request)
@@ -400,7 +457,8 @@ def _window_bound(value: str | None, name: str, end_of_day: bool) -> datetime | 
     return parsed.replace(tzinfo=None)
 
 
-@router.get("/metrics/quality", dependencies=[Depends(current_user)])
+@router.get("/metrics/quality", response_model=QualityMetricsOut,
+            dependencies=[Depends(current_user)])
 def metrics_quality(request: Request, from_: str | None = Q(None, alias="from"),
                     to: str | None = Q(None)) -> dict:
     """Retrieval and answer-quality metrics, exactly as saved in eval/results/.
@@ -433,7 +491,7 @@ def users(request: Request, viewer: User = Depends(current_user)) -> list[UserOu
         return [user_out(s, u) for u in s.scalars(select(User).order_by(User.user_id))]
 
 
-@router.get("/health")
+@router.get("/health", response_model=HealthOut)
 def health() -> dict:
     return {"status": "ok"}
 
@@ -461,6 +519,7 @@ def create_app(services: Services | None = None, static_dir: Path | None = FRONT
         if svc.indexer is not None:
             svc.indexer.load_reference_data()  # picks up users.csv emails without a re-index
         seeded, missing = seed_demo_passwords(svc.sessions, svc.settings.demo_password)
+        ensure_active_versions(svc.sessions)  # routing policy v1 and prompt versions exist
         log = logging.getLogger("uvicorn.error")
         if seeded:
             log.info("Demo password set for %d demo user(s).", seeded)
@@ -477,6 +536,7 @@ def create_app(services: Services | None = None, static_dir: Path | None = FRONT
                               "`Authorization: Bearer <token>`.")
     app.include_router(auth_router)
     app.include_router(router)
+    app.include_router(admin_router)
 
     @app.exception_handler(Exception)
     async def unexpected_error(request: Request, exc: Exception) -> JSONResponse:

@@ -37,6 +37,9 @@ from app.retrieval.recency import multipliers
 
 log = logging.getLogger(__name__)
 MODES = ("dense", "bm25", "hybrid_raw", "hybrid")
+# Each retriever's weight in the fusion. Plain RRF weighs every ranked list equally (1.0);
+# M14 makes the weights depend on the question type. Recorded with every fused result.
+RETRIEVER_WEIGHTS = {"dense": 1.0, "keyword": 1.0}
 
 
 @dataclass
@@ -78,6 +81,15 @@ class _Meta:
     text: str
 
 
+def _record_ranked(record: list[dict] | None, query: str, method: str,
+                   hits: list[tuple[str, float]]) -> None:
+    """One retriever's raw output for one sub-query: chunk, raw score, rank."""
+    if record is not None:
+        record.append({"sub_query": query, "method": method, "scores": [
+            {"chunk_id": cid, "score": round(score, 6), "rank": rank}
+            for rank, (cid, score) in enumerate(hits, 1)]})
+
+
 class HybridSearcher:
     """ACL-filtered hybrid retrieval over the shared indexes."""
 
@@ -100,8 +112,13 @@ class HybridSearcher:
         time_sensitive: bool = False,
         limit: int = 20,
         as_of: date | None = None,
+        record: list[dict] | None = None,
     ) -> list[RetrievedChunk]:
-        """Search for one query or several sub-queries on behalf of `user`."""
+        """Search for one query or several sub-queries on behalf of `user`.
+
+        With `record`, appends what each step did (for the `retrievals` table): per
+        sub-query and method the raw scores and ranks, then the fused list with every
+        weight and multiplier applied."""
         if mode not in MODES:
             raise ValueError(f"mode must be one of {MODES}")
         queries = [queries] if isinstance(queries, str) else list(queries)
@@ -119,16 +136,19 @@ class HybridSearcher:
         bm25_rank: dict[str, int] = {}
         for q in queries:
             if mode in ("dense", "hybrid_raw", "hybrid"):
-                ids = [cid for cid, _ in self.store.search_scoped(self.embedder.embed_query(q),
-                                                                   scope, self.top_k)]
+                hits = self.store.search_scoped(self.embedder.embed_query(q), scope, self.top_k)
+                ids = [cid for cid, _ in hits]
                 rankings.append(ids)
                 for r, cid in enumerate(ids, 1):
                     dense_rank[cid] = min(r, dense_rank.get(cid, r))
+                _record_ranked(record, q, "dense", hits)
             if mode in ("bm25", "hybrid_raw", "hybrid"):
-                ids = [cid for cid, _ in self.bm25.search_scoped(q, scope, self.top_k)]
+                hits = self.bm25.search_scoped(q, scope, self.top_k)
+                ids = [cid for cid, _ in hits]
                 rankings.append(ids)
                 for r, cid in enumerate(ids, 1):
                     bm25_rank[cid] = min(r, bm25_rank.get(cid, r))
+                _record_ranked(record, q, "keyword", hits)
 
         # 3. Fuse.
         fused = reciprocal_rank_fusion(rankings, k=self.rrf_k)
@@ -162,7 +182,14 @@ class HybridSearcher:
                 dense_rank=dense_rank.get(cid), bm25_rank=bm25_rank.get(cid),
                 multipliers=applied))
         results.sort(key=lambda r: (-r.score, r.chunk_id))
-        return results[:limit]
+        results = results[:limit]
+        if record is not None:
+            record.append({"sub_query": " || ".join(queries), "method": "fused", "scores": [
+                {"chunk_id": r.chunk_id, "rank": rank, "rrf_score": round(r.rrf_score, 6),
+                 "weights": dict(RETRIEVER_WEIGHTS),
+                 "multipliers": {k: round(v, 6) for k, v in r.multipliers.items()},
+                 "final_score": round(r.score, 6)} for rank, r in enumerate(results, 1)]})
+        return results
 
     def _metadata(self, chunk_ids: list[str]) -> dict[str, _Meta]:
         if not chunk_ids:

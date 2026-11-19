@@ -25,7 +25,7 @@ from app.config import PROJECT_ROOT
 from app.ingest.md_loader import SYNTHETIC_BANNER
 from scripts.synthetic import SynthDoc
 from scripts.synthetic import calendar_docs, checklists, circulars, engagement, faq, firm_policy, templates
-from scripts.synthetic.people import ENGAGEMENTS, USERS, demo_email
+from scripts.synthetic.people import ADMINS, ENGAGEMENTS, USERS, demo_email
 
 DATA = PROJECT_ROOT / "data"
 CORPUS = DATA / "corpus"
@@ -166,8 +166,9 @@ def main(argv: list[str] | None = None) -> int:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(f"{SYNTHETIC_BANNER}\n\n{d.body.strip()}\n", encoding="utf-8")
 
-    write_csv(DATA / "users.csv", ["user_id", "name", "role", "synthetic", "email"],
-              [[uid, name, role, "true", demo_email(name)] for uid, name, role in USERS])
+    write_csv(DATA / "users.csv", ["user_id", "name", "role", "synthetic", "email", "is_admin"],
+              [[uid, name, role, "true", demo_email(name), str(uid in ADMINS).lower()]
+               for uid, name, role in USERS])
     write_csv(DATA / "engagements.csv",
               ["engagement_id", "client_name", "industry", "fy", "partner_id", "member_ids"],
               [[e, c, i, fy, p, ";".join(m)] for e, c, i, fy, p, m in ENGAGEMENTS])

@@ -1,8 +1,9 @@
-user_id,name,role,synthetic,email
-S01,Riya Kapoor,staff,true,riya.kapoor@example-associates.test
-S02,Kabir Nair,staff,true,kabir.nair@example-associates.test
-S03,Meera Iyer,staff,true,meera.iyer@example-associates.test
-M01,Arjun Desai,manager,true,arjun.desai@example-associates.test
-M02,Neha Kulkarni,manager,true,neha.kulkarni@example-associates.test
-P01,Vikram Sethi,partner,true,vikram.sethi@example-associates.test
-P02,Anjali Bose,partner,true,anjali.bose@example-associates.test
+user_id,name,role,synthetic,email,is_admin
+S01,Riya Kapoor,staff,true,riya.kapoor@example-associates.test,false
+S02,Kabir Nair,staff,true,kabir.nair@example-associates.test,false
+S03,Meera Iyer,staff,true,meera.iyer@example-associates.test,false
+M01,Arjun Desai,manager,true,arjun.desai@example-associates.test,false
+M02,Neha Kulkarni,manager,true,neha.kulkarni@example-associates.test,false
+P01,Vikram Sethi,partner,true,vikram.sethi@example-associates.test,false
+P02,Anjali Bose,partner,true,anjali.bose@example-associates.test,false
+A01,Kiran Rao,staff,true,kiran.rao@example-associates.test,true
