@@ -274,7 +274,7 @@ def test_answer_has_citations_traces_and_judgement_note(world) -> None:
     assert result.citations and result.text.endswith(JUDGEMENT_NOTE)
     assert events[:3] == ["understanding", "routing", "retrieving"]
     agents = [t.agent for t in traces(world, result.query_id)]
-    assert agents == ["query_understanding", "source_routing", "retrieval", "rerank",
+    assert agents == ["query_understanding", "source_routing", "retrieval_plan", "retrieval", "rerank",
                       "compress", "synthesis", "verification"]
     with world[0].sessions() as s:
         answer = s.get(Answer, result.answer_id)

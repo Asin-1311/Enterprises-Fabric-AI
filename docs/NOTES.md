@@ -2281,3 +2281,107 @@ validates Keycloak tokens now; the browser sign-in comes with the UI work in M16
   - integration: 15 passed (new: the real Keycloak realm);
   - frontend: 21 passed;
   - `check_compliance.py --run --run-integration`: passes.
+
+
+## M14a: Query understanding, parallel retrieval and per-sub-query evidence (2026-11-19)
+
+M14 is split into M14a (query, retrieval and evidence) and M14b (NLI verification and
+draft streaming), as the author agreed. Branch `m14a-query-retrieval`, made from `phase2`
+after M13b was merged.
+
+### What was built
+- **Seven intents:** `analytical` (why something matters, its implications, evaluating a
+  situation) and `open_ended` (broad or exploratory) join no_retrieval, factual,
+  procedural, comparison and time_sensitive. Each is defined in the query-understanding
+  prompt. That prompt changed, so its next version was recorded automatically (M11
+  design).
+- **A retrieval plan per question (`app/agents/plan.py`),** recorded in `traces` and on
+  every fused `retrievals` row.
+  - **The light path:** a factual question with one sub-query, no client named and
+    routing decided by the rules (not the LLM tie-breaker). It searches fewer candidates
+    per retriever (`LIGHT_TOP_K`, default 10) and skips compression: the good chunks go
+    to synthesis whole, saving one LLM call.
+  - **Chunk level:** comparison, analytical and open-ended questions are "parent" (see
+    small-to-big below); the others are "child".
+- **Parallel retrieval:**
+  - Each sub-query is its own LangGraph branch (the `Send` fan-out) and the branches run
+    at the same time; a `gather` step joins them. The follow-up and the retry after
+    verification use the same fan-out, so there is one way to retrieve.
+  - Inside one sub-query, dense and keyword search also run concurrently.
+- **Re-ranking per sub-query (`rerank_groups`):**
+  - Each sub-query's candidates are scored against that sub-query, not the whole
+    question.
+  - The lists are merged round-robin (the best of each side, then the second of each),
+    so both sides of a comparison keep their evidence.
+  - The test shows the problem it fixes: re-ranked against the whole question, generic
+    "branch audit circular" notes crowded out one year.
+- **Compression per sub-query:** each document block names the sub-query it was found
+  for, and the model keeps the sentences relevant to that sub-query, verbatim. (The
+  compression prompt changed, so its next version was recorded.)
+- **Small-to-big (`app/retrieval/parent_expand.py`):**
+  - For exploratory questions, each kept chunk is followed by its section's lead (the
+    parent chunk) and the section's other windows, up to `PARENT_EXPANSION_MAX` (6).
+  - Our chunker's parent is the section lead, not a larger chunk that contains the child,
+    so "the bigger unit" here is the whole section.
+  - The added chunks are real and citable, and they are fetched with the same access
+    checks as a search (`HybridSearcher.fetch`).
+- **Step budgets (`app/agents/budgets.py`):** at most 12 LLM calls, 60,000 tokens and
+  90 seconds per question, and 3 retrieval rounds (all set in `.env`).
+  - Every LLM result is charged as its step is traced.
+  - A step that would pass a limit stops the run. It then ends with the best verified
+    answer so far (only the supported claims, with their confidence), or an abstention.
+    It never returns an unverified draft.
+  - Where possible, the graph chooses the cheaper path instead: no follow-up or retry
+    when the budget would not allow it.
+  - **Retrieval rounds:** the plan proposed 2, but the existing design allows 3 (the first
+    search, one follow-up, one retry after verification). A limit of 2 would silently
+    remove the retry whenever a follow-up had happened, so the default is 3 (one line in
+    `.env`).
+
+### Retrieval evaluation (no LLM calls)
+- **Run:** `eval/results/20261119-222706_retrieval`, compared with
+  `20261119-151731_retrieval` (M12b; the index has not changed since).
+- **Metrics:** identical recall, MRR, nDCG and superseded ordering in every mode;
+  role and engagement leaks 0.000.
+- **Rankings:** all 252 question-and-mode rankings are identical.
+- **p95 latency was higher in this run.** An interleaved diagnostic (the same searches,
+  alternating the concurrent and sequential versions, so machine load hit both alike)
+  showed the two versions taking about the same time in lite. The difference comes from
+  the laptop being busier (more containers running now), not from the change.
+- **Concurrency in lite:** embedded Qdrant serialises its own searches and BM25 is pure
+  Python, so running both retrievers at once gains little in lite. In the full profile
+  they are network services and can truly overlap. Latency is measured properly under
+  load in M18.
+
+### Smaller changes
+- **The retrieval trace** now records each sub-query's start and end time, and each score
+  record names its sub-query.
+- **One Phase 1 test** lists the exact trace steps; it now includes `retrieval_plan`.
+
+### Why it matters
+- **Comparisons are answered from both sides:** "FY 2024-25 vs FY 2025-26" no longer loses
+  one year's circular to whichever side has more matching text.
+- **Simple questions are cheaper and faster:** one fewer LLM call, a smaller search.
+- **Every run is bounded:** a confusing question cannot loop or spend without limit, and
+  a stopped run still never shows unverified text.
+
+### Likely viva questions
+- *Why re-rank per sub-query?* A cross-encoder scores a passage against one query. Against
+  the whole comparison question, whichever side shares more words wins every slot; per
+  sub-query, each side competes only with itself.
+- *What does "small-to-big" mean here?* Search with small, precise chunks; then hand the
+  model the whole section around the best ones, because analysis needs context.
+- *What happens when a budget runs out?* The answer is whatever was verified so far; if
+  nothing was, the assistant abstains and says how to proceed. Unverified text is never
+  shown.
+
+### Status
+- **Met:** R-7.3, R-5-par, R-7.6.
+- **Advanced:** R-3-adapt (plan, chunk level and candidates per question; per-intent
+  weights in M15), R-8-record (the plan is recorded).
+- **COMPLIANCE.md:** 43 requirements; 20 Met, 15 Partial, 8 Not met.
+- **Tests (2026-11-19):**
+  - default suite: 502 passed (18 new);
+  - integration: 15 passed;
+  - frontend: 21 passed;
+  - `check_compliance.py --run --run-integration`: passes.

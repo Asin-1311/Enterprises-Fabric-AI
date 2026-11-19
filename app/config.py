@@ -114,6 +114,17 @@ class Settings(BaseSettings):
     rrf_k: int = 60
     retrieval_top_k: int = 20  # candidates per sub-query, per retriever
     rerank_top_n: int = 5  # kept after cross-encoder re-ranking
+    # M14a: the light path (simple factual questions) searches fewer candidates and skips
+    # compression; exploratory questions (comparison, analytical, open-ended) add at most
+    # this many section chunks around their best chunks (small-to-big).
+    light_top_k: int = 10
+    parent_expansion_max: int = 6
+    # M14a step budgets per question (CLAUDE.md section 7): a run that would pass one ends
+    # with the best verified answer so far, or an abstention. Starting points, tuned in M18.
+    budget_max_llm_calls: int = 12
+    budget_max_tokens: int = 60_000
+    budget_max_seconds: float = 90.0
+    budget_max_retrieval_rounds: int = 3  # first search, one follow-up, one retry
     min_good_chunks: int = 3  # "N" in CLAUDE.md section 7.3
     good_chunk_threshold: float = 0.3  # re-ranker score counted as "good"
     superseded_weight: float = 0.5  # multiplier for superseded documents
