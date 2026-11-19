@@ -142,6 +142,18 @@ class Settings(BaseSettings):
     auth_rate_per_minute: float = 5.0
     auth_lockout_failures: int = 10
     auth_lockout_minutes: float = 15.0
+    # M13b: who signs users in. "session" = the email/password sign-in above (lite only);
+    # "oidc" = Keycloak-issued JWTs (full). "auto" picks by PROFILE.
+    auth_mode: Literal["auto", "session", "oidc"] = "auto"
+    oidc_issuer: str = "http://127.0.0.1:8180/realms/fabric"
+    oidc_audience: str = "fabric-api"
+    oidc_jwks_url: str | None = None  # default: <issuer>/protocol/openid-connect/certs
+    oidc_ui_client_id: str = "fabric-ui"  # for the browser sign-in (M16)
+    oidc_leeway_seconds: int = 30  # clock difference tolerated on exp/iat/nbf
+
+    @property
+    def uses_oidc(self) -> bool:
+        return self.auth_mode == "oidc" or (self.auth_mode == "auto" and self.profile == "full")
 
     @model_validator(mode="after")
     def _check_llm_settings(self) -> "Settings":

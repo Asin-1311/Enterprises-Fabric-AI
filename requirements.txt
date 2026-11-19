@@ -31,6 +31,7 @@ python-dotenv==1.2.4   # already required by pydantic-settings; pinned explicitl
 # LLM
 anthropic==2.6.0
 httpx==0.28.1          # already required by anthropic; also used by FastAPI's TestClient
+pyjwt[crypto]==2.15.1   # OIDC/JWT validation of Keycloak tokens (M13b); brings cryptography
 
 # Tests
 pytest==9.2.0

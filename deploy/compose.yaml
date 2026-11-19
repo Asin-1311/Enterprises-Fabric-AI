@@ -3,7 +3,7 @@
 # Start a group (from the project root; credentials come from .env, never from git):
 #   docker compose --env-file .env -f deploy/compose.yaml --profile core up -d     # PostgreSQL, Qdrant, OpenSearch, Redis
 #   docker compose --env-file .env -f deploy/compose.yaml --profile ingest up -d   # Kafka, MinIO
-#   docker compose --env-file .env -f deploy/compose.yaml --profile identity up -d # OPA (Keycloak: M13b)
+#   docker compose --env-file .env -f deploy/compose.yaml --profile identity up -d # OPA, Keycloak
 #   docker compose --env-file .env -f deploy/compose.yaml --profile full up -d     # all of the above + Debezium
 # Stop:            docker compose --env-file .env -f deploy/compose.yaml --profile full down
 # Stop and ERASE:  ... --profile full down -v   (deletes the volumes: all full-profile data)
@@ -193,6 +193,27 @@ services:
     deploy:
       resources:
         limits: {memory: 128m}
+
+  keycloak:
+    # Identity provider: OIDC sign-in and JWTs for the API (M13b). Imports the SYNTHETIC
+    # realm deploy/keycloak/realm.json on first start (no passwords in it; run
+    # scripts/keycloak_setup.py). Development mode with its built-in H2 database: realm
+    # data lives in the container, so `down` and `up` re-import the same realm. A
+    # production deployment uses a real database and TLS (M17).
+    image: quay.io/keycloak/keycloak:26.0.7
+    profiles: [identity, full]
+    command: ["start-dev", "--import-realm", "--http-port=8080", "--health-enabled=true"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?set KEYCLOAK_ADMIN_PASSWORD in .env}
+      # Tokens name this issuer; the API checks it (OIDC_ISSUER).
+      KC_HOSTNAME: http://127.0.0.1:8180
+      JAVA_OPTS_KC_HEAP: -XX:MaxRAMPercentage=60
+    volumes: ["./keycloak:/opt/keycloak/data/import:ro"]
+    ports: ["127.0.0.1:8180:8080"]
+    deploy:
+      resources:
+        limits: {memory: 768m}
 
 volumes:
   postgres-data:

@@ -3,6 +3,37 @@
     "schemas": {
       "AuthConfigOut": {
         "properties": {
+          "mode": {
+            "default": "session",
+            "enum": [
+              "session",
+              "oidc"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "oidc_client_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Oidc Client Id"
+          },
+          "oidc_issuer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Oidc Issuer"
+          },
           "self_registration": {
             "title": "Self Registration",
             "type": "boolean"
@@ -1316,7 +1347,7 @@
   "paths": {
     "/api/v1/auth/config": {
       "get": {
-        "description": "What the sign-in screen may offer (public: no secrets, no user data).",
+        "description": "What the sign-in screen may offer (public: no secrets, no user data). In the full\nprofile it names the identity provider the browser signs in with (M13b/M16).",
         "operationId": "auth_config_api_v1_auth_config_get",
         "responses": {
           "200": {

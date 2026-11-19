@@ -171,6 +171,9 @@ class HealthOut(BaseModel):
 
 class AuthConfigOut(BaseModel):
     self_registration: bool
+    mode: Literal["session", "oidc"] = "session"  # M13b: who signs users in
+    oidc_issuer: str | None = None
+    oidc_client_id: str | None = None
 
 
 class SignedOutOut(BaseModel):
