@@ -11,15 +11,17 @@ Covers: R-13.3-contract (API part; connector contracts come in M12).
 """
 
 import json
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from fastapi.routing import APIRoute
 from pydantic import TypeAdapter
 from sqlalchemy import select
 
+from app.adapters.lite.events import InProcessEventBus
 from app.api.auth import utc_now
+from app.api.webhooks import signature
 from app.api.schemas import FinalPayload
-from app.db.models import PasswordReset, User
+from app.db.models import PasswordReset, Source, User
 from app.security.passwords import token_digest
 from scripts.export_openapi import OPENAPI_FILE, current_schema
 from tests.test_api import PASSWORD, QUESTION, as_user, ask, client, parse_sse  # noqa: F401
@@ -59,10 +61,32 @@ def _api_routes(app_or_router, prefix: str = "") -> dict[tuple[str, str], APIRou
     return found
 
 
-def test_every_endpoint_answers_valid_input_with_its_declared_shape(client) -> None:
+def test_every_endpoint_answers_valid_input_with_its_declared_shape(client, tmp_path,
+                                                                    monkeypatch) -> None:
     """Covers: R-13.3-contract."""
     staff, partner, admin = as_user(client, "S1"), as_user(client, "P1"), as_user(client, "A1")
     services = client.app.state.services
+    # The webhook needs an event bus, a webhook source with its secret, and a landing folder
+    # (a temporary one, so the test never writes into data/landing/).
+    monkeypatch.setattr(services, "bus", InProcessEventBus())
+    monkeypatch.setattr(services, "settings",
+                        services.settings.model_copy(update={"landing_dir": tmp_path / "landing"}))
+    monkeypatch.setenv("CONTRACT_HOOK_SECRET", "contract-secret")
+    with services.sessions() as s:
+        if s.get(Source, "contract-hook") is None:
+            s.add(Source(id="contract-hook", type="webhook",
+                         connector_config={"secret": "env:CONTRACT_HOOK_SECRET"},
+                         classification="public_internal", status="active",
+                         created_at=datetime(2026, 1, 1)))
+            s.commit()
+
+    def webhook(c):
+        raw = json.dumps({"doc_id": "CONTRACT-HOOK-1", "title": "Pushed", "source_type": "faq",
+                          "access_level": "staff", "effective_date": "2026-11-01",
+                          "content": "# Q\n\nA pushed answer."}).encode()
+        return c.post("/api/v1/webhooks/documents", content=raw, headers={
+            "Content-Type": "application/json", "X-Source-Id": "contract-hook",
+            "X-Signature-256": signature("contract-secret", raw)})
 
     first = ask(client, QUESTION, "S1")[-1][1]
     qid, answer_id = first["query_id"], first["answer_id"]
@@ -126,6 +150,7 @@ def test_every_endpoint_answers_valid_input_with_its_declared_shape(client) -> N
             "/api/v1/routing-policy", headers=admin, json={"version": 1}),
         ("GET", "/api/v1/metrics/quality"): lambda c: c.get("/api/v1/metrics/quality", headers=staff),
         ("GET", "/api/v1/users"): lambda c: c.get("/api/v1/users", headers=partner),
+        ("POST", "/api/v1/webhooks/documents"): webhook,
     }
 
     routes = _api_routes(client.app)

@@ -219,3 +219,56 @@ def test_copy_lite_to_full_on_the_real_servers(tmp_path, pg_store, qdrant_server
     after = full.search("materiality benchmark", partner, mode="dense", limit=10)
     assert [h.chunk_id for h in after] == [h.chunk_id for h in before]
     assert full.search("materiality benchmark", partner, mode="bm25", limit=5)
+
+
+# --------------------------------------------------------------------------- change events (M12a)
+
+def test_change_events_flow_through_kafka_into_every_full_index(
+        tmp_path, settings, pg_store, qdrant_server, opensearch_index) -> None:
+    """Covers: R-5-ing, R-7.1-a (full profile). A change event published on Kafka is
+    applied by the worker to PostgreSQL, the Qdrant server and OpenSearch, each carrying
+    the enriched source and classification fields."""
+    from app.adapters.full.events import KafkaEventBus
+    from app.ingest.events import DocumentChanged
+    from app.ingest.indexer import Indexer
+    from app.ingest.worker import IngestWorker
+    from tests.helpers import write_doc
+
+    bus = KafkaEventBus(_need(settings.kafka_bootstrap, "KAFKA_BOOTSTRAP", "ingest", 9092))
+    run = uuid.uuid4().hex[:8]
+    topic, group = f"doc-changes-test-{run}", f"indexer-test-{run}"
+    root = _clean_clone(tmp_path)
+    data = root / "data"
+    indexer = Indexer(project_root=root, manifest_path=data / "manifest.csv",
+                      users_path=data / "users.csv", engagements_path=data / "engagements.csv",
+                      tyk_dir=data / "tyk", session_factory=pg_store.sessions,
+                      store=qdrant_server, embedder=HashingEmbedder(), bm25=opensearch_index,
+                      synthetic_manifest_path=data / "manifest.synthetic.csv")
+    worker = IngestWorker(indexer, bus, topic=topic, group=group)
+    try:
+        write_doc(root, "firm_policy/kafka_test.md", "# Kafka test\n\nNarwhalword lives here.")
+        event = DocumentChanged(source_id="fs-firm_policy", doc_id="KAFKA-TEST-1",
+                                uri="data/corpus/firm_policy/kafka_test.md", op="upsert",
+                                content_hash="x" * 64,
+                                metadata=dict(source_type="firm_policy", title="Kafka test",
+                                              access_level="manager", effective_date="2026-11-19",
+                                              owner="P02"))
+        bus.publish(topic, event.doc_id, event.to_dict())
+        outcomes = []
+        for _ in range(5):  # the consumer group may take a few seconds to start
+            outcomes += worker.drain(wait_seconds=10)
+            if outcomes:
+                break
+        assert outcomes == [(event.event_id, "indexed")]
+        with pg_store.sessions() as s:
+            doc = s.get(Document, "KAFKA-TEST-1")
+        assert (doc.source_id, doc.owner, doc.classification) == ("fs-firm_policy", "P02", "confidential")
+        assert {p["classification"] for p in qdrant_server.payloads("KAFKA-TEST-1")} == {"confidential"}
+        hits = opensearch_index.client.search(index=opensearch_index.index, body={
+            "query": {"term": {"doc_id": "KAFKA-TEST-1"}}})["hits"]["hits"]
+        assert hits and all(h["_source"]["source_id"] == "fs-firm_policy"
+                            and h["_source"]["classification"] == "confidential" for h in hits)
+        assert worker.drain(wait_seconds=2) == []  # committed: not delivered again
+    finally:
+        worker.close()
+        bus.close()

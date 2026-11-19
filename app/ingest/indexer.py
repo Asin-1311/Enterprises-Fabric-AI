@@ -12,6 +12,13 @@ After any change, the `superseded` payload flag is recomputed for every document
 BM25 index is rebuilt from SQLite. Every reindex, metadata update and removal writes one
 row to the append-only `audit_log`.
 
+Two ways in (M12a):
+- `sync`, `reindex_*`, `index_path`: from the manifest (administrative commands);
+- `apply_events`: change events from the event bus, called only by the ingestion worker
+  (app/ingest/worker.py). Both run through the same `_index_doc`, after enrichment
+  (app/ingest/enrich.py), so every document gets the same owner, classification,
+  timestamp and access fields, and every index gets the same payload.
+
 Run a full sync from the project root:
     .venv\\Scripts\\python.exe -m app.ingest.indexer
 """
@@ -32,6 +39,14 @@ from app.config import Settings, get_settings
 from app.db.models import Chunk, Document, Engagement, EngagementMember, Source, User
 from app.db.session import write_audit_log
 from app.ingest.chunker import ChunkingResult, chunk_icai_chapter, chunk_markdown
+from app.ingest.enrich import (
+    DocumentSpec,
+    EnrichmentError,
+    enrich,
+    folder_source_id,
+    manifest_metadata,
+    manifest_source_id,
+)
 from app.ingest.manifest import (
     SOURCE_TYPES,
     ManifestRow,
@@ -71,26 +86,10 @@ def file_hash(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def folder_source_id(source_type: str) -> str:
-    """The registered filesystem source for one corpus folder (M11)."""
-    return f"fs-{source_type}"
-
-
 # Seed classification of each corpus folder's source (M11). Engagement files are client
 # confidential; everything else is internal. Admins can change a source's classification;
 # the per-document classification and the private-model routing come in M12/M13.
 FOLDER_CLASSIFICATION = {"engagement": "confidential"}
-
-
-def _metadata(row: ManifestRow) -> dict:
-    """Document fields taken from a manifest row (everything except hash/indexed_at)."""
-    return dict(
-        path=row.path, source_type=row.source_type, title=row.title,
-        version=row.version or None, effective_date=row.effective_date,
-        supersedes=row.supersedes or None, access_level=row.access_level,
-        engagement_id=row.engagement_id or None, synthetic=row.is_synthetic,
-        source_id=folder_source_id(row.source_type), uri=row.path,
-    )
 
 
 class Indexer:
@@ -111,9 +110,12 @@ class Indexer:
         max_tokens: int = 400,
         overlap_tokens: int = 50,
         synthetic_manifest_path: Path | None = None,
+        landing_dir: Path | None = None,
     ) -> None:
         self.project_root = project_root
         self.corpus_dir = project_root / "data" / "corpus"
+        # Content received by push connectors (the webhook) waits here for the worker.
+        self.landing_dir = landing_dir or project_root / "data" / "landing"
         self.manifest_path, self.users_path = manifest_path, users_path
         # Used instead of manifest_path when the licensed ICAI PDFs are absent (clean clone).
         self.synthetic_manifest_path = synthetic_manifest_path
@@ -184,9 +186,9 @@ class Indexer:
             if source is not None and source.last_event_at is None:
                 source.last_event_at = last
 
-    def _touch_source(self, s: Session, source_type: str) -> None:
-        """A document of this folder changed: record when, for freshness lag (M11)."""
-        source = s.get(Source, folder_source_id(source_type))
+    def _touch_source(self, s: Session, source_id: str | None) -> None:
+        """A document of this source changed: record when, for freshness lag (M11)."""
+        source = s.get(Source, source_id) if source_id else None
         if source is not None:
             source.last_event_at = datetime.now(timezone.utc)
 
@@ -250,9 +252,12 @@ class Indexer:
                     status = self._index_row(s, row, actor)
                     {"indexed": report.indexed, "metadata": report.metadata_updated,
                      "unchanged": report.unchanged}[status].append(row.doc_id)
+                # The manifest lists the corpus folders only: documents that came from
+                # other sources (webhook, connectors) are never removed by a sync.
                 wanted = {r.doc_id for r in rows}
-                for doc_id in s.scalars(select(Document.doc_id)).all():
-                    if doc_id not in wanted:
+                folders = set(s.scalars(select(Source.id).where(Source.type == "filesystem")))
+                for doc_id, source_id in s.execute(select(Document.doc_id, Document.source_id)).all():
+                    if doc_id not in wanted and (source_id is None or source_id in folders):
                         self._remove(s, doc_id, actor)
                         report.removed.append(doc_id)
                 self._refresh_superseded(s)
@@ -289,6 +294,112 @@ class Indexer:
             self.rebuild_bm25()
             return doc_id
 
+    def manifest_change_events(self, actor: str = "watcher") -> list:
+        """Change events that bring the indexes in line with the manifest: an upsert for
+        every listed document (unchanged ones are skipped by the worker), a delete for every
+        folder-source document no longer listed. Refuses an invalid manifest."""
+        from app.ingest.events import deletion, manifest_upsert
+
+        with self.lock:
+            rows = self._valid_rows(actor)
+            self.load_reference_data()
+            events = [manifest_upsert(r, file_hash(self.project_root / r.path)) for r in rows]
+            wanted = {r.doc_id for r in rows}
+            with self.sessions() as s:
+                folders = set(s.scalars(select(Source.id).where(Source.type == "filesystem")))
+                for doc_id, source_id, uri in s.execute(
+                        select(Document.doc_id, Document.source_id, Document.path)).all():
+                    if doc_id not in wanted and (source_id is None or source_id in folders):
+                        events.append(deletion(source_id or "", doc_id, uri))
+            return events
+
+    def path_change_event(self, path: Path, deleted: bool):
+        """The change event for one corpus file, or None if the file is not in the manifest
+        (an upsert) or not indexed (a delete)."""
+        from app.ingest.events import deletion, manifest_upsert
+
+        rel = self._relative(path)
+        if deleted:
+            with self.sessions() as s:
+                doc = s.scalars(select(Document).where(Document.path == rel)).first()
+            return deletion(doc.source_id or folder_source_id(doc.source_type), doc.doc_id, rel) \
+                if doc is not None else None
+        _, rows = read_manifest(self.active_manifest()[0])
+        row = next((r for r in rows if r.path == rel), None)
+        if row is None:
+            log.warning("File %s is not in the manifest; not indexed.", rel)
+            return None
+        return manifest_upsert(row, file_hash(path))
+
+    def apply_events(self, events: list, actor: str = "worker") -> list[tuple[str, str]]:
+        """Apply change events (app/ingest/events.py) to every index; called only by the
+        ingestion worker. Returns (event_id, outcome) per event, where outcome is one of
+        indexed | metadata | unchanged | removed | missing | paused | rejected.
+
+        A change that fails enrichment is refused and written to audit_log; any other
+        error propagates, so the worker does not commit and the events are delivered again."""
+        with self.lock:
+            self.load_reference_data()
+            outcomes: list[tuple[str, str]] = []
+            with self.sessions() as s:
+                engagement_ids = set(s.scalars(select(Engagement.engagement_id)))
+                user_ids = set(s.scalars(select(User.user_id)))
+                for event in events:
+                    try:
+                        outcome = self._apply(s, event, engagement_ids, user_ids, actor)
+                    except EnrichmentError as exc:
+                        s.rollback()
+                        log.warning("Change refused: %s", exc)
+                        write_audit_log(s, actor, "event_rejected", str(exc)[:500])
+                        outcome = "rejected"
+                    outcomes.append((event.event_id, outcome))
+                self._refresh_superseded(s)
+                s.commit()
+            self.rebuild_bm25()
+            return outcomes
+
+    def _apply(self, s: Session, event, engagement_ids: set[str], user_ids: set[str],
+               actor: str) -> str:
+        source = s.get(Source, event.source_id)
+        if source is None:
+            raise EnrichmentError(f"{event.doc_id}: source '{event.source_id}' is not registered")
+        existing = s.get(Document, event.doc_id)
+        if existing is not None and existing.source_id not in (None, event.source_id):
+            raise EnrichmentError(f"{event.doc_id}: the document belongs to source "
+                                  f"'{existing.source_id}', not '{event.source_id}'")
+        if source.status != "active":
+            log.info("Source %s is %s: change to %s skipped", source.id, source.status, event.doc_id)
+            return "paused"
+        if event.op == "delete":
+            if existing is None:
+                return "missing"
+            self._remove(s, event.doc_id, actor)
+            if event.uri.startswith("landing:"):
+                self._resolve(event.uri, must_exist=False).unlink(missing_ok=True)
+            return "removed"
+        file = self._resolve(event.uri)
+        # `path` is the event's uri: for a corpus file that is its relative path (as before);
+        # for pushed content ("landing:...") it stays valid wherever the landing folder is.
+        spec = enrich(event.metadata, doc_id=event.doc_id, source_id=event.source_id,
+                      uri=event.uri, path=event.uri, source=source,
+                      engagement_ids=engagement_ids, user_ids=user_ids,
+                      occurred_at=event.occurred)
+        return self._index_doc(s, spec, file, actor)
+
+    def _resolve(self, uri: str, must_exist: bool = True) -> Path:
+        """The file behind an event's uri, which must lie inside the corpus folder or the
+        landing folder: an event can never make the indexer read any other file."""
+        if uri.startswith("landing:"):
+            base, file = self.landing_dir, self.landing_dir / uri.removeprefix("landing:")
+        else:
+            base, file = self.corpus_dir, self.project_root / uri
+        file = file.resolve()
+        if base.resolve() not in file.parents:
+            raise EnrichmentError(f"'{uri}' is outside the corpus and landing folders")
+        if must_exist and not file.is_file():
+            raise EnrichmentError(f"'{uri}' does not exist")
+        return file
+
     def rebuild_bm25(self) -> None:
         """Make the keyword index current: lite rebuilds BM25 from the metadata store's
         chunk text; OpenSearch (full) makes the writes searchable."""
@@ -299,7 +410,7 @@ class Indexer:
     def _relative(self, path: Path) -> str:
         return path.resolve().relative_to(self.project_root.resolve()).as_posix()
 
-    def _chunk(self, row: ManifestRow, file: Path) -> ChunkingResult:
+    def _chunk(self, row: DocumentSpec, file: Path) -> ChunkingResult:
         if file.suffix.lower() == ".pdf":
             chapter = load_icai_pdf(file, row.title)
             return chunk_icai_chapter(
@@ -313,17 +424,31 @@ class Indexer:
             sections=md.sections, count_tokens=self.embedder.count_tokens,
             max_tokens=self.max_tokens, overlap_tokens=self.overlap_tokens)
 
-    def _payload_fields(self, row: ManifestRow) -> dict:
-        return dict(doc_id=row.doc_id, source_type=row.source_type,
-                    access_level=row.access_level, engagement_id=row.engagement_id,
-                    effective_date=row.effective_date)
+    def _spec_for_row(self, s: Session, row: ManifestRow) -> DocumentSpec:
+        """Enrich a manifest row like any other change (same defaults, same checks)."""
+        source_id = manifest_source_id(row)
+        source = s.get(Source, source_id)
+        if source is None:
+            raise ManifestError([f"{row.doc_id}: source '{source_id}' is not registered"])
+        try:
+            return enrich(manifest_metadata(row), doc_id=row.doc_id, source_id=source_id,
+                          uri=row.path, path=row.path, source=source,
+                          engagement_ids=set(s.scalars(select(Engagement.engagement_id))),
+                          user_ids=set(s.scalars(select(User.user_id))))
+        except EnrichmentError as exc:
+            raise ManifestError([str(exc)]) from exc
 
     def _index_row(self, s: Session, row: ManifestRow, actor: str) -> str:
         """Index one manifest row. Returns 'unchanged', 'metadata' or 'indexed'."""
-        file = self.project_root / row.path
+        return self._index_doc(s, self._spec_for_row(s, row), self.project_root / row.path, actor)
+
+    def _index_doc(self, s: Session, row: DocumentSpec, file: Path, actor: str) -> str:
+        """Index one enriched document from `file`. Returns 'unchanged', 'metadata' or
+        'indexed'. Idempotent: the same content and metadata again change nothing."""
         content_hash = file_hash(file)
-        meta = _metadata(row)
+        meta = row.document_fields()
         doc = s.get(Document, row.doc_id)
+        now = datetime.now(timezone.utc)
 
         if doc is not None and doc.content_hash == content_hash \
                 and doc.title == row.title and doc.path == row.path:
@@ -331,9 +456,10 @@ class Indexer:
                 return "unchanged"
             for k, v in meta.items():
                 setattr(doc, k, v)
-            self.store.set_document_payload(row.doc_id, self._payload_fields(row))
-            self.bm25.set_document_payload(row.doc_id, self._payload_fields(row))
-            self._touch_source(s, row.source_type)
+            doc.updated_at = row.updated_at or now
+            self.store.set_document_payload(row.doc_id, row.payload())
+            self.bm25.set_document_payload(row.doc_id, row.payload())
+            self._touch_source(s, row.source_id)
             write_audit_log(s, actor, "metadata_update", row.doc_id)
             return "metadata"
 
@@ -344,10 +470,9 @@ class Indexer:
             self.store.delete_document(row.doc_id)
             self.bm25.delete_document(row.doc_id)
 
-            now = datetime.now(timezone.utc)
             s.merge(Document(doc_id=row.doc_id, content_hash=content_hash,
-                             indexed_at=now, updated_at=now, **meta))
-            self._touch_source(s, row.source_type)
+                             indexed_at=now, updated_at=row.updated_at or now, **meta))
+            self._touch_source(s, row.source_id)
             s.flush()
             for c in result.chunks:
                 s.add(Chunk(chunk_id=c.chunk_id, doc_id=c.doc_id, parent_id=c.parent_id,
@@ -356,7 +481,7 @@ class Indexer:
                             page_start=c.page_start, page_end=c.page_end,
                             sa_refs=",".join(c.sa_refs)))
             vectors = self.embedder.embed_documents([c.text for c in result.chunks])
-            base = self._payload_fields(row) | {"superseded": False}  # fixed by _refresh
+            base = row.payload() | {"superseded": False}  # fixed by _refresh
             self.store.upsert([base | {"chunk_id": c.chunk_id} for c in result.chunks], vectors)
             self.bm25.upsert_chunks([base | {"chunk_id": c.chunk_id, "text": c.text}
                                      for c in result.chunks])
@@ -377,7 +502,7 @@ class Indexer:
     def _remove(self, s: Session, doc_id: str, actor: str) -> None:
         doc = s.get(Document, doc_id)
         if doc is not None:
-            self._touch_source(s, doc.source_type)
+            self._touch_source(s, doc.source_id or folder_source_id(doc.source_type))
         s.execute(delete(Chunk).where(Chunk.doc_id == doc_id))
         s.execute(delete(Document).where(Document.doc_id == doc_id))
         self.store.delete_document(doc_id)
@@ -432,6 +557,7 @@ def build_indexer(settings: Settings, embedder: Embedder | None = None,
         max_tokens=settings.chunk_max_tokens,
         overlap_tokens=settings.chunk_overlap_tokens,
         synthetic_manifest_path=settings.synthetic_manifest_path,
+        landing_dir=settings.landing_dir,
     )
 
 def main(argv: list[str] | None = None) -> int:

@@ -10,10 +10,13 @@ The validator returns a list of human-readable problems (empty list = valid). It
   and no document is superseded twice,
 - engagement_id is known; engagement documents have one, other documents do not,
 - standards are not synthetic; synthetic Markdown files start with the SYNTHETIC banner,
-- every document file in the corpus folder has a manifest row (no orphans).
+- every document file in the corpus folder has a manifest row (no orphans),
+- the optional governance columns (M12a): source_id looks like an id, owner is a known
+  user, classification is public_internal | confidential | restricted.
 """
 
 import csv
+import re
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -31,7 +34,8 @@ SOURCE_TYPES = (
     "faq",
 )
 ACCESS_LEVELS = ("staff", "manager", "partner")
-MANIFEST_COLUMNS = (
+# Columns every manifest must have (Phase 1).
+REQUIRED_COLUMNS = (
     "doc_id",
     "path",
     "source_type",
@@ -43,6 +47,12 @@ MANIFEST_COLUMNS = (
     "engagement_id",
     "synthetic",
 )
+# Governance columns added in Phase 2 (CLAUDE.md section 5). Optional, so an older manifest
+# stays valid: empty means "use the source's default" (app/ingest/enrich.py).
+GOVERNANCE_COLUMNS = ("source_id", "owner", "classification")
+MANIFEST_COLUMNS = REQUIRED_COLUMNS + GOVERNANCE_COLUMNS
+CLASSIFICATIONS = ("public_internal", "confidential", "restricted")
+_SOURCE_ID = re.compile(r"^[a-z0-9][a-z0-9_-]{2,63}$")
 REQUIRED_FIELDS = ("doc_id", "path", "source_type", "title", "effective_date",
                    "access_level", "synthetic")
 DOCUMENT_SUFFIXES = (".pdf", ".md")
@@ -62,6 +72,9 @@ class ManifestRow:
     access_level: str
     engagement_id: str
     synthetic: str
+    source_id: str = ""
+    owner: str = ""
+    classification: str = ""
 
     @property
     def is_synthetic(self) -> bool:
@@ -101,6 +114,7 @@ def validate_manifest(
     engagement_ids: set[str],
     header: list[str] | None = None,
     skip_orphans_in: tuple[str, ...] = (),
+    user_ids: set[str] | None = None,
 ) -> list[str]:
     """Return a list of problems found in the manifest (empty if valid).
 
@@ -109,7 +123,7 @@ def validate_manifest(
     may be present on the author's laptop but are deliberately not in that manifest."""
     errors: list[str] = []
     if header is not None:
-        missing = [c for c in MANIFEST_COLUMNS if c not in header]
+        missing = [c for c in REQUIRED_COLUMNS if c not in header]
         if missing:
             errors.append(f"manifest is missing column(s): {', '.join(missing)}")
 
@@ -146,6 +160,14 @@ def validate_manifest(
             errors.append(f"{where}: engagement document without engagement_id")
         if row.source_type and row.source_type != "engagement" and row.engagement_id:
             errors.append(f"{where}: only engagement documents may have an engagement_id")
+
+        # Governance columns (optional; checked when filled in).
+        if row.source_id and not _SOURCE_ID.match(row.source_id):
+            errors.append(f"{where}: source_id '{row.source_id}' is not a valid id")
+        if row.classification and row.classification not in CLASSIFICATIONS:
+            errors.append(f"{where}: unknown classification '{row.classification}'")
+        if row.owner and user_ids is not None and row.owner not in user_ids:
+            errors.append(f"{where}: owner '{row.owner}' is not a known user")
 
         if row.source_type == "standards" and row.synthetic == "true":
             errors.append(f"{where}: ICAI standards must have synthetic=false")
