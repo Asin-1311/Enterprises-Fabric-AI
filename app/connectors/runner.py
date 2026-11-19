@@ -14,6 +14,8 @@ sources are still polled. A paused source is not polled at all.
 Where it runs: a background thread of the API in lite (API_RUN_CONNECTORS), its own
 process in the full profile:
     .venv\\Scripts\\python.exe -m app.connectors.runner
+In the full profile that process also runs one change data capture bridge per active
+`dms` source (app/connectors/dms.py), which needs Kafka and Debezium (M12d).
 """
 
 import logging
@@ -125,15 +127,36 @@ def main() -> int:
     metadata.initialise()
     runner = ConnectorRunner(metadata.sessions, open_event_bus(settings), settings)
     stop = threading.Event()
-    log.info("Connector runner started (profile %s, every %.0f s).", settings.profile,
-             settings.connector_poll_seconds)
+    bridges = start_cdc_bridges(metadata.sessions, settings, stop) if settings.profile == "full" else []
+    log.info("Connector runner started (profile %s, every %.0f s; %d DMS bridge(s)).",
+             settings.profile, settings.connector_poll_seconds, len(bridges))
     try:
         runner.run(stop)
     except KeyboardInterrupt:
         stop.set()
     finally:
+        for bridge in bridges:
+            bridge.close()
         runner.bus.close()
     return 0
+
+
+def start_cdc_bridges(sessions: sessionmaker[Session], settings: Settings,
+                      stop: threading.Event) -> list:
+    """One change data capture bridge thread per active `dms` source (full profile)."""
+    from app.adapters import open_event_bus
+    from app.connectors.dms import CdcBridge
+
+    with sessions() as s:
+        sources = [(src.id, dict(src.connector_config or {})) for src in s.scalars(
+            select(Source).where(Source.type == "dms", Source.status == "active"))]
+    bridges = []
+    for source_id, config in sources:
+        bridge = CdcBridge(source_id, config, open_event_bus(settings), settings.landing_dir)
+        threading.Thread(target=bridge.run, args=(stop,), name=f"cdc-{source_id}",
+                         daemon=True).start()
+        bridges.append(bridge)
+    return bridges
 
 
 if __name__ == "__main__":

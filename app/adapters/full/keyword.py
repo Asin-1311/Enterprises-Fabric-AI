@@ -112,6 +112,17 @@ class OpenSearchKeywordIndex:
         body = {"query": {"term": {"doc_id": doc_id}}} if doc_id else None
         return int(self.client.count(index=self.index, body=body)["count"])
 
+    def index_chunk_ids(self) -> dict[str, set[str]]:
+        """Every document's chunk ids (a scan over the whole index)."""
+        from opensearchpy import helpers
+
+        self.client.indices.refresh(index=self.index)
+        found: dict[str, set[str]] = {}
+        for hit in helpers.scan(self.client, index=self.index, _source=["doc_id", "chunk_id"],
+                                query={"query": {"match_all": {}}}):
+            found.setdefault(hit["_source"]["doc_id"], set()).add(hit["_source"]["chunk_id"])
+        return found
+
     def chunk_ids(self, doc_id: str) -> set[str]:
         body = {"size": 10000, "_source": ["chunk_id"], "query": {"term": {"doc_id": doc_id}}}
         return {h["_source"]["chunk_id"]

@@ -82,6 +82,9 @@ class Settings(BaseSettings):
     # event bus). In the full profile the worker usually runs as its own process
     # (python -m app.ingest.worker), so set API_RUN_WORKER=false there.
     api_run_worker: bool = True
+    # M12d: a batch that keeps failing is retried this many times (pauses 5, 10, 20, 40 s),
+    # then applied event by event; events that still fail go to the dead-letter topic.
+    worker_max_attempts: int = 5
     # Push connectors (the webhook) store received content here for the worker.
     landing_dir: Path = PROJECT_ROOT / "data" / "landing"
     # Polling connectors (M12c: git, s3, confluence, jira, sharepoint): how often each active

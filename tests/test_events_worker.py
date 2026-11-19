@@ -252,3 +252,97 @@ def test_pushed_content_works_with_a_landing_folder_outside_the_project(world, t
                                           effective_date="2026-02-01"))
     publish(world.bus, event)
     assert world.worker.drain() == [(event.event_id, "indexed")]
+
+
+# ---------------------------------------------------- retries and dead letters (M12d)
+
+def _fail_for(world, monkeypatch, doc_ids: set[str], times: int | None = None):
+    """Make apply_events raise while a batch contains one of `doc_ids` (`times` calls, or
+    always). Returns the list of failures, for counting."""
+    real, failures = world.indexer.apply_events, []
+
+    def flaky(events, actor="worker"):
+        if any(e.doc_id in doc_ids for e in events) and (times is None or len(failures) < times):
+            failures.append([e.doc_id for e in events])
+            raise RuntimeError("embedding service down")
+        return real(events, actor)
+
+    monkeypatch.setattr(world.indexer, "apply_events", flaky)
+    return failures
+
+
+def test_a_failed_batch_is_retried_by_the_same_worker_and_not_lost(world, monkeypatch) -> None:
+    """Covers: R-5-ing. Before M12d a failed batch was skipped by the next poll and lost as
+    soon as a later batch was committed; now the subscription is rewound."""
+    write_doc(world.root, "firm_policy/wombat.md", BANNER_BODY)
+    write_doc(world.root, "firm_policy/later.md", "# Later\n\nLaterword.")
+    first = _upsert("WOMBAT-1", "firm_policy/wombat.md")
+    publish(world.bus, first)
+    _fail_for(world, monkeypatch, {"WOMBAT-1"}, times=1)
+    with pytest.raises(RuntimeError):
+        world.worker.drain()
+    assert world.worker.attempts == 1 and world.worker.retry_pause() == 5.0
+    later = _upsert("LATER-1", "firm_policy/later.md")
+    publish(world.bus, later)
+    assert dict(world.worker.drain()) == {first.event_id: "indexed", later.event_id: "indexed"}
+    assert world.worker.attempts == 0
+
+
+def test_an_event_that_keeps_failing_is_dead_lettered_and_the_rest_go_on(world, monkeypatch) -> None:
+    """Covers: R-5-ing. After max_attempts the batch is applied event by event; the event
+    that still fails goes to doc-changes-dead with its error and an audit_log row; the
+    others are indexed; nothing comes back; a replay re-sends it once the cause is fixed."""
+    from app.ingest.worker import DEAD_TOPIC, replay_dead_letters
+
+    worker = IngestWorker(world.indexer, world.bus, group="dl-test", max_attempts=3)
+    for name in ("good-a", "bad", "good-b"):
+        write_doc(world.root, f"firm_policy/{name}.md", f"# {name}\n\n{name} text.")
+    events = [_upsert(n.upper(), f"firm_policy/{n}.md") for n in ("good-a", "bad", "good-b")]
+    for e in events:
+        publish(world.bus, e)
+    failures = _fail_for(world, monkeypatch, {"BAD"})
+    for attempt in (1, 2):
+        with pytest.raises(RuntimeError):
+            worker.drain()
+        assert worker.attempts == attempt
+    assert worker.retry_pause() == 10.0
+    outcomes = dict(worker.drain())
+    assert outcomes == {events[0].event_id: "indexed", events[1].event_id: "dead_lettered",
+                        events[2].event_id: "indexed"}
+    assert len(failures) == 3 + 1  # three whole batches, then BAD alone
+    assert worker.drain() == []  # committed: the queue moves on
+
+    letters = world.bus.subscribe(DEAD_TOPIC, "inspect")
+    letter = letters.poll(0)
+    assert letter["event"]["doc_id"] == "BAD" and "embedding service down" in letter["error"]
+    assert letter["attempts"] == 3 and letters.poll(0) is None
+    assert any("BAD" in t for t in _audit(world.indexer, "event_dead_lettered"))
+
+    monkeypatch.undo()  # the cause is fixed
+    assert replay_dead_letters(world.bus, wait_seconds=0) == 1
+    assert [o for _, o in worker.drain()] == ["indexed"]
+    assert replay_dead_letters(world.bus, wait_seconds=0) == 0  # replayed only once
+
+
+def test_nothing_is_dead_lettered_while_the_database_is_down(world, monkeypatch) -> None:
+    """If even the audit log cannot be written, the failure is not the event's fault: the
+    batch is kept and retried, never dead-lettered."""
+    import app.ingest.worker as worker_module
+    from app.ingest.worker import DEAD_TOPIC
+
+    worker = IngestWorker(world.indexer, world.bus, group="db-down", max_attempts=2)
+    write_doc(world.root, "firm_policy/wombat.md", BANNER_BODY)
+    event = _upsert("WOMBAT-1", "firm_policy/wombat.md")
+    publish(world.bus, event)
+    _fail_for(world, monkeypatch, {"WOMBAT-1"})
+
+    def database_down(*args, **kwargs):
+        raise RuntimeError("database is down")
+
+    monkeypatch.setattr(worker_module, "write_audit_log", database_down)
+    for _ in range(3):
+        with pytest.raises(RuntimeError):
+            worker.drain()
+    assert world.bus.subscribe(DEAD_TOPIC, "inspect-2").poll(0) is None
+    monkeypatch.undo()
+    assert worker.drain() == [(event.event_id, "indexed")]

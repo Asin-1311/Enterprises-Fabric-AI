@@ -269,6 +269,30 @@ class Indexer:
                     if folder_source_id(r.source_type) == source_id]
             return self._force(rows, actor)
 
+    def repair_document(self, doc_id: str, actor: str = "reconcile") -> None:
+        """Rebuild ONE document in both indexes from its stored record and file (M12d):
+        its entries are removed from the vector and keyword index, then it is re-chunked
+        and re-embedded. Works for every source (manifest, connectors, webhook), because
+        the stored record already holds the enriched metadata."""
+        with self.lock, self.sessions() as s:
+            doc = s.get(Document, doc_id)
+            if doc is None:
+                raise KeyError(doc_id)
+            spec = DocumentSpec(
+                doc_id=doc.doc_id, source_id=doc.source_id or folder_source_id(doc.source_type),
+                uri=doc.uri or doc.path, path=doc.path, source_type=doc.source_type,
+                title=doc.title, version=doc.version, effective_date=doc.effective_date,
+                supersedes=doc.supersedes, access_level=doc.access_level,
+                engagement_id=doc.engagement_id, owner=doc.owner,
+                classification=doc.classification or "confidential", synthetic=doc.synthetic,
+                updated_at=doc.updated_at)
+            self.store.delete_document(doc_id)
+            self.bm25.delete_document(doc_id)
+            self._index_doc(s, spec, self._resolve(spec.uri), actor, force=True)
+            self._refresh_superseded(s)
+            s.commit()
+        self.rebuild_bm25()
+
     def _force(self, rows: list[ManifestRow], actor: str) -> SyncReport:
         """Index exactly these rows from scratch (re-chunk and re-embed every chunk);
         every other document is left alone."""

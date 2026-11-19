@@ -143,7 +143,7 @@ def build_services(settings: Settings) -> Services:
     bus = open_event_bus(settings)
     stoppers: list[Callable[[], None]] = []
     if settings.api_run_worker:
-        worker = IngestWorker(indexer, bus)
+        worker = IngestWorker(indexer, bus, max_attempts=settings.worker_max_attempts)
         thread, stop_worker = start_in_background(worker)
         stoppers.append(lambda: (stop_worker.set(), thread.join(timeout=10), worker.close()))
     if settings.api_watch_corpus:

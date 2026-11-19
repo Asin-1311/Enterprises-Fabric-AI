@@ -71,3 +71,12 @@ def test_unknown_status_duplicates_and_a_stale_summary_are_caught(tmp_path) -> N
     stale = _doc([("R-1-a", "Partial", "x")], summary="**Summary: 1 requirements: 1 Met, 0 Partial, "
                                                       "0 Not met, 0 Deviation.**")
     assert any("summary line" in p for p in check(stale, root))
+
+
+def test_integration_acceptance_tests_are_recognised() -> None:
+    """M12d: a Met row proved by an integration test is run only with --run-integration
+    (pytest.ini deselects integration tests), and is listed otherwise."""
+    from scripts.check_compliance import is_integration
+
+    assert is_integration("`tests/integration/test_full_backends.py::test_x`")
+    assert not is_integration("tests/test_dms_cdc.py::test_x")

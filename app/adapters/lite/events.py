@@ -52,5 +52,9 @@ class InProcessSubscription:
             key = (self.topic, self.group)
             self.bus._committed[key] = max(self.bus._committed[key], self._position)
 
+    def rewind(self) -> None:
+        with self.bus._cond:
+            self._position = self.bus._committed[(self.topic, self.group)]
+
     def close(self) -> None:
         """Uncommitted events will be delivered again to the next subscriber."""

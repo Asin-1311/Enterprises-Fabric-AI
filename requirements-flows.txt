@@ -1,0 +1,7 @@
+# Enterprise Fabric AI: the scheduler's own environment (M12d), NOT the app's .venv.
+# Every Prefect release pins fastapi<0.151 and websockets<17, older than the versions the
+# API uses (requirements.txt), so Prefect lives in .venv-flows (author's decision):
+#   python -m venv .venv-flows
+#   .venv-flows\Scripts\python.exe -m pip install -r requirements-flows.txt
+# The scheduled jobs themselves run in the main .venv (flows/jobs.py).
+prefect==3.9.3

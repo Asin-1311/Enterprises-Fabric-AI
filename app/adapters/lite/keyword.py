@@ -29,6 +29,13 @@ class RankBm25Index(Bm25Index):
     def set_document_payload(self, doc_id: str, payload: dict) -> None:
         """Nothing to do: access is decided from the metadata store at search time."""
 
+    def index_chunk_ids(self) -> dict[str, set[str]]:
+        """Chunk ids by document, as of the last `refresh` (the id's text before ":")."""
+        found: dict[str, set[str]] = {}
+        for cid in self.chunk_ids:
+            found.setdefault(cid.split(":", 1)[0], set()).add(cid)
+        return found
+
     def refresh(self, sessions: sessionmaker[Session]) -> None:
         with sessions() as s:
             self.rebuild_from_db(s)
