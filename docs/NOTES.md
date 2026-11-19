@@ -1679,6 +1679,12 @@ An event that fails for an unexpected reason is retried every 5 seconds until it
 succeeds. That is right for a temporary fault (a database restart). A permanently broken
 event would hold up the queue, however, so M12d adds a retry limit and a dead-letter log.
 
+**Correction (M12d, 2026-11-19):** the first sentence above was wrong. A failed batch was
+retried only after a restart. In the running worker, the next poll moved past the failed
+events, and the next successful commit marked them done: they were lost. The test only
+covered the restart case. M12d rewinds the subscription on every failure; see the M12d
+section.
+
 ### Why it matters
 - **Consistent indexes:** with one event applied to all three stores by one worker, the
   metadata store and both indexes cannot drift apart. That is the property that keeps
@@ -1969,3 +1975,119 @@ must say this plainly.
     through Kafka);
   - frontend: 21 passed;
   - `check_compliance.py --run`: passes.
+
+
+## M12d: Change data capture, dead letters and scheduled jobs (2026-11-19)
+
+Branch `m12d-cdc-scheduling`, made from `phase2` after M12c was merged. Author's choices:
+- the DMS as a separate database `dms` in the existing PostgreSQL container;
+- Prefect with its built-in temporary server, without a server container;
+- dead letters after 5 attempts;
+- Prefect in its own environment `.venv-flows` (see below).
+
+### What was built
+- **A synthetic document management system (DMS):** `scripts/make_synthetic_dms.py`
+  creates database `dms` with the table `dms.documents`. One row is one document: its
+  metadata and its Markdown body. The table has three SYNTHETIC rows about firm procedures.
+- **Change data capture with Debezium:**
+  - PostgreSQL now writes logical replication data (`wal_level=logical`).
+  - A Kafka Connect container with the Debezium PostgreSQL connector streams every
+    insert, update and delete in that table to the Kafka topic `dms.dms.documents`.
+  - The connector's settings are in `deploy/debezium/dms-connector.json`, registered by
+    `scripts/register_debezium_connector.py`. The database password reaches the container
+    through its environment, never through a file in git.
+  - Kafka gained a second listener (`kafka:29092`) for containers, because the address it
+    gives the laptop (127.0.0.1) means "this container" inside Docker.
+- **The `dms` connector (`app/connectors/dms.py`):** a bridge reads Debezium's messages
+  and turns each row change into the usual change event.
+  - Insert, update and snapshot rows become upserts, with the body written to the landing
+    folder. Deletes become deletes.
+  - The worker, enrichment and indexes are unchanged.
+  - A row whose id is not a safe document id is skipped and logged, because the id
+    becomes a file name.
+  - The bridge runs inside the connector runner process in the full profile.
+- **Dead letters (`app/ingest/worker.py`):**
+  - **Retries:** a failed batch is retried with growing pauses (5, 10, 20, 40 s).
+  - **Isolation:** after 5 attempts (`WORKER_MAX_ATTEMPTS`) the batch is applied one
+    event at a time.
+  - **Dead letters:** an event that still fails alone is published to `doc-changes-dead`
+    with its error and written to `audit_log`. The others are applied, so the queue moves
+    on.
+  - **Replay:** `python -m app.ingest.worker --replay-dead-letters` re-sends them once the
+    cause is fixed.
+  - **No dead letters during an outage:** if even the audit log cannot be written (the
+    database is down), nothing is dead-lettered and the batch keeps being retried.
+- **Nightly reconciliation (`app/ingest/reconcile.py`):**
+  - It runs a manifest sync, then compares, for every document, the chunk ids in the
+    metadata store, the vector index and the keyword index.
+  - A document whose three sets differ is rebuilt from its stored record. Index entries of
+    unknown documents are deleted.
+  - Both index ports gained `index_chunk_ids` (one pass over each index), and the indexer
+    gained `repair_document`, which works for documents from every source.
+- **Scheduled jobs (`flows/`):**
+  - `flows/jobs.py` lists the jobs: reconciliation at 01:30 and the retrieval evaluation
+    at 02:00, Asia/Kolkata time, with no LLM calls.
+  - `flows/serve.py` serves them with Prefect 3.9.3.
+  - Each flow runs its job as a command in the main `.venv`; a non-zero exit fails the
+    flow run.
+  - Weekly answer sampling (M18) and the trace retention purge (M13) will join this list.
+
+### Why Prefect has its own environment
+Every Prefect release, including the newest (3.9.3), requires `fastapi<0.151` and
+`websockets<17`. The API uses fastapi 0.162 and websockets 17.4, so installing Prefect in
+the project's `.venv` would have downgraded both (seen in a dry run, before anything was
+installed). The author chose a separate `.venv-flows` (`requirements-flows.txt`).
+
+### Found and fixed: failed events were lost, not retried (from M12a)
+- **The bug:** when a batch failed, the running worker's next poll continued after it.
+  The next successful batch then committed the position past the failed events, so they
+  were never applied. M12a's notes said the batch was "retried every 5 seconds"; that was
+  wrong (corrected in the M12a section).
+- **Why the tests missed it:** they only covered a restart, which does redeliver.
+- **The fix:** both event bus adapters gained `rewind` (back to the last commit), and the
+  worker rewinds on every failure. There is a test that retries in the same worker.
+
+### Also found: the compliance checker could miss integration tests
+`pytest.ini` leaves integration tests out by default, so a Met row proved by an
+integration test was not actually run by `check_compliance.py --run`. Now `--run` lists
+such tests as not run, and `--run-integration` runs them (with the servers up) and fails
+if any is skipped.
+
+### Measured (2026-11-19, the integration test run)
+- **Debezium:** an UPDATE of a DMS row was visible in PostgreSQL, Qdrant and OpenSearch
+  after 1.4 s; the target is 60 s. The insert and the delete propagated too.
+- **Prefect:** a reconciliation run through Prefect, on copies of the lite database and
+  index, checked 269 documents and found no drift. It took 177 s, about 50 s of which was
+  Prefect starting its temporary server.
+- **Memory:** with Debezium, the seven services use about 2.1 GB of the 3.5 GB Docker cap.
+
+### Why it matters
+- **Freshness from systems of record:** a change in the DMS is in the indexes within
+  seconds, without anyone exporting a file. This is the spec's "streaming ingestion".
+- **Nothing lost, nothing stuck:** a failing document is retried, then set aside with
+  its error, while everything else continues.
+- **A nightly check that the indexes agree:** drift should never happen, and now it
+  would be found and repaired.
+
+### Likely viva questions
+- *What is change data capture, and why not just poll the table?* Debezium reads the
+  database's own change log, so it sees every committed change (including deletes) in
+  order, within seconds, without querying the table. Polling would miss deletes and
+  intermediate versions and would load the database.
+- *Why a dead-letter topic instead of retrying forever?* One broken document would
+  otherwise block every change behind it. A dead letter keeps the event and its error for
+  a person to look at, and it can be replayed.
+- *Why does the scheduler run commands rather than import the code?* So it can live in
+  its own environment with its own package versions, and each job is exactly what a
+  person would run by hand.
+
+### Status
+- **Met:** R-3-stream, R-5-ing.
+- **Advanced:** R-6-stack (Debezium, MinIO and the scheduler added; OIDC/JWT, OPA,
+  observability and deployment remain).
+- **COMPLIANCE.md:** 43 requirements; 14 Met, 20 Partial, 9 Not met.
+- **Tests (2026-11-19):**
+  - default suite: 450 passed (9 new);
+  - integration: 12 passed (new: Debezium CDC);
+  - frontend: 21 passed;
+  - `check_compliance.py --run --run-integration`: passes.

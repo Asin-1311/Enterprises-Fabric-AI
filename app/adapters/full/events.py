@@ -78,5 +78,17 @@ class KafkaSubscription:
         if self._polled:
             self._consumer.commit(asynchronous=False)
 
+    def rewind(self) -> None:
+        """Seek every assigned partition back to its committed offset (or its first
+        offset if nothing was committed yet), so uncommitted events come again."""
+        from confluent_kafka import TopicPartition
+
+        for tp in self._consumer.committed(self._consumer.assignment(), timeout=10):
+            offset = tp.offset
+            if offset < 0:  # no commit yet for this group: start of the partition
+                offset = self._consumer.get_watermark_offsets(
+                    TopicPartition(tp.topic, tp.partition), timeout=10)[0]
+            self._consumer.seek(TopicPartition(tp.topic, tp.partition, offset))
+
     def close(self) -> None:
         self._consumer.close()

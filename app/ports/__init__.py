@@ -92,6 +92,10 @@ class VectorIndex(Protocol):
 
     def payloads(self, doc_id: str) -> list[dict]: ...
 
+    def index_chunk_ids(self) -> dict[str, set[str]]:
+        """Every document's chunk ids in this index, in one pass (reconciliation, M12d)."""
+        ...
+
 
 @runtime_checkable
 class KeywordIndex(Protocol):
@@ -118,6 +122,10 @@ class KeywordIndex(Protocol):
         """Top-`limit` (chunk_id, score) among chunks `scope` permits."""
         ...
 
+    def index_chunk_ids(self) -> dict[str, set[str]]:
+        """Every document's chunk ids in this index, in one pass (reconciliation, M12d)."""
+        ...
+
 
 @runtime_checkable
 class Cache(Protocol):
@@ -140,6 +148,11 @@ class EventSubscription(Protocol):
 
     def commit(self) -> None:
         """Mark the events returned so far as processed (at-least-once delivery)."""
+        ...
+
+    def rewind(self) -> None:
+        """Go back to the last committed position: events polled but not committed are
+        delivered again by the next poll (M12d; how a failed batch is retried)."""
         ...
 
     def close(self) -> None: ...

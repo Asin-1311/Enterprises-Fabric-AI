@@ -459,3 +459,94 @@ def test_signed_webhook_push_through_kafka_into_every_full_index(
     finally:
         worker.close()
         bus.close()
+
+
+# ----------------------------------------------- change data capture (M12d)
+
+def test_a_dms_row_update_reaches_every_index_through_debezium_within_60_seconds(
+        tmp_path, settings, pg_store, qdrant_server, opensearch_index) -> None:
+    """Covers: R-3-stream, R-5-ing. A row inserted, updated and deleted in the synthetic DMS
+    (PostgreSQL) is captured by Debezium, carried by Kafka, translated by the DMS bridge and
+    applied by the worker to PostgreSQL, Qdrant and OpenSearch. The update must arrive
+    within 60 s; the measured time is printed (pytest -s shows it)."""
+    import time
+
+    import httpx
+
+    from app.adapters.full.events import KafkaEventBus
+    from app.connectors.dms import CdcBridge
+    from app.db.models import Source
+    from app.ingest.md_loader import SYNTHETIC_BANNER
+    from app.ingest.worker import IngestWorker
+    from scripts.make_synthetic_dms import dms_url
+
+    try:
+        state = httpx.get("http://127.0.0.1:8083/connectors/dms-documents/status", timeout=3).json()
+        assert state["connector"]["state"] == "RUNNING"
+    except Exception:
+        pytest.skip("Debezium connector not running: start the full profile, then run "
+                    "scripts.make_synthetic_dms and scripts.register_debezium_connector")
+    bus = KafkaEventBus(_need(settings.kafka_bootstrap, "KAFKA_BOOTSTRAP", "ingest", 9092))
+    run = uuid.uuid4().hex[:8]
+    out_topic, doc_id = f"doc-changes-test-{run}", f"DMS-IT-{run}"
+    root = _clean_clone(tmp_path)
+    indexer = _full_indexer(root, pg_store, qdrant_server, opensearch_index)
+    config = {"table": "dms.documents", "defaults": {}}
+    with pg_store.sessions() as s:
+        s.add(Source(id="dms-test", type="dms", classification="public_internal", status="active",
+                     owner="P02", connector_config=config))
+        s.commit()
+    bridge = CdcBridge("dms-test", config, bus, indexer.landing_dir, out_topic=out_topic,
+                       group=f"cdc-test-{run}")
+    worker = IngestWorker(indexer, bus, topic=out_topic, group=f"indexer-test-{run}")
+    dms = create_engine(dms_url(settings.database_url))
+
+    def body(word: str) -> str:
+        return f"{SYNTHETIC_BANNER}\n\n# CDC test\n\n## 1. Rule\nThe marker is {word}.\n"
+
+    def pump_until(check, limit: float) -> float:
+        start = time.monotonic()
+        while time.monotonic() - start < limit:
+            bridge.drain(0.5)
+            worker.drain(0.5)
+            if check():
+                return time.monotonic() - start
+        raise AssertionError(f"not reached within {limit} s")
+
+    def has_marker(word: str) -> bool:
+        with pg_store.sessions() as s:
+            texts = list(s.scalars(select(Chunk.text).where(Chunk.doc_id == doc_id)))
+        hits = opensearch_index.client.search(index=opensearch_index.index, body={
+            "query": {"bool": {"must": [{"match": {"text": word}}],
+                               "filter": [{"term": {"doc_id": doc_id}}]}}})["hits"]["hits"]
+        return any(word in t for t in texts) and qdrant_server.count(doc_id) > 0 and bool(hits)
+
+    try:
+        with dms.begin() as conn:
+            conn.execute(text("INSERT INTO dms.documents (doc_id, title, source_type, access_level, "
+                              "effective_date, body) VALUES (:d, 'CDC test', 'firm_policy', 'manager', "
+                              "'2026-11-19', :b)"), {"d": doc_id, "b": body("aardvarkword")})
+        pump_until(lambda: has_marker("aardvarkword"), 120)  # first run includes the snapshot rows
+        with pg_store.sessions() as s:
+            doc = s.get(Document, doc_id)
+        assert (doc.source_id, doc.owner, doc.classification) == ("dms-test", "P02", "confidential")
+
+        with dms.begin() as conn:  # the acceptance step: an UPDATE of the row
+            conn.execute(text("UPDATE dms.documents SET body = :b, version = '2', updated_at = now() "
+                              "WHERE doc_id = :d"), {"d": doc_id, "b": body("bandicootword")})
+        seconds = pump_until(lambda: has_marker("bandicootword") and not has_marker("aardvarkword"), 60)
+        print(f"\nDMS row update visible in PostgreSQL, Qdrant and OpenSearch after {seconds:.1f} s")
+        assert seconds <= 60
+
+        with dms.begin() as conn:
+            conn.execute(text("DELETE FROM dms.documents WHERE doc_id = :d"), {"d": doc_id})
+        pump_until(lambda: qdrant_server.count(doc_id) == 0 and opensearch_index.count(doc_id) == 0, 60)
+        with pg_store.sessions() as s:
+            assert s.get(Document, doc_id) is None
+    finally:
+        with dms.begin() as conn:
+            conn.execute(text("DELETE FROM dms.documents WHERE doc_id = :d"), {"d": doc_id})
+        dms.dispose()
+        bridge.close()
+        worker.close()
+        bus.close()

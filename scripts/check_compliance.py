@@ -113,27 +113,46 @@ def check(text: str, root: Path = PROJECT_ROOT) -> list[str]:
     return problems
 
 
-def run_met_tests(text: str) -> list[str]:
-    """Run every Met row's acceptance test with pytest; fail on failures or skips."""
-    refs = [r.acceptance_test.strip("`") for r in read_rows(text) if r.status == "Met"]
-    if not refs:
-        return []
+def is_integration(test_ref: str) -> bool:
+    """Integration tests (tests/integration/) need the full-profile servers; pytest.ini
+    deselects them unless `-m integration` is given."""
+    return test_ref.strip("`").startswith("tests/integration/")
+
+
+def _run(refs: list[str], marker: str, kind: str) -> list[str]:
     result = subprocess.run([sys.executable, "-m", "pytest", "-q", "-rs", "-p", "no:cacheprovider",
-                             *refs], cwd=PROJECT_ROOT, capture_output=True, text=True)
+                             "-m", marker, *refs], cwd=PROJECT_ROOT, capture_output=True, text=True)
     problems = []
     if result.returncode != 0:
-        problems.append("a Met acceptance test failed:\n" + result.stdout[-2000:])
+        problems.append(f"a Met {kind} acceptance test failed:\n" + result.stdout[-2000:])
     if re.search(r"\bskipped\b", result.stdout):
-        problems.append("a Met acceptance test was skipped:\n" + result.stdout[-2000:])
+        problems.append(f"a Met {kind} acceptance test was skipped:\n" + result.stdout[-2000:])
+    return problems
+
+
+def run_met_tests(text: str, include_integration: bool = False) -> list[str]:
+    """Run every Met row's acceptance test with pytest; fail on failures or skips.
+    Integration acceptance tests run only with `include_integration` (they need the
+    servers); otherwise they are listed, so a Met row never passes unseen."""
+    refs = [r.acceptance_test.strip("`") for r in read_rows(text) if r.status == "Met"]
+    lite = [r for r in refs if not is_integration(r)]
+    integration = [r for r in refs if is_integration(r)]
+    problems = _run(lite, "not integration", "lite") if lite else []
+    if integration and include_integration:
+        problems += _run(integration, "integration", "integration")
+    elif integration:
+        print(f"NOT RUN (need the servers; use --run-integration): {', '.join(integration)}")
     return problems
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Check COMPLIANCE.md against the tests.")
     parser.add_argument("--run", action="store_true", help="also run the Met acceptance tests")
+    parser.add_argument("--run-integration", action="store_true",
+                        help="with --run: also run the integration acceptance tests (servers up)")
     args = parser.parse_args()
     text = COMPLIANCE.read_text(encoding="utf-8")
-    problems = check(text) + (run_met_tests(text) if args.run else [])
+    problems = check(text) + (run_met_tests(text, args.run_integration) if args.run else [])
     for p in problems:
         print("PROBLEM:", p)
     rows = read_rows(text)

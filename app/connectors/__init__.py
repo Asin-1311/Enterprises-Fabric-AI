@@ -9,6 +9,7 @@
 | confluence  | confluence.py | poll: pages of a space, by version number               |
 | jira        | jira.py       | poll: issues of a project, by `updated`                 |
 | sharepoint  | sharepoint.py | poll: Markdown files in a document library, by cTag     |
+| dms         | dms.py        | push: Debezium change data capture from PostgreSQL (M12d) |
 
 `build_connector` creates the connector of a registered source; app/connectors/runner.py
 polls every active source of a polling type and publishes the events.
@@ -50,6 +51,10 @@ def config_problems(source_type: str, config: dict[str, Any], project_root: Path
     """Problems with a polling source's settings, checked when it is registered
     (POST /sources): the metadata defaults every document needs, and settings that would be
     unsafe (a git url outside data/sources/, a non-https API, a malformed project key)."""
+    if source_type == "dms":
+        from app.connectors.dms import check_dms_config
+
+        return check_dms_config(config)
     if source_type not in POLLING_TYPES:
         return []
     from app.connectors.base import ACCESS_LEVELS

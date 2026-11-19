@@ -191,6 +191,20 @@ class QdrantStore:
                                        limit=10_000, with_payload=True, with_vectors=False)
         return {p.payload["chunk_id"] for p in points if p.payload}
 
+    def index_chunk_ids(self) -> dict[str, set[str]]:
+        """Every document's chunk ids, from one scroll over the whole collection."""
+        found: dict[str, set[str]] = {}
+        offset = None
+        while True:
+            points, offset = self.client.scroll(self.collection, limit=10_000, offset=offset,
+                                                with_payload=["doc_id", "chunk_id"],
+                                                with_vectors=False)
+            for p in points:
+                if p.payload:
+                    found.setdefault(p.payload["doc_id"], set()).add(p.payload["chunk_id"])
+            if offset is None:
+                return found
+
     def payloads(self, doc_id: str) -> list[dict]:
         """Payloads of a document's points."""
         points, _ = self.client.scroll(self.collection, scroll_filter=_doc_filter(doc_id),

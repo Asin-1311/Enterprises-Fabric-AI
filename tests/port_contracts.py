@@ -98,6 +98,7 @@ def check_keyword_index(index: KeywordIndex, sessions: sessionmaker[Session]) ->
     index.delete_chunks(["ENG-A-1:0001", "NO-SUCH:0001"])
     index.refresh(sessions)
     assert _docs(index.search_scoped("materiality", scope(sessions, PARTNER), 10)) == {"POL-1"}
+    assert index.index_chunk_ids() == {"POL-1": {"POL-1:0001"}}  # M12d: reconciliation
 
 
 def check_vector_index(index: VectorIndex, sessions: sessionmaker[Session], embed) -> None:
@@ -122,6 +123,7 @@ def check_vector_index(index: VectorIndex, sessions: sessionmaker[Session], embe
     assert set(stored) == {"POL-1:0001"} and len(stored["POL-1:0001"]) == index.dim
     index.delete_chunks(["ENG-A-1:0001", "NO-SUCH:0001"])
     assert index.count() == 1 and index.chunk_ids("POL-1") == {"POL-1:0001"}
+    assert index.index_chunk_ids() == {"POL-1": {"POL-1:0001"}}  # M12d: reconciliation
 
 
 def check_cache(cache: Cache) -> None:
@@ -153,7 +155,11 @@ def check_event_bus(bus: EventBus, poll_seconds: float = 1.0) -> None:
     again = bus.subscribe(topic, "group-a")
     assert again.poll(poll_seconds) == events[1]  # redelivered: at-least-once
     assert again.poll(poll_seconds) == events[2]
+    again.rewind()  # M12d: a failed batch is retried in the same subscription
+    assert again.poll(poll_seconds) == events[1]
+    assert again.poll(poll_seconds) == events[2]
     again.commit()
+    again.rewind()  # nothing uncommitted: rewinding changes nothing
     assert again.poll(0.5) is None
     again.close()
 
