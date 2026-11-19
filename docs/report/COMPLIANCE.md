@@ -12,10 +12,10 @@ The PDF's Section 15 table is regenerated from this file before submission.
   which milestone adds it.
 - Statuses start from the independent audit of 2026-11-18 (CLAUDE.md Appendix A).
 
-Last updated: M9 (2026-11-18).
+Last updated: M10 (2026-11-19).
 
 <!-- summary: written by hand, verified by scripts/check_compliance.py -->
-**Summary: 43 requirements: 2 Met, 28 Partial, 13 Not met, 0 Deviation.**
+**Summary: 43 requirements: 2 Met, 29 Partial, 12 Not met, 0 Deviation.**
 
 | ID | Spec § | Requirement | Status | Evidence | Acceptance test | Milestone | Notes |
 |---|---|---|---|---|---|---|---|
@@ -27,7 +27,7 @@ Last updated: M9 (2026-11-18).
 | R-5-exp | 5, 11 | Token-by-token streaming answer | Partial | `app/api/main.py` | First `draft_token` event arrives before verification starts | M14, M16 | Agent progress streams live; the answer text is streamed only after verification. |
 | R-5-par | 5 | Parallel processing where possible; no global lock | Partial | `app/concurrency.py`, `app/api/main.py` | Sub-query searches overlap in time; two `/query` calls overlap | M9, M14 | M9 replaced the global question lock with a readers-writer lock, so questions run together and only index writes run alone: `tests/test_api.py::test_two_questions_are_answered_at_the_same_time`, `tests/test_concurrency.py`. Sub-query searches still run one after another (M14). In the lite profile, embedded-Qdrant search calls are serialised per call (milliseconds). |
 | R-6-radix | 6 | Radix UI | Not met | | UI uses Radix primitives; Vitest passes | M16 | React, Tailwind and lucide icons; no Radix yet. |
-| R-6-stack | 6 | OpenSearch, PostgreSQL, Kafka, Redis, Debezium, scheduler, OIDC/JWT, OPA, OTel/Prometheus/Grafana/Langfuse, Docker/K8s/Helm | Not met | | Each runs in `full` and has an integration test | M10-M17 | Only the lite stack exists: SQLite, embedded Qdrant, `rank_bm25`, local sign-in. |
+| R-6-stack | 6 | OpenSearch, PostgreSQL, Kafka, Redis, Debezium, scheduler, OIDC/JWT, OPA, OTel/Prometheus/Grafana/Langfuse, Docker/K8s/Helm | Partial | `app/ports/`, `app/adapters/`, `app/db/migrations/`, `deploy/compose.yaml` | Each runs in `full` and has an integration test | M10-M17 | M10: PostgreSQL 16 (Alembic), Qdrant server, OpenSearch, Redis and Kafka (KRaft) run in `full` behind ports, each with a passing integration test: `tests/integration/test_full_backends.py` (7 tests, `pytest -m integration`); the lite adapters pass the same contracts (`tests/test_ports_lite.py`); migrations match the models (`tests/test_migrations.py`). Debezium, the scheduler, OIDC/JWT, OPA, observability and Docker images/Kubernetes/Helm for the app remain (M12-M17). |
 | R-7.1-a | 7.1 | Owner, classification, timestamp, ACL enrichment | Partial | `data/manifest.csv`, `app/ingest/indexer.py` | Enriched fields present on every document and index payload | M12 | Access level, engagement and effective date are carried; owner and classification are not. |
 | R-7.1-b | 7.1 | Only affected chunks recomputed | Partial | `app/ingest/indexer.py` | One-section edit re-embeds only that section's chunks | M12 | Only changed documents are re-indexed, but the whole document is re-embedded. |
 | R-7.1-c | 7.1 | Connectors: SharePoint, Confluence, Jira, Git, S3; webhook listeners | Not met | | Fixture contract tests (SharePoint, Confluence, Jira); integration (Git, S3, webhook) | M12 | |
@@ -68,3 +68,5 @@ Last updated: M9 (2026-11-18).
 | Spec asks | Built instead | Why |
 |---|---|---|
 | Python 3.11 | Python 3.13 | The only version on the development laptop (CLAUDE.md section 3). |
+| Secured OpenSearch | Security plugin off in `deploy/compose.yaml` (local development only; ports bound to 127.0.0.1) | No TLS certificates or users on the laptop. The Kubernetes deployment (M17) keeps security on. |
+| Every full-profile service on one machine | The development laptop has 7.3 GB RAM; the Docker VM is capped at 3.5 GB | The five M10 servers fit together (about 1.4 GB measured); later identity and observability services will need to be started in groups or run on a bigger machine. |

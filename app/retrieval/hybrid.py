@@ -1,8 +1,9 @@
 """Hybrid search: dense (Qdrant) + BM25, fused with RRF, then adjusted.
 
 Order of operations for one request (CLAUDE.md section 7.3):
-1. ACL first: build the Qdrant payload filter and the BM25 candidate set for this user.
-   Restricted chunks are never scored by either retriever.
+1. ACL first: build the access scope for this user (app/ports.AccessScope). Each index
+   applies it inside its own query (Qdrant payload filter; BM25 candidate set or
+   OpenSearch filter), so restricted chunks are never scored by either retriever.
 2. For each sub-query: dense top-k and BM25 top-k.
 3. Reciprocal rank fusion of all ranked lists (k = 60).
 4. Multiply by the superseded weight (and, for time-sensitive questions, the recency
@@ -28,10 +29,9 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import Settings
 from app.db.models import Chunk, Document
-from app.db.session import init_db, make_engine, make_session_factory
-from app.retrieval.acl import UserContext, allowed_chunk_ids, can_see, qdrant_filter
-from app.retrieval.bm25 import Bm25Index
-from app.retrieval.dense import BgeEmbedder, Embedder, QdrantStore, open_qdrant
+from app.ports import AccessScope, KeywordIndex, VectorIndex
+from app.retrieval.acl import UserContext, allowed_chunk_ids, can_see
+from app.retrieval.dense import BgeEmbedder, Embedder
 from app.retrieval.fusion import reciprocal_rank_fusion
 from app.retrieval.recency import multipliers
 
@@ -81,8 +81,8 @@ class _Meta:
 class HybridSearcher:
     """ACL-filtered hybrid retrieval over the shared indexes."""
 
-    def __init__(self, *, session_factory: sessionmaker[Session], store: QdrantStore,
-                 embedder: Embedder, bm25: Bm25Index, rrf_k: int = 60, top_k: int = 20,
+    def __init__(self, *, session_factory: sessionmaker[Session], store: VectorIndex,
+                 embedder: Embedder, bm25: KeywordIndex, rrf_k: int = 60, top_k: int = 20,
                  superseded_weight: float = 0.5, recency_weight: float = 0.2,
                  half_life_days: float = 365.0) -> None:
         self.sessions, self.store, self.embedder, self.bm25 = session_factory, store, embedder, bm25
@@ -110,7 +110,8 @@ class HybridSearcher:
         # 1. ACL first: both retrievers only ever see permitted chunks.
         with self.sessions() as s:
             allowed = allowed_chunk_ids(s, user, source_types)
-        flt = qdrant_filter(user, source_types)
+        scope = AccessScope(user, tuple(source_types) if source_types else None,
+                            frozenset(allowed))
 
         # 2. Ranked lists per sub-query.
         rankings: list[list[str]] = []
@@ -118,12 +119,13 @@ class HybridSearcher:
         bm25_rank: dict[str, int] = {}
         for q in queries:
             if mode in ("dense", "hybrid_raw", "hybrid"):
-                ids = [cid for cid, _ in self.store.search(self.embedder.embed_query(q), flt, self.top_k)]
+                ids = [cid for cid, _ in self.store.search_scoped(self.embedder.embed_query(q),
+                                                                   scope, self.top_k)]
                 rankings.append(ids)
                 for r, cid in enumerate(ids, 1):
                     dense_rank[cid] = min(r, dense_rank.get(cid, r))
             if mode in ("bm25", "hybrid_raw", "hybrid"):
-                ids = [cid for cid, _ in self.bm25.search(q, self.top_k, allowed)]
+                ids = [cid for cid, _ in self.bm25.search_scoped(q, scope, self.top_k)]
                 rankings.append(ids)
                 for r, cid in enumerate(ids, 1):
                     bm25_rank[cid] = min(r, bm25_rank.get(cid, r))
@@ -183,18 +185,18 @@ class HybridSearcher:
 
 def build_searcher(settings: Settings, embedder: Embedder | None = None,
                    qdrant_client: QdrantClient | None = None) -> HybridSearcher:
-    """Searcher over the real local indexes (SQLite file, data/qdrant, BGE model)."""
-    engine = make_engine(settings.sqlite_url)
-    init_db(engine)  # idempotent; also adds columns introduced after the DB was created
-    sessions = make_session_factory(engine)
+    """Searcher over the real indexes of the active profile (lite: SQLite file,
+    data/qdrant, in-memory BM25; full: PostgreSQL, Qdrant server, OpenSearch)."""
+    from app.adapters import open_keyword_index, open_metadata_store, open_vector_index
+
+    metadata = open_metadata_store(settings)
+    metadata.initialise()  # idempotent: creates or upgrades the schema
     embedder = embedder or BgeEmbedder(settings.embedding_model, settings.embed_batch_size)
-    client = qdrant_client or open_qdrant(settings.qdrant_path)
-    bm25 = Bm25Index()
-    with sessions() as s:
-        bm25.rebuild_from_db(s)
+    keyword = open_keyword_index(settings)
+    keyword.refresh(metadata.sessions)  # lite: load BM25 from the metadata store
     return HybridSearcher(
-        session_factory=sessions,
-        store=QdrantStore(client, settings.qdrant_collection, embedder.dim),
-        embedder=embedder, bm25=bm25, rrf_k=settings.rrf_k, top_k=settings.retrieval_top_k,
+        session_factory=metadata.sessions,
+        store=open_vector_index(settings, embedder.dim, embedded_client=qdrant_client),
+        embedder=embedder, bm25=keyword, rrf_k=settings.rrf_k, top_k=settings.retrieval_top_k,
         superseded_weight=settings.superseded_weight, recency_weight=settings.recency_weight,
         half_life_days=settings.recency_half_life_days)

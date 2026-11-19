@@ -1,0 +1,9 @@
+# Enterprise Fabric AI: extra clients for the FULL profile (PROFILE=full), exact pins.
+# The lite profile and the default test run need only requirements.txt.
+# Install: .venv\Scripts\python.exe -m pip install -r requirements.txt -r requirements-full.txt
+# The servers themselves run in Docker: deploy/compose.yaml.
+
+psycopg[binary]==3.3.9   # PostgreSQL driver (metadata store)
+opensearch-py==3.2.0     # OpenSearch client (keyword index)
+redis==8.1.0             # Redis client (cache)
+confluent-kafka==2.16.2  # Kafka client (event bus)
