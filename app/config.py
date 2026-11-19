@@ -8,6 +8,7 @@ silently using the wrong model.
 
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -44,10 +45,24 @@ class Settings(BaseSettings):
     embedding_model: str = "BAAI/bge-small-en-v1.5"
     reranker_model: str = "BAAI/bge-reranker-base"
 
+    # --- Run profile (CLAUDE.md section 2) --------------------------------------
+    # lite: SQLite, embedded Qdrant, rank_bm25, in-process cache and event bus (laptop,
+    #       tests, clean clone). full: the specified servers in deploy/compose.yaml.
+    profile: Literal["lite", "full"] = "lite"
+    # Server addresses for the full profile (no defaults: credentials stay in .env).
+    database_url: str | None = None       # postgresql+psycopg://user:password@host:5432/db
+    qdrant_url: str | None = None         # http://localhost:6333
+    opensearch_url: str | None = None     # http://localhost:9200
+    opensearch_index: str = "chunks"
+    redis_url: str | None = None          # redis://localhost:6379/0
+    kafka_bootstrap: str | None = None    # localhost:9092
+
     # --- Paths -------------------------------------------------------------
     data_dir: Path = PROJECT_ROOT / "data"
     corpus_dir: Path = PROJECT_ROOT / "data" / "corpus"
     manifest_path: Path = PROJECT_ROOT / "data" / "manifest.csv"
+    # The committed synthetic documents only; used when the ICAI PDFs are absent (clean clone).
+    synthetic_manifest_path: Path = PROJECT_ROOT / "data" / "manifest.synthetic.csv"
     users_path: Path = PROJECT_ROOT / "data" / "users.csv"
     engagements_path: Path = PROJECT_ROOT / "data" / "engagements.csv"
     qdrant_path: Path = PROJECT_ROOT / "data" / "qdrant"
@@ -90,6 +105,15 @@ class Settings(BaseSettings):
     demo_password: str | None = None
     session_hours: float = 8.0  # a sign-in token is valid this long
     reset_link_minutes: float = 15.0  # a password-reset link is valid this long
+    # Open self-registration is OFF by default (audit finding). When switched on, only
+    # addresses at the firm's (synthetic) domain may register.
+    allow_self_registration: bool = False
+    self_registration_domain: str = "example-associates.test"
+    # Sign-in protection, per client IP (CLAUDE.md section 10): calls per minute to the
+    # /auth/* routes, and a lockout after repeated failed sign-ins.
+    auth_rate_per_minute: float = 5.0
+    auth_lockout_failures: int = 10
+    auth_lockout_minutes: float = 15.0
 
     @model_validator(mode="after")
     def _check_llm_settings(self) -> "Settings":

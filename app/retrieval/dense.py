@@ -8,11 +8,16 @@ Note: local mode allows only one QdrantClient per storage folder at a time (it t
 file lock), so the watcher and the API must share one client in one process.
 """
 
+import threading
 import uuid
 from collections.abc import Sequence
-from typing import Protocol
+from contextlib import nullcontext
+from typing import TYPE_CHECKING, Protocol
 
 from qdrant_client import QdrantClient, models
+
+if TYPE_CHECKING:
+    from app.ports import AccessScope
 
 # Payload keys stored on every Qdrant point.
 PAYLOAD_KEYS = ("doc_id", "chunk_id", "source_type", "access_level", "engagement_id",
@@ -93,8 +98,13 @@ def _doc_filter(doc_id: str) -> models.Filter:
 class QdrantStore:
     """Thin wrapper over one Qdrant collection of chunk vectors."""
 
-    def __init__(self, client: QdrantClient, collection: str, dim: int) -> None:
+    def __init__(self, client: QdrantClient, collection: str, dim: int,
+                 serialise_search: bool = True) -> None:
         self.client, self.collection, self.dim = client, collection, dim
+        # Embedded (local-mode) Qdrant is not documented as safe for simultaneous searches
+        # from several threads, so each search call is serialised. It lasts milliseconds,
+        # unlike the old whole-question lock. A Qdrant server (full profile) needs no lock.
+        self._search_lock = threading.Lock() if serialise_search else nullcontext()
         if not self.client.collection_exists(collection):
             self.client.create_collection(
                 collection,
@@ -125,9 +135,18 @@ class QdrantStore:
                limit: int) -> list[tuple[str, float]]:
         """Top-`limit` (chunk_id, cosine score). `flt` is applied INSIDE Qdrant, so
         points that fail the access filter are never scored."""
-        result = self.client.query_points(self.collection, query=list(vector), query_filter=flt,
-                                          limit=limit, with_payload=["chunk_id"])
+        with self._search_lock:
+            result = self.client.query_points(self.collection, query=list(vector),
+                                              query_filter=flt, limit=limit,
+                                              with_payload=["chunk_id"])
         return [(p.payload["chunk_id"], float(p.score)) for p in result.points if p.payload]
+
+    def search_scoped(self, vector: Sequence[float], scope: "AccessScope",
+                      limit: int) -> list[tuple[str, float]]:
+        """VectorIndex port: search with the access filter built from `scope`."""
+        from app.retrieval.acl import qdrant_filter
+
+        return self.search(vector, qdrant_filter(scope.user, scope.source_types), limit)
 
     def count(self, doc_id: str | None = None) -> int:
         """Number of points, optionally for one document."""

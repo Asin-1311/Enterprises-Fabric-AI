@@ -1057,7 +1057,8 @@ Correctness by category:
 - Integrity: after the run, `answers.jsonl` was edited for q001 (full): the judge label was
   changed from partially_correct to correct. `metrics.json` and `per_question.csv` are
   unchanged, and every reported number comes from them. `scripts/make_report.py` flags
-  this difference on every run.
+  this difference on every run. (Explained, and handled as a documented edit, in the
+  M9 section.)
 - Run-to-run variance: not measured. A second run would cost about another $5–6.
 - Tests: 317 passed, 0 skipped (2026-11-13). This includes the real-index ACL sweep over
   the 15,705-chunk index and the new crash-recovery test for resumable runs.
@@ -1320,3 +1321,190 @@ error.
   traces already hold every agent's output (masked) for auditability, so History reads
   the same records an auditor would. Adding a second copy would risk the two
   disagreeing.
+
+---
+
+# Phase 2
+
+## M9: Audit fixes and honest baseline (2026-11-18)
+
+Phase 2 started with an independent audit of Phase 1 against the specification (CLAUDE.md
+Appendix A, the Gap Register). M9 fixes the small, urgent findings. Work is on the branch
+`m9-audit-fixes`, made from `phase2`. `main` and the tag `phase1-final` are untouched.
+
+### What was built
+| Finding | What changed | Proved by |
+|---|---|---|
+| Not runnable from a clean clone (R-ops-clone) | New `data/manifest.synthetic.csv` (the 40 committed synthetic documents). When `data/corpus/standards/` has no PDFs, the indexer uses it and logs a clear warning instead of refusing the whole sync. `make_synthetic_docs.py` writes both manifests. The manifest test that failed in a clean clone now checks the synthetic manifest; the full one is checked only when the PDFs are present. | `tests/test_clean_clone.py`, `tests/test_synthetic_corpus.py` |
+| Global query lock (R-5-par) | `app/concurrency.py`: a readers-writer lock. Questions share the read side, so any number run together. Re-index and watcher updates take the write side, so they wait for running questions and run alone. Embedded Qdrant's search call keeps a tiny per-call lock (milliseconds), because local mode is not documented as safe for simultaneous searches. | `tests/test_concurrency.py`, `tests/test_api.py::test_two_questions_are_answered_at_the_same_time` |
+| Open registration, no sign-in limits (R-12-auth, R-5-serve) | `ALLOW_SELF_REGISTRATION=false` by default; when on, only `@example-associates.test` addresses. `app/api/ratelimit.py`: 5 calls a minute per IP on `/auth/*`, and a lockout after 10 failed sign-ins in 15 minutes. Both answer 429 with `Retry-After`. The sign-in screen asks `GET /auth/config`; with registration off, "Create account" says "Accounts are created by the firm administrator." | `tests/test_auth.py` (5 new tests), `frontend/src/App.test.tsx` |
+| User questions not scanned (R-12-scan) | The question goes through `app/security/injection.py` in the query-understanding step; hits are stored in that trace row and logged with the query id. | `tests/test_agents.py::test_injection_in_the_users_question_is_logged` |
+| `/metrics/quality` returned any latest file (R-10-metrics) | Only `retrieval` and `answers` runs; optional `from`/`to` window; calibration and known-invalid runs left out. The run-folder rules live in `app/quality_runs.py`, shared with the report generator. | `tests/test_api.py::test_metrics_quality_reads_saved_quality_runs_in_a_window` |
+| Error details sent to clients | Stream errors and unexpected 500s now say "Something went wrong..." with a short reference; the details are logged under that reference. | `tests/test_api.py::test_errors_shown_to_clients_are_generic_with_a_reference`, `::test_unhandled_route_errors_are_generic` |
+| Score adjustments not recorded (R-8-record) | Each search result carries its named multipliers (`superseded`, `recency`). Every retrieval trace stores, per chunk, the fused score, each retriever's rank, every multiplier and the final score. | `tests/test_agents.py::test_retrieval_trace_records_every_score_multiplier` |
+| Edited evaluation output (R-ops-integrity) | See "The q001 edit" below. `make_report.py` now **refuses** a run whose files disagree, unless the difference is a documented known edit. | `tests/test_make_report.py` (2 new tests) |
+| No requirement-level status | `docs/report/COMPLIANCE.md`: one row per Gap Register requirement. `scripts/check_compliance.py` fails if a Met row has no test that names its ID, if that test is skipped, or if the summary is stale (`--run` also runs the Met tests). | `tests/test_check_compliance.py` |
+
+### The q001 edit (explained, as the audit asked)
+- **What happened:** in the answer evaluation run `eval/results/20261113-101102_answers/`,
+  the file `answers.jsonl` was changed by hand on 14 November 2026, after the run had
+  finished. The judge's label for question q001 (full system) was changed from
+  `partially_correct` to `correct`. Nothing else in that file differs from the run's own
+  progress log.
+- **Why:** not recorded at the time of the edit. The author's note, added on 2026-11-18:
+  "The q001 label was kept to maintain the evaluation link."
+- **Effect on the results: none.** Every reported number comes from `metrics.json` and
+  `per_question.csv`, which the run wrote and which were never changed; both still say
+  `partially_correct`. The full system's correctness of 0.960 counts q001 as 0.5.
+- **How it is handled (author's decision, 2026-11-18):** the file is kept as it is, because
+  results are never edited again, not even to undo an edit. The difference is listed
+  in `KNOWN_EDITS` in `app/quality_runs.py` with the exact before and after values. The
+  report builds from the untouched files and prints the edit in its integrity section.
+  Any other difference, or a different value for q001, makes `make_report.py` refuse the
+  run.
+- `docs/report/RESULTS.md` was regenerated. Only its integrity paragraph changed; every
+  number is identical.
+
+### Why these matter for an audit firm
+- **Concurrency:** with one global lock, a partner waited behind every article assistant's
+  40-second question. Busy periods such as the bank audit season need many people asking at
+  once. The access rules are unchanged: concurrency touches only how requests share the
+  indexes.
+- **Sign-in limits and closed registration:** an open sign-up form on a confidential
+  knowledge base is an invitation. Accounts in a firm are created by the firm, and password
+  guessing must be slowed down.
+- **Injection in the question:** a user may paste text from a client email that contains
+  instructions. Logging it makes such attempts visible to the firm.
+- **Recorded multipliers and the integrity gate:** working papers must show how a
+  conclusion was reached (the evidence-and-documentation mindset of SA 230). The same applies
+  to the system: every ranking adjustment and every evaluation number must be traceable.
+
+### Likely viva questions
+- *Why a readers-writer lock and not no lock at all?* Answering a question only reads the
+  indexes, and reads can safely overlap. A re-index changes the indexes, so a question must
+  never see half of it. The write side waits for running questions and blocks new ones until
+  it is done ("writer preference"), so re-indexing cannot be postponed for ever.
+- *Why not just delete the edited q001 value?* Because results are never edited, not even to
+  undo an edit. The honest fix is to document it and use only the untouched files. A new run
+  in M18 will supersede this one.
+- *How do you stop the compliance table from claiming more than is true?* A script checks
+  every Met row against a test that names it, and fails the build if that test is missing or
+  skipped.
+- *Does the clean-clone fallback weaken anything?* No. It is used only when the licensed PDFs
+  are absent. With them present, the full manifest is required and validated exactly as
+  before, and an indexer without the fallback still refuses an incomplete manifest (tested).
+
+### Status
+- Requirements closed (Met): R-12-scan, R-10-metrics.
+- Advanced (still Partial; the rest comes later): R-ops-clone (CI job: M17), R-5-par
+  (parallel sub-queries: M14), R-5-serve (`/query` limit and cache: M16), R-12-auth
+  (OIDC/JWT: M13), R-8-record (`retrievals` table: M11), R-ops-integrity (PDF table: M19).
+- `COMPLIANCE.md`: 43 requirements, 2 Met, 28 Partial, 13 Not met.
+- Tests: Python 363 passed, 0 skipped (25 new); frontend 20 passed, type check clean,
+  build OK (2026-11-18). `scripts/check_compliance.py --run` passes.
+
+---
+
+## M10: Ports, adapters and the full-stack skeleton (2026-11-19)
+
+Branch `m10-ports-adapters`, made from `phase2` after the M9 merge.
+
+### What was built
+- **Ports (`app/ports/`):** five small interfaces (Python `Protocol`s): `MetadataStore`,
+  `VectorIndex`, `KeywordIndex`, `Cache`, `EventBus`, plus `AccessScope` (who may see what
+  in one search). The indexer, the searcher and the API now depend only on these.
+- **Lite adapters (`app/adapters/lite/`):** the Phase 1 code behind the ports: SQLite
+  (`init_db`, unchanged), embedded Qdrant, `rank_bm25`, plus a new in-memory cache and an
+  in-process event bus. **No behaviour change:** all 363 Phase 1 and M9 tests pass with only
+  the test helper's construction changed.
+- **Full adapters (`app/adapters/full/`):** PostgreSQL 16 with Alembic migrations, the
+  Qdrant server, OpenSearch BM25, Redis and Kafka. Their client libraries are in
+  `requirements-full.txt` and are imported only when the full profile is used.
+- **Profile switch:** `PROFILE=lite|full` in `.env`, read by one factory
+  (`app/adapters/__init__.py`). `PROFILE` stays `lite`, so the app runs exactly as before.
+- **Migrations (`app/db/migrations/`, `alembic.ini`):** one hand-written migration that
+  creates every table, plus the append-only triggers on `audit_log` (PostgreSQL also blocks
+  `TRUNCATE`). SQLite keeps `init_db` (author's decision); a test proves the migration and
+  the models never drift apart.
+- **`deploy/compose.yaml`:** the five servers, with pinned image versions, health checks,
+  memory caps, ports on 127.0.0.1 only, and profiles `core` (PostgreSQL, Qdrant, OpenSearch,
+  Redis), `ingest` (Kafka) and `full` (all).
+- **`scripts/copy_lite_to_full.py`** (author's request): copies the existing index into the
+  full servers without re-embedding. It refuses a target that already holds data, because
+  the audit log cannot be cleaned up row by row.
+
+### Laptop setup (done in this milestone)
+- WSL2 and Docker Desktop were installed (author's choice: Docker Desktop; free for
+  personal, education and small-business use).
+- The Docker VM is capped at 3.5 GB (`%USERPROFILE%\.wslconfig`), because the laptop has
+  7.3 GB of RAM.
+- Measured: the five servers together use about 1.4 GB. OpenSearch alone used ~1 GB at
+  idle, so its cap was raised from 1 GB to 1.25 GB.
+- `.env` gained the full-profile settings and a randomly generated local database password.
+  `.env` is not in git.
+- **Windows pitfall found and fixed:** "localhost" first tries IPv6 (`::1`), but the
+  containers listen on IPv4 only, so every PostgreSQL connection waited minutes for a
+  timeout. All addresses now use `127.0.0.1`, including the address Kafka advertises.
+
+### How the access rule works on the full stack
+The rule is unchanged and is still enforced inside each index, before any scoring:
+- **Qdrant server:** the same payload filter as before.
+- **OpenSearch:** the same rule as a `terms` filter beside the BM25 text query
+  (`access_filter` in `app/adapters/full/keyword.py`).
+- **Defence in depth:** the searcher still re-checks every result against the metadata
+  store's allowed set and `can_see`.
+
+The integration test indexes the synthetic corpus into PostgreSQL, Qdrant and OpenSearch.
+For **every** user it checks that four statements of the rule select exactly the same
+chunks: the SQL allowed set, `can_see`, OpenSearch's filter and Qdrant's filter.
+
+### Results
+- **Default suite (lite):** 375 passed, 0 skipped. That is the 363 from before plus 12 new
+  tests: port contracts (7), migrations (3), copy script (2).
+- **Integration** (`pytest -m integration`, every server up): 7 passed in 34 s:
+  - PostgreSQL migrations match the models;
+  - the audit log refuses UPDATE, DELETE and TRUNCATE;
+  - OpenSearch, Qdrant server, Redis and Kafka each pass their contract;
+  - the synthetic corpus indexes into the full stack, with access agreement for every
+    user;
+  - the copy script runs against the real servers.
+- **Real copy:** 258 documents, 15,705 chunks, 15,705 vectors and 15,705 keyword entries
+  (17,517 metadata rows in 13 tables) in 30 s. The counts were checked directly on each
+  server; PostgreSQL has one extra audit-log row recording the copy.
+- **Smoke check, not a metric:**
+  - Searching three example questions as a staff user gave **identical dense results** on
+    both profiles (same vectors).
+  - Hybrid results differed slightly, because OpenSearch scores BM25 differently from
+    `rank_bm25`.
+  - A proper retrieval comparison on the full profile belongs to M18's evaluation.
+
+### Why it matters
+- **Swap without rewriting:** the specification asks that indexes and providers can be
+  swapped without rewriting the system (spec section 5). The ports are that seam: the
+  agents never import a database client.
+- **Production backends:** PostgreSQL gives a real multi-user database with migrations;
+  OpenSearch and the Qdrant server serve many processes; Kafka is where M12's change events
+  will flow.
+- **Same rules everywhere:** client confidentiality does not depend on which database is
+  used, because every adapter must pass the same access-control contract.
+
+### Likely viva questions
+- *What is a port and an adapter?* A port is the interface the system needs (for example
+  "search chunks this user may see"). An adapter is one way to provide it (rank_bm25 or
+  OpenSearch). The agents call the port; a setting decides the adapter.
+- *How do you know the lite refactor changed nothing?* The 363 existing tests pass, and only
+  the test helper's construction changed. The same contract tests run against both sets of
+  adapters.
+- *Why keep SQLite without Alembic?* So the lite profile is exactly Phase 1. A test builds a
+  database from the migration and compares it with the models, so the two cannot drift.
+- *Why is OpenSearch's security plugin off?* Local development only, bound to 127.0.0.1;
+  declared as a deviation. The Kubernetes deployment in M17 keeps it on.
+- *Why does the copy script refuse a non-empty target?* The audit log is append-only, so a
+  half-finished copy cannot be undone row by row. Starting again means erasing the
+  volumes, which is a deliberate, visible step.
+
+### Status
+- R-6-stack: Not met → Partial (5 of its components run in `full` with integration tests).
+- COMPLIANCE.md: 43 requirements, 2 Met, 29 Partial, 12 Not met.
+- Tests (2026-11-19): default suite 375 passed, 0 skipped; integration 7 passed with every
+  server up; frontend 20 passed, type check clean; `check_compliance.py --run` passes.

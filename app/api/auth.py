@@ -7,7 +7,10 @@ How it works:
   protected endpoint uses it, so the user is never taken from the request body.
 - POST /auth/register creates a STAFF account with NO engagements. Nobody can make
   themselves a manager or partner, or join a client team; roles and teams stay in
-  data/users.csv and data/engagements.csv.
+  data/users.csv and data/engagements.csv. Registration is OFF unless
+  ALLOW_SELF_REGISTRATION=true, and then only firm-domain addresses are accepted (M9).
+- Every /auth/* route is rate-limited per IP, and 10 failed sign-ins in 15 minutes lock
+  the IP out for a while (app/api/ratelimit.py, M9). Both give HTTP 429 + Retry-After.
 - POST /auth/forgot-password always gives the same answer, so it does not reveal which
   emails have accounts. If the account exists, a one-time link valid for a few minutes
   is written to the API console (there is no email server in this project).
@@ -36,6 +39,7 @@ from app.api.schemas import (
     UserOut,
 )
 from app.db.models import AuthSession, Engagement, EngagementMember, PasswordReset, User
+from app.api.ratelimit import FailureLockout, TokenBucket, retry_after_header
 from app.db.session import write_audit_log
 from app.security.passwords import (
     hash_password,
@@ -50,9 +54,38 @@ log = logging.getLogger("uvicorn.error")  # shown in the API window
 SIGN_IN_FAILED = "Incorrect email or password."
 RESET_SENT = "If an account exists for that email, a password reset link has been sent."
 RESET_INVALID = "This reset link is invalid or has expired. Request a new one."
+REGISTRATION_CLOSED = "Accounts are created by the firm administrator."
+TOO_MANY = "Too many requests. Please wait a moment and try again."
+LOCKED_OUT = "Too many failed sign-in attempts. Please try again later."
 
 router = APIRouter(prefix="/api/v1/auth", tags=["sign-in"])
 _bearer = HTTPBearer(auto_error=False)
+
+
+def _client_ip(request: Request) -> str:
+    return request.client.host if request.client else "unknown"
+
+
+def _limits(request: Request) -> tuple[TokenBucket, FailureLockout]:
+    """The app's sign-in limiter, created on first use from the settings."""
+    state = request.app.state
+    if getattr(state, "auth_limits", None) is None:
+        s = state.services.settings
+        state.auth_limits = (TokenBucket(s.auth_rate_per_minute),
+                             FailureLockout(s.auth_lockout_failures, s.auth_lockout_minutes))
+    return state.auth_limits
+
+
+def guard_auth_route(request: Request) -> None:
+    """Dependency on every /auth/* route that takes credentials or sends links."""
+    bucket, lockout = _limits(request)
+    ip = _client_ip(request)
+    wait = lockout.locked_for(ip)
+    if wait:
+        raise HTTPException(429, LOCKED_OUT, headers=retry_after_header(wait))
+    wait = bucket.take(ip)
+    if wait:
+        raise HTTPException(429, TOO_MANY, headers=retry_after_header(wait))
 
 
 def utc_now() -> datetime:
@@ -114,26 +147,42 @@ def _next_user_id(s: Session) -> str:
 
 # --------------------------------------------------------------------------- routes
 
-@router.post("/login", response_model=SessionOut)
+@router.get("/config")
+def auth_config(request: Request) -> dict:
+    """What the sign-in screen may offer (public: no secrets, no user data)."""
+    return {"self_registration": request.app.state.services.settings.allow_self_registration}
+
+
+@router.post("/login", response_model=SessionOut, dependencies=[Depends(guard_auth_route)])
 def login(req: LoginRequest, request: Request) -> SessionOut:
     """Check email and password; on success return a session token."""
     settings = request.app.state.services.settings
     with _sessions(request)() as s:
         user = s.scalars(select(User).where(User.email == req.email)).first()
         if not verify_password(req.password, user.password_hash if user else None):
-            write_audit_log(s, user.user_id if user else "unknown", "sign_in_failed", None)
+            actor = user.user_id if user else "unknown"
+            write_audit_log(s, actor, "sign_in_failed", None)
+            _, lockout = _limits(request)
+            lockout.record_failure(_client_ip(request))
+            if lockout.locked_for(_client_ip(request)):
+                write_audit_log(s, actor, "sign_in_locked_out", None)
             raise HTTPException(401, SIGN_IN_FAILED)
         write_audit_log(s, user.user_id, "signed_in", user.user_id)
         return _start_session(s, user, settings.session_hours)
 
 
-@router.post("/register", response_model=SessionOut, status_code=201)
+@router.post("/register", response_model=SessionOut, status_code=201,
+             dependencies=[Depends(guard_auth_route)])
 def register(req: RegisterRequest, request: Request) -> SessionOut:
-    """Create a staff account with no engagements, and sign it in."""
+    """Create a staff account with no engagements, and sign it in. Off by default."""
+    settings = request.app.state.services.settings
+    if not settings.allow_self_registration:
+        raise HTTPException(403, REGISTRATION_CLOSED)
+    if not req.email.endswith("@" + settings.self_registration_domain.lower()):
+        raise HTTPException(422, f"Use your firm email address (@{settings.self_registration_domain}).")
     problem = password_problem(req.password)
     if problem:
         raise HTTPException(422, problem)
-    settings = request.app.state.services.settings
     with _sessions(request)() as s:
         if s.scalars(select(User).where(User.email == req.email)).first():
             raise HTTPException(409, "An account with this email already exists. Sign in instead.")
@@ -167,7 +216,7 @@ def logout(request: Request, creds: HTTPAuthorizationCredentials | None = Depend
     return {"signed_out": True}
 
 
-@router.post("/forgot-password")
+@router.post("/forgot-password", dependencies=[Depends(guard_auth_route)])
 def forgot_password(req: ForgotPasswordRequest, request: Request) -> dict:
     """Same reply whether or not the email exists. If it does, the one-time link is
     written to the API console (no email server in this project)."""
@@ -187,7 +236,7 @@ def forgot_password(req: ForgotPasswordRequest, request: Request) -> dict:
     return {"message": RESET_SENT}
 
 
-@router.post("/reset-password")
+@router.post("/reset-password", dependencies=[Depends(guard_auth_route)])
 def reset_password(req: ResetPasswordRequest, request: Request) -> dict:
     """Set a new password with a valid, unused link; sign the user out everywhere."""
     problem = password_problem(req.password)

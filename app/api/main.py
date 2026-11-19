@@ -5,8 +5,10 @@ Run from the project root:
 Interactive docs: http://127.0.0.1:8000/docs
 
 One process holds the models, the single local Qdrant client, the assistant and (by
-default) the folder watcher. They share one BM25 index and one lock, so a re-index is
-visible to the next search and two requests never use Qdrant at the same time.
+default) the folder watcher. They share one BM25 index and one readers-writer lock
+(app/concurrency.py): any number of questions are answered at the same time, while a
+re-index or watcher update waits for them and runs alone. (Phase 1 held a single lock
+for the whole of every question; removed in M9, audit finding R-5-par.)
 
 Streaming (POST /query, Server-Sent Events):
     event: progress   {"step": "retrieving", ...}   live, one per agent step
@@ -31,8 +33,9 @@ import logging
 import re
 import threading
 import time
+import uuid
 from collections.abc import Callable
-from datetime import timezone
+from datetime import datetime, timezone
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Any
@@ -40,6 +43,7 @@ from typing import Any
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query as Q, Request
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func, select
 from sse_starlette.sse import EventSourceResponse
@@ -57,6 +61,7 @@ from app.api.schemas import (
     TraceRow,
     UserOut,
 )
+from app.concurrency import ReadWriteLock
 from app.config import PROJECT_ROOT, Settings, get_settings
 from app.db.models import (
     Answer,
@@ -69,11 +74,23 @@ from app.db.models import (
     User,
 )
 from app.db.session import write_audit_log
+from app.quality_runs import QUALITY_TYPES, quality_runs
 from app.ingest.indexer import Indexer, ManifestError
 from app.retrieval.dense import QdrantInUseError
 from app.security.masking import mask_text
 
 PREVIEW_CHARS = 700
+log = logging.getLogger("uvicorn.error")
+
+# Errors shown to clients are generic; the details stay in the server log under the same
+# reference, so support can find them without exposing internals (audit finding, M9).
+GENERIC_ERROR = ("Something went wrong while answering. Please try again; if it keeps "
+                 "happening, quote reference {ref}.")
+
+
+def error_reference() -> str:
+    """A short random id that links a client-visible error to its server log entry."""
+    return uuid.uuid4().hex[:8]
 
 
 @dataclass
@@ -83,7 +100,7 @@ class Services:
     settings: Settings
     assistant: AuditAssistant
     indexer: Indexer | None
-    lock: threading.RLock
+    lock: ReadWriteLock
     stop: Callable[[], None] = lambda: None
 
     @property
@@ -99,10 +116,11 @@ def build_services(settings: Settings) -> Services:
 
     assistant = build_assistant(settings)
     searcher = assistant.deps.searcher
-    indexer = build_indexer(settings, embedder=searcher.embedder,
-                            qdrant_client=searcher.store.client, bm25=searcher.bm25)
-    lock = threading.RLock()
-    indexer.lock = lock  # watcher, re-index and queries take turns
+    # Share the searcher's backends, so a re-index is visible to the next search.
+    indexer = build_indexer(settings, embedder=searcher.embedder, store=searcher.store,
+                            bm25=searcher.bm25, sessions=searcher.sessions)
+    lock = ReadWriteLock()
+    indexer.lock = lock.writer  # index writes run alone; questions share the read side
     stop: Callable[[], None] = lambda: None
     if settings.api_watch_corpus:
         handler = DebouncedCorpusHandler(indexer, settings.corpus_dir, settings.manifest_path,
@@ -190,13 +208,15 @@ async def query(req: QueryRequest, request: Request,
     def work() -> None:
         start = time.perf_counter()
         try:
-            with svc.lock:
+            with svc.lock.reading():  # many questions at once; never during an index write
                 result = svc.assistant.ask(
                     req.text, user.user_id,
                     on_event=lambda step, payload: emit("progress", {"step": step, **payload}))
             emit("result", (result, time.perf_counter() - start))
-        except Exception as exc:  # noqa: BLE001 - reported to the client as an SSE error
-            emit("error", {"message": f"{type(exc).__name__}: {exc}"})
+        except Exception:  # noqa: BLE001 - details to the server log, generic text to the client
+            ref = error_reference()
+            log.exception("Query failed (reference %s, user %s)", ref, user.user_id)
+            emit("error", {"message": GENERIC_ERROR.format(ref=ref), "reference": ref})
         finally:
             emit("done", None)
 
@@ -344,7 +364,7 @@ def reindex(request: Request, user: User = Depends(current_user)) -> dict:
     with svc.sessions() as s:
         write_audit_log(s, user.user_id, "manual_reindex_requested", "all")
     try:
-        with svc.lock:
+        with svc.lock.writing():
             report = svc.indexer.sync(actor=user.user_id)
     except ManifestError as exc:
         raise HTTPException(422, {"manifest_errors": exc.errors}) from exc
@@ -367,16 +387,41 @@ def sources_status(request: Request) -> list[dict]:
              "last_indexed_at": last.isoformat() if last else None} for st, n, last in docs]
 
 
+def _window_bound(value: str | None, name: str, end_of_day: bool) -> datetime | None:
+    """Parse `from`/`to`: a date (YYYY-MM-DD) or a date-time (YYYY-MM-DDTHH:MM[:SS])."""
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        raise HTTPException(422, f"'{name}' must be a date (YYYY-MM-DD) or date-time") from None
+    if end_of_day and len(value) == 10:  # a bare date includes the whole day
+        parsed = parsed.replace(hour=23, minute=59, second=59)
+    return parsed.replace(tzinfo=None)
+
+
 @router.get("/metrics/quality", dependencies=[Depends(current_user)])
-def metrics_quality(request: Request) -> dict:
-    """The latest metrics.json from eval/results/. Never computes or estimates numbers."""
-    results = _services(request).settings.eval_results_dir
-    runs = sorted(p for p in results.glob("*/metrics.json")) if results.exists() else []
+def metrics_quality(request: Request, from_: str | None = Q(None, alias="from"),
+                    to: str | None = Q(None)) -> dict:
+    """Retrieval and answer-quality metrics, exactly as saved in eval/results/.
+
+    Only `retrieval` and `answers` runs count (calibration runs and known-invalid runs are
+    left out). With `from`/`to`, every such run started in that window is returned, newest
+    first; without them, the latest run of each type. Never computes or estimates."""
+    start = _window_bound(from_, "from", end_of_day=False)
+    end = _window_bound(to, "to", end_of_day=True)
+    if start and end and start > end:
+        raise HTTPException(422, "'from' is after 'to'")
+    runs = quality_runs(_services(request).settings.eval_results_dir, start, end)
+    if not (start or end):  # latest of each type
+        runs = [next(r for r in runs if r.type == t) for t in QUALITY_TYPES
+                if any(r.type == t for r in runs)]
     if not runs:
-        raise HTTPException(404, "no evaluation results yet")
-    latest = runs[-1]
-    return {"run": latest.parent.name,
-            "metrics": json.loads(latest.read_text(encoding="utf-8"))}
+        raise HTTPException(404, "no evaluation results in this window")
+    return {"from": start.isoformat() if start else None, "to": end.isoformat() if end else None,
+            "runs": [{"run": r.name, "type": r.type, "started_at": r.started_at.isoformat(),
+                      "metrics": json.loads((r.path / "metrics.json").read_text(encoding="utf-8"))}
+                     for r in runs]}
 
 
 @router.get("/users", response_model=list[UserOut])
@@ -432,6 +477,16 @@ def create_app(services: Services | None = None, static_dir: Path | None = FRONT
                               "`Authorization: Bearer <token>`.")
     app.include_router(auth_router)
     app.include_router(router)
+
+    @app.exception_handler(Exception)
+    async def unexpected_error(request: Request, exc: Exception) -> JSONResponse:
+        """Any unhandled error: generic message to the client, details to the log."""
+        ref = error_reference()
+        log.error("Unhandled error on %s %s (reference %s)", request.method, request.url.path,
+                  ref, exc_info=exc)
+        return JSONResponse(status_code=500,
+                            content={"detail": GENERIC_ERROR.format(ref=ref), "reference": ref})
+
     if static_dir is not None and (static_dir / "index.html").exists():
         app.mount("/", StaticFiles(directory=static_dir, html=True), name="ui")
     return app

@@ -26,14 +26,10 @@ from pathlib import Path
 from xml.sax.saxutils import escape
 
 from app.config import PROJECT_ROOT
+from app.quality_runs import EXCLUDED_RUNS, KNOWN_EDITS  # shared with the API (M9)
 
 RESULTS_DIR = PROJECT_ROOT / "eval" / "results"
 REPORT_DIR = PROJECT_ROOT / "docs" / "report"
-
-# Runs that must never be used in the report, with the reason (see docs/NOTES.md).
-EXCLUDED_RUNS = {
-    "20261107-125802_retrieval": "flawed superseded-ordering metric (NOTES.md, M3)",
-}
 
 RETRIEVAL_MODES = ("dense", "bm25", "hybrid_raw", "hybrid")
 MODE_LABELS = {"dense": "dense", "bm25": "BM25", "hybrid_raw": "RRF only",
@@ -245,31 +241,47 @@ def bar_chart_svg(title: str, subtitle: str, categories: list[str], series: list
 
 # --------------------------------------------------------------------------- integrity check
 
-def integrity_issues(answers_dir: Path) -> list[str]:
-    """Differences between answers.jsonl and the run's own per_question.csv.
+@dataclass
+class Integrity:
+    """Disagreements between a run's files: unexplained ones block the report."""
+
+    unexplained: list[str]
+    documented: list[str]
+
+
+class IntegrityError(SystemExit):
+    """The run's files disagree in a way nobody has documented: no report is built."""
+
+
+def check_integrity(answers_dir: Path) -> Integrity:
+    """Compare answers.jsonl with the run's own per_question.csv.
 
     Both files are written by the same run, so any difference means a file was edited
-    afterwards. The report's numbers come from metrics.json and per_question.csv.
-    """
-    issues = []
+    afterwards. A difference listed in KNOWN_EDITS (app/quality_runs.py, documented in
+    docs/NOTES.md) is reported; any other difference is unexplained. The report's numbers
+    come only from metrics.json and per_question.csv."""
+    unexplained, documented = [], []
     metrics = read_json(answers_dir / "metrics.json")
     if metrics.get("complete") is not True:
-        issues.append("metrics.json does not say the run is complete.")
+        unexplained.append("metrics.json does not say the run is complete.")
     csv_labels = {(r["id"], r["system"]): r["correctness"]
                   for r in read_csv(answers_dir / "per_question.csv")}
     path = answers_dir / "answers.jsonl"
     if not path.exists():
-        return issues
+        return Integrity(unexplained, documented)
     for line in path.read_text(encoding="utf-8").splitlines():
         if not line.strip():
             continue
         a = json.loads(line)
         judged = (a.get("judge") or {}).get("correctness", "")
         expected = csv_labels.get((a["id"], a["system"]))
-        if expected is not None and judged != expected:
-            issues.append(f"answers.jsonl {a['id']} ({a['system']}): judge correctness "
-                          f"'{judged}' but per_question.csv has '{expected}'.")
-    return issues
+        if expected is None or judged == expected:
+            continue
+        text = (f"answers.jsonl {a['id']} ({a['system']}): judge correctness '{judged}' but "
+                f"per_question.csv has '{expected}'.")
+        known = KNOWN_EDITS.get((answers_dir.name, a["id"], a["system"]))
+        (documented if known == (expected, judged) else unexplained).append(text)
+    return Integrity(unexplained, documented)
 
 
 # --------------------------------------------------------------------------- report sections
@@ -447,12 +459,14 @@ def cost_and_models_section(am: dict, answers_dir: Path) -> str:
     ])
 
 
-def integrity_section(issues: list[str]) -> str:
-    body = ("No differences found between `answers.jsonl` and `per_question.csv`."
-            if not issues else
-            "The run's files disagree with each other, so a file was changed after the run. "
-            "All numbers above come from `metrics.json` and `per_question.csv`, which are "
-            "unchanged:\n\n" + "\n".join(f"- {i}" for i in issues))
+def integrity_section(integrity: "Integrity") -> str:
+    if not integrity.documented:
+        body = "No differences found between `answers.jsonl` and `per_question.csv`."
+    else:
+        body = ("These values in `answers.jsonl` were changed by hand after the run. Each "
+                "change is documented in `docs/NOTES.md` (M9). All numbers above come from "
+                "`metrics.json` and `per_question.csv`, which the run wrote and which are "
+                "unchanged:\n\n" + "\n".join(f"- {i}" for i in integrity.documented))
     return f"## 8. Integrity check\n\n{body}"
 
 
@@ -516,7 +530,12 @@ def figures(am: dict, rm: dict) -> dict[str, str]:
 # --------------------------------------------------------------------------- main
 
 def build_report(runs: Runs) -> tuple[str, dict[str, str]]:
-    """Return (RESULTS.md text, {figure name: SVG text}) for the chosen runs."""
+    """Return (RESULTS.md text, {figure name: SVG text}) for the chosen runs.
+    Refuses (IntegrityError) if the answers run's files disagree in an undocumented way."""
+    integrity = check_integrity(runs.answers)
+    if integrity.unexplained:
+        raise IntegrityError(f"Refusing to report {runs.answers.name}: its files disagree.\n"
+                             + "\n".join(f"  - {i}" for i in integrity.unexplained))
     am = read_json(runs.answers / "metrics.json")
     rm = read_json(runs.retrieval / "metrics.json")
     figs = figures(am, rm)
@@ -539,7 +558,7 @@ def build_report(runs: Runs) -> tuple[str, dict[str, str]]:
         latency_section(am, "latency.svg"),
         calibration_section(runs.calibration, runs.answers),
         cost_and_models_section(am, runs.answers),
-        integrity_section(integrity_issues(runs.answers)),
+        integrity_section(integrity),
     ]
     return "\n\n".join(sections) + "\n", figs
 
@@ -565,8 +584,8 @@ def main() -> int:
     print(f"Wrote {path.relative_to(PROJECT_ROOT)} and 4 figures from "
           f"{runs.answers.name}, {runs.retrieval.name}, "
           f"{runs.calibration.name if runs.calibration else 'no calibration run'}.")
-    for issue in integrity_issues(runs.answers):
-        print("INTEGRITY:", issue)
+    for edit in check_integrity(runs.answers).documented:
+        print("DOCUMENTED EDIT:", edit)
     return 0
 
 

@@ -40,6 +40,7 @@ type Handler = (init: RequestInit | undefined) => Response | Promise<Response>;
 /** Fake API: `overrides` replace the default answer for a path ending. */
 function mockApi(overrides: Record<string, Handler> = {}) {
   const routes: Record<string, Handler> = {
+    "/auth/config": () => Response.json({ self_registration: false }), // the default
     "/auth/login": () => Response.json(SESSION),
     "/auth/me": () => Response.json(RIYA),
     "/auth/logout": () => Response.json({ signed_out: true }),
@@ -88,7 +89,9 @@ test("the sign-in screen comes first, with forgot password on the left and creat
   const create = screen.getByRole("button", { name: "Create account" });
   expect(forgot.parentElement).toBe(create.parentElement); // same row ...
   expect(forgot.compareDocumentPosition(create) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy(); // ... forgot first
-  expect(fetchMock).not.toHaveBeenCalled(); // nothing is loaded before sign-in
+  // Before sign-in only the public sign-in settings are fetched, no data.
+  await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+  expect(fetchMock.mock.calls.map(([u]) => String(u))).toEqual(["/api/v1/auth/config"]);
 
   fireEvent.change(screen.getByLabelText("Email"), { target: { value: RIYA.email } });
   fireEvent.change(screen.getByLabelText("Password"), { target: { value: "demo-pass-123" } });
@@ -152,10 +155,25 @@ test("a wrong password shows the API's message; a stopped API says so", async ()
   expect(await screen.findByText(/API is not reachable/)).toBeInTheDocument();
 });
 
+test("with registration off (the default), create account explains who creates accounts", async () => {
+  const fetchMock = mockApi();
+  render(<App />);
+  await waitFor(() => expect(callTo(fetchMock, "/auth/config")).toBeTruthy());
+  fireEvent.click(screen.getByRole("button", { name: "Create account" }));
+  expect(screen.getByRole("status")).toHaveTextContent("Accounts are created by the firm administrator.");
+  expect(screen.getByRole("heading", { name: "Sign in" })).toBeInTheDocument(); // no form opened
+});
+
 test("create account checks the passwords locally, then signs the new user in", async () => {
   const newUser: User = { user_id: "U0001", name: "Asha Verma", role: "staff", email: "asha@firm.test", engagements: [] };
-  const fetchMock = mockApi({ "/auth/register": () => Response.json({ ...SESSION, user: newUser }, { status: 201 }) });
+  const fetchMock = mockApi({
+    "/auth/config": () => Response.json({ self_registration: true }),
+    "/auth/register": () => Response.json({ ...SESSION, user: newUser }, { status: 201 }),
+  });
   render(<App />);
+  await waitFor(() => expect(callTo(fetchMock, "/auth/config")).toBeTruthy());
+  await screen.findByRole("button", { name: "Create account" });
+  await new Promise((r) => setTimeout(r, 0)); // let the config answer reach the screen
   fireEvent.click(screen.getByRole("button", { name: "Create account" }));
   expect(screen.getByRole("heading", { name: "Create account" })).toBeInTheDocument();
   expect(screen.getByText(/assigned by the firm/)).toBeInTheDocument();
@@ -166,7 +184,7 @@ test("create account checks the passwords locally, then signs the new user in", 
   fireEvent.change(screen.getByLabelText("Confirm password"), { target: { value: "different-1" } });
   fireEvent.click(screen.getByRole("button", { name: "Create account" }));
   expect(screen.getByRole("alert")).toHaveTextContent("The two passwords do not match.");
-  expect(fetchMock).not.toHaveBeenCalled();
+  expect(fetchMock.mock.calls.some(([u]) => String(u).endsWith("/auth/register"))).toBe(false);
 
   fireEvent.change(screen.getByLabelText("Confirm password"), { target: { value: "long-enough-1" } });
   fireEvent.click(screen.getByRole("button", { name: "Create account" }));

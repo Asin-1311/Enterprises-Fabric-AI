@@ -36,6 +36,9 @@ class DebouncedCorpusHandler(FileSystemEventHandler):
         self.indexer = indexer
         self.corpus_dir = corpus_dir.resolve()
         self.manifest_path = manifest_path.resolve()
+        # Either manifest may be the active one (the synthetic one in a clean clone).
+        synthetic = getattr(indexer, "synthetic_manifest_path", None)
+        self.manifest_paths = {self.manifest_path} | ({synthetic.resolve()} if synthetic else set())
         self.debounce_seconds = debounce_seconds
         self._pending: dict[Path, str] = {}  # path -> "change" | "delete"
         self._manifest_changed = False
@@ -58,7 +61,7 @@ class DebouncedCorpusHandler(FileSystemEventHandler):
     def _note(self, path: Path, kind: str) -> None:
         path = path.resolve()
         with self._lock:
-            if path == self.manifest_path:
+            if path in self.manifest_paths:
                 self._manifest_changed = True
             elif path.suffix.lower() in WATCHED_SUFFIXES and self.corpus_dir in path.parents:
                 self._pending[path] = kind

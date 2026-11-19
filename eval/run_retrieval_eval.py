@@ -25,7 +25,6 @@ from datetime import date, datetime
 from pathlib import Path
 
 from app.config import PROJECT_ROOT, get_settings
-from app.db.session import make_session_factory, make_engine
 from app.retrieval.acl import load_user
 from app.retrieval.hybrid import MODES, build_searcher
 from eval.metrics import (
@@ -77,7 +76,7 @@ def run(k_docs: int = 10, chunk_limit: int = 40) -> Path:
     as_of = date.today()
 
     searcher = build_searcher(settings)
-    sessions = make_session_factory(make_engine(settings.sqlite_url))
+    sessions = searcher.sessions  # the active profile's metadata store
 
     rows: list[dict] = []
     latencies: dict[str, list[float]] = defaultdict(list)

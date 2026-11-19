@@ -134,13 +134,30 @@ def test_figures_are_valid_svg_with_one_bar_per_value(results: Path) -> None:
     assert len([l for l in latency.iter(f"{ns}line") if l.get("class") == "target"]) == 2
 
 
-def test_integrity_check_flags_an_edited_answers_file(tmp_path: Path) -> None:
-    clean, edited = tmp_path / "clean_answers", tmp_path / "edited_answers"
-    _answers_run(clean)
-    _answers_run(edited, edited=True)
-    assert mr.integrity_issues(clean) == []
-    issues = mr.integrity_issues(edited)
-    assert len(issues) == 1 and "q2 (baseline)" in issues[0]
+def test_an_undocumented_edit_blocks_the_report(results: Path) -> None:
+    """Covers: R-ops-integrity. A run whose files disagree is refused, unless the
+    difference is a documented known edit."""
+    answers = results / "20260101-000000_answers"
+    assert mr.check_integrity(answers) == mr.Integrity([], [])
+    _answers_run(edited := results / "20260105-000000_answers", edited=True)
+    integrity = mr.check_integrity(edited)
+    assert integrity.documented == [] and len(integrity.unexplained) == 1
+    assert "q2 (baseline)" in integrity.unexplained[0]
+    with pytest.raises(mr.IntegrityError, match="files disagree"):
+        mr.build_report(mr.choose_runs(results, answers=edited.name))
+
+
+def test_a_documented_edit_is_listed_and_the_report_still_builds(results: Path, monkeypatch) -> None:
+    """Covers: R-ops-integrity. The report uses only the untouched files and lists the edit."""
+    _answers_run(edited := results / "20260105-000000_answers", edited=True)
+    monkeypatch.setitem(mr.KNOWN_EDITS, (edited.name, "q2", "baseline"), ("incorrect", "correct"))
+    integrity = mr.check_integrity(edited)
+    assert integrity.unexplained == [] and len(integrity.documented) == 1
+    text, _ = mr.build_report(mr.choose_runs(results, answers=edited.name))
+    assert "changed by hand after the run" in text and "q2 (baseline)" in text
+    # A documented edit only matches its exact values: a different change is unexplained.
+    monkeypatch.setitem(mr.KNOWN_EDITS, (edited.name, "q2", "baseline"), ("incorrect", "partially_correct"))
+    assert len(mr.check_integrity(edited).unexplained) == 1
 
 
 def test_chance_agreement_and_target_status_hand_computed() -> None:
