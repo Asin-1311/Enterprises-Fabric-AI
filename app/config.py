@@ -77,6 +77,12 @@ class Settings(BaseSettings):
     embed_batch_size: int = 32
     watcher_debounce_seconds: float = 1.5
     api_watch_corpus: bool = True  # the API process also runs the folder watcher
+    # The API process also runs the ingestion worker (M12a). Right for lite (in-process
+    # event bus). In the full profile the worker usually runs as its own process
+    # (python -m app.ingest.worker), so set API_RUN_WORKER=false there.
+    api_run_worker: bool = True
+    # Push connectors (the webhook) store received content here for the worker.
+    landing_dir: Path = PROJECT_ROOT / "data" / "landing"
 
     # --- Chunking -----------------------------------------------------------
     chunk_max_tokens: int = 400

@@ -1269,6 +1269,35 @@
         ],
         "title": "ValidationError",
         "type": "object"
+      },
+      "WebhookAccepted": {
+        "properties": {
+          "doc_id": {
+            "title": "Doc Id",
+            "type": "string"
+          },
+          "event_id": {
+            "title": "Event Id",
+            "type": "string"
+          },
+          "op": {
+            "title": "Op",
+            "type": "string"
+          },
+          "status": {
+            "const": "accepted",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "event_id",
+          "doc_id",
+          "op"
+        ],
+        "title": "WebhookAccepted",
+        "type": "object"
       }
     },
     "securitySchemes": {
@@ -2178,6 +2207,60 @@
           }
         ],
         "summary": "Users"
+      }
+    },
+    "/api/v1/webhooks/documents": {
+      "post": {
+        "description": "Accept a signed document change from a webhook source and queue it for indexing.",
+        "operationId": "receive_document_api_v1_webhooks_documents_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-source-id",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "X-Source-Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-signature-256",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "X-Signature-256",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookAccepted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Receive Document",
+        "tags": [
+          "connectors"
+        ]
       }
     }
   }

@@ -1610,3 +1610,99 @@ commits.
 - Tests (2026-11-19): default suite 386 passed, 0 skipped (11 new); integration 7 passed
   (PostgreSQL drift check now includes migration 0002); frontend 20 passed, type check
   clean; `check_compliance.py --run` passes.
+
+---
+
+## M12a: Change events, the ingestion worker, enrichment and the webhook (2026-11-19)
+
+M12 is split into four parts (author's decision): M12a events and worker, M12b chunk-level
+updates, M12c connectors, M12d change data capture and scheduling. Branch
+`m12a-events-worker`, made from `phase2` after M11 was merged.
+
+### What was built
+- **Change events (`app/ingest/events.py`):** every change to a source becomes one
+  `DocumentChanged` event, `{event_id, source_id, doc_id, uri, op, content_hash, metadata,
+  occurred_at}`, published on topic `doc-changes`. Events are keyed by document, so changes
+  to one document stay in order.
+- **The ingestion worker (`app/ingest/worker.py`):** the only consumer of events. It
+  applies each event to the metadata store, the vector index and the keyword index
+  together.
+  - **At-least-once:** events are committed only after they are applied. If something
+    fails, the same events come again; applying an event twice changes nothing (same
+    content and metadata are detected).
+  - **Refused, not blocked:** a malformed event, or one that fails enrichment, is refused,
+    written to `audit_log` and committed, so it cannot block the queue.
+  - **Where it runs:** in lite, a background thread of the API on the in-process bus; in
+    full, its own process (`python -m app.ingest.worker`) on Kafka.
+- **Enrichment (`app/ingest/enrich.py`):** every change gets owner, classification,
+  timestamp and access fields before it is indexed.
+  - Owner and classification come from the document, else from its source.
+  - A default classification is never below `confidential` for an engagement file or for
+    anything above staff level. The live Kafka test found that a manager-only document
+    pushed without a classification would otherwise have been `public_internal`.
+  - Access level and engagement are checked; anything invalid is refused, never guessed.
+  - Both indexes now carry `source_id` and `classification` beside the access fields.
+- **Manifest:** three optional columns, `source_id`, `owner` and `classification`, filled
+  for all 258 rows by one rule (`scripts/synthetic/people.py`):
+  - **Owners (synthetic):** engagement files belong to their engagement partner; policies
+    and circulars to P02; checklists and templates to M01; the calendar and FAQ to M02; ICAI
+    material has no firm owner.
+  - **Classification:** engagement files and anything above staff level are
+    `confidential`; the rest is `public_internal`.
+  - No original value changed (checked row by row).
+- **Folder watcher:** no longer indexes anything itself. It publishes events for the
+  worker. Run on its own (command line, tests), it brings its own bus and worker, so files
+  are still indexed as soon as they change.
+- **Webhook (`POST /api/v1/webhooks/documents`):** for registered sources of type
+  `webhook`.
+  - The caller signs the exact body with HMAC-SHA256 using the source's secret. The secret
+    lives in `.env`; the source stores only `env:NAME`.
+  - An unknown source, a non-webhook source and a wrong signature all get the same 401, so
+    the endpoint reveals nothing. Changing even one byte of a signed body breaks the
+    signature (tested).
+  - The content goes to the landing folder (`data/landing/`, git-ignored) and an event is
+    queued (HTTP 202).
+  - A document id that belongs to another source is refused (409).
+- **A full sync no longer removes documents that came from other sources:** only
+  documents of the folder sources are compared with the manifest.
+
+### Found and fixed by the live check
+The real API (on copies of the database and index) accepted a pushed document, but its
+worker failed to index it. The tests had always put the landing folder inside the project,
+and computing a project-relative path crashed when it was elsewhere. A document's location
+is now its event `uri`, which is valid wherever the folder is; a regression test covers
+it. After the fix, the API's worker indexed the pushed document about 1.9 s after the
+webhook accepted it.
+
+### Known limitation (for M12d)
+An event that fails for an unexpected reason is retried every 5 seconds until it
+succeeds. That is right for a temporary fault (a database restart). A permanently broken
+event would hold up the queue, however, so M12d adds a retry limit and a dead-letter log.
+
+### Why it matters
+- **Consistent indexes:** with one event applied to all three stores by one worker, the
+  metadata store and both indexes cannot drift apart. That is the property that keeps
+  access control trustworthy, because the access fields are checked inside each index.
+- **Classification travels with every chunk:** M13 needs it, so that `restricted` text is
+  sent only to the private model.
+- **Same rule for everyone:** a pushed document is enriched and checked by exactly the
+  same rules as a document in the corpus folder.
+
+### Likely viva questions
+- *What is at-least-once delivery, and why is it safe here?* A change may be delivered
+  more than once, but never lost. Applying the same change twice is harmless, because the
+  worker compares the content hash and metadata first. "Exactly once" would need much more
+  machinery for no benefit.
+- *Why does the webhook not use a sign-in token?* It is called by a machine, not a person.
+  The HMAC signature proves the sender knows the shared secret, and also that nobody
+  changed the body on the way.
+- *Can a webhook overwrite a corpus document?* No. A document belongs to one source; a
+  change from another source is refused with 409 at the endpoint, and again by the worker.
+
+### Status
+- Met: R-7.1-a.
+- Advanced: R-5-ing (events and worker), R-7.1-c (Not met → Partial: webhook).
+- COMPLIANCE.md: 43 requirements, 8 Met, 26 Partial, 9 Not met.
+- Tests (2026-11-19): default suite 408 passed, 0 skipped (22 new); integration 8 passed
+  (including events over Kafka into PostgreSQL, Qdrant and OpenSearch); frontend 20 passed;
+  `check_compliance.py --run` passes.

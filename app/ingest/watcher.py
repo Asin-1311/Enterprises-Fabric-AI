@@ -1,10 +1,17 @@
-"""Folder watcher: keeps the indexes up to date as files change (CLAUDE.md section 6).
+"""Folder watcher: turns file changes into change events (CLAUDE.md section 6).
 
-- A created or modified .pdf/.md under data/corpus/ is re-indexed (only that document).
-- A deleted file has its chunks removed from SQLite, Qdrant and BM25.
+Since M12a the watcher does not index anything itself: it PUBLISHES `DocumentChanged`
+events, and the ingestion worker (app/ingest/worker.py) applies them.
+
+- A created or modified .pdf/.md under data/corpus/ becomes an upsert event.
+- A deleted file becomes a delete event.
 - A moved/renamed file is treated as delete (old path) + change (new path).
-- A change to data/manifest.csv triggers a full sync (unchanged files are skipped by
-  content hash, so this is cheap).
+- A change to data/manifest.csv becomes an upsert for every listed document (the worker
+  skips unchanged ones by content hash) and a delete for documents no longer listed.
+
+Given a shared event bus (the API, Kafka), it only publishes. Without one (the command
+line below, and tests), it starts its own in-process bus and worker, so files are still
+indexed as soon as they change.
 
 Editors often fire several events for one save, so events are collected and processed
 together once nothing has happened for `debounce_seconds`.
@@ -22,7 +29,10 @@ from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
 
 from app.config import get_settings
+from app.ingest.events import publish
 from app.ingest.indexer import Indexer, ManifestError, build_indexer
+from app.ingest.worker import IngestWorker
+from app.ports import EventBus
 
 log = logging.getLogger(__name__)
 WATCHED_SUFFIXES = (".pdf", ".md")
@@ -32,8 +42,16 @@ class DebouncedCorpusHandler(FileSystemEventHandler):
     """Collects file events and hands them to the indexer after a quiet period."""
 
     def __init__(self, indexer: Indexer, corpus_dir: Path, manifest_path: Path,
-                 debounce_seconds: float = 1.5) -> None:
+                 debounce_seconds: float = 1.5, bus: EventBus | None = None) -> None:
         self.indexer = indexer
+        if bus is None:  # nobody else consumes: run our own worker on a private bus
+            from app.adapters.lite.events import InProcessEventBus
+
+            bus = InProcessEventBus()
+            self.worker: IngestWorker | None = IngestWorker(indexer, bus)
+        else:
+            self.worker = None
+        self.bus = bus
         self.corpus_dir = corpus_dir.resolve()
         self.manifest_path = manifest_path.resolve()
         # Either manifest may be the active one (the synthetic one in a clean clone).
@@ -82,22 +100,22 @@ class DebouncedCorpusHandler(FileSystemEventHandler):
             manifest_changed, self._manifest_changed = self._manifest_changed, False
             self._timer = None
         try:
-            if manifest_changed:
-                report = self.indexer.sync(actor="watcher")
-                log.info("Manifest changed: indexed=%s removed=%s",
-                         report.indexed, report.removed)
-                return  # a full sync also covers any file events in the same batch
-            for path, kind in sorted(pending.items()):
-                if kind == "delete" or not path.exists():
-                    doc_id = self.indexer.remove_path(path, actor="watcher")
-                    log.info("Removed %s (%s)", path.name, doc_id)
-                else:
-                    doc_id = self.indexer.index_path(path, actor="watcher")
-                    log.info("Indexed %s (%s)", path.name, doc_id)
+            if manifest_changed:  # covers any file events in the same batch as well
+                events = self.indexer.manifest_change_events(actor="watcher")
+            else:
+                events = [e for path, kind in sorted(pending.items())
+                          if (e := self.indexer.path_change_event(
+                              path, deleted=kind == "delete" or not path.exists())) is not None]
+            for event in events:
+                publish(self.bus, event)
+            log.info("Published %d change event(s)", len(events))
+            if self.worker is not None:
+                while self.worker.drain():
+                    pass
         except ManifestError as exc:
-            log.error("Manifest invalid, sync refused: %s", exc.errors)
+            log.error("Manifest invalid, nothing published: %s", exc.errors)
         except Exception:  # keep the watcher alive; the next event will retry
-            log.exception("Indexing failed")
+            log.exception("Publishing or applying change events failed")
 
 
 def start_observer(handler: DebouncedCorpusHandler) -> Observer:

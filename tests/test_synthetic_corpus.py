@@ -70,7 +70,13 @@ def test_generator_keeps_author_added_rows(tmp_path, monkeypatch) -> None:
     generated = gen.manifest_rows(all_synthetic_docs())
     gen.write_csv(data / "manifest.csv", gen.MANIFEST_COLUMNS, [*generated, extra])
     monkeypatch.setattr(gen, "DATA", data)
-    assert gen.author_rows(generated) == [extra]
+    # The author's values are kept exactly; the governance columns (M12a), absent from
+    # this older-style row, are filled by the same rule as every other row.
+    assert gen.author_rows(generated) == [
+        extra | {"source_id": "fs-faq", "owner": "M02", "classification": "public_internal"}]
+    owned = {**extra, "source_id": "fs-faq", "owner": "P01", "classification": "restricted"}
+    gen.write_csv(data / "manifest.csv", gen.MANIFEST_COLUMNS, [*generated, owned])
+    assert gen.author_rows(generated) == [owned]  # values the author set are never replaced
 
 
 def test_fictional_firm_and_fake_identifiers_only() -> None:

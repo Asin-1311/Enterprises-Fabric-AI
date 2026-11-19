@@ -16,8 +16,8 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.ports import AccessScope
 
-KEYWORD_FIELDS = ("chunk_id", "doc_id", "source_type", "access_level", "engagement_id",
-                  "effective_date")
+KEYWORD_FIELDS = ("chunk_id", "doc_id", "source_id", "source_type", "access_level",
+                  "engagement_id", "classification", "effective_date")
 
 MAPPING = {
     "settings": {"index": {"number_of_shards": 1, "number_of_replicas": 0}},
@@ -61,6 +61,11 @@ class OpenSearchKeywordIndex:
         self.client, self.index = client, index
         if not self.client.indices.exists(index=index):
             self.client.indices.create(index=index, body=MAPPING)
+        else:
+            # An index created before a field was added (e.g. source_id and classification,
+            # M12a) gets the new fields; adding fields to a mapping is always allowed.
+            self.client.indices.put_mapping(index=index, body={"properties": MAPPING[
+                "mappings"]["properties"]})
 
     def upsert_chunks(self, chunks: Sequence[dict]) -> None:
         from opensearchpy import helpers

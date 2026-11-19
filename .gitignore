@@ -28,3 +28,6 @@ frontend/dist/
 .vscode/
 Thumbs.db
 /Standards_Acts/
+
+# Content received by the webhook, waiting for the ingestion worker (M12a)
+data/landing/

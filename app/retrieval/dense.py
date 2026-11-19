@@ -20,8 +20,8 @@ if TYPE_CHECKING:
     from app.ports import AccessScope
 
 # Payload keys stored on every Qdrant point.
-PAYLOAD_KEYS = ("doc_id", "chunk_id", "source_type", "access_level", "engagement_id",
-                "effective_date", "superseded")
+PAYLOAD_KEYS = ("doc_id", "chunk_id", "source_id", "source_type", "access_level",
+                "engagement_id", "classification", "effective_date", "superseded")
 
 
 class Embedder(Protocol):

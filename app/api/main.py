@@ -54,6 +54,7 @@ from app.api.auth import current_user, seed_demo_passwords, user_out
 from app.api.admin import require_admin
 from app.api.admin import router as admin_router
 from app.api.auth import router as auth_router
+from app.api.webhooks import router as webhook_router
 from app.api.schemas import (
     CitationOut,
     FeedbackOut,
@@ -89,6 +90,7 @@ from app.db.models import (
 from app.db.session import write_audit_log
 from app.quality_runs import QUALITY_TYPES, quality_runs
 from app.ingest.indexer import Indexer, ManifestError
+from app.ports import EventBus
 from app.retrieval.dense import QdrantInUseError
 from app.security.masking import mask_text
 
@@ -115,6 +117,7 @@ class Services:
     indexer: Indexer | None
     lock: ReadWriteLock
     stop: Callable[[], None] = lambda: None
+    bus: EventBus | None = None  # change events (M12a): the watcher and webhook publish here
 
     @property
     def sessions(self):
@@ -122,10 +125,13 @@ class Services:
 
 
 def build_services(settings: Settings) -> Services:
-    """Real services: models, indexes, LLM client, and the folder watcher."""
+    """Real services: models, indexes, LLM client, event bus, ingestion worker and the
+    folder watcher."""
+    from app.adapters import open_event_bus
     from app.agents.graph import build_assistant
     from app.ingest.indexer import build_indexer
     from app.ingest.watcher import DebouncedCorpusHandler, start_observer
+    from app.ingest.worker import IngestWorker, start_in_background
 
     assistant = build_assistant(settings)
     searcher = assistant.deps.searcher
@@ -134,16 +140,24 @@ def build_services(settings: Settings) -> Services:
                             bm25=searcher.bm25, sessions=searcher.sessions)
     lock = ReadWriteLock()
     indexer.lock = lock.writer  # index writes run alone; questions share the read side
-    stop: Callable[[], None] = lambda: None
+    bus = open_event_bus(settings)
+    stoppers: list[Callable[[], None]] = []
+    if settings.api_run_worker:
+        worker = IngestWorker(indexer, bus)
+        thread, stop_worker = start_in_background(worker)
+        stoppers.append(lambda: (stop_worker.set(), thread.join(timeout=10), worker.close()))
     if settings.api_watch_corpus:
         handler = DebouncedCorpusHandler(indexer, settings.corpus_dir, settings.manifest_path,
-                                         settings.watcher_debounce_seconds)
+                                         settings.watcher_debounce_seconds, bus=bus)
         observer = start_observer(handler)
+        stoppers.append(lambda: (observer.stop(), observer.join(timeout=5)))
 
-        def stop() -> None:
-            observer.stop()
-            observer.join(timeout=5)
-    return Services(settings, assistant, indexer, lock, stop)
+    def stop() -> None:
+        for stopper in reversed(stoppers):
+            stopper()
+        bus.close()
+
+    return Services(settings, assistant, indexer, lock, stop, bus)
 
 
 # --------------------------------------------------------------------------- helpers
@@ -537,6 +551,7 @@ def create_app(services: Services | None = None, static_dir: Path | None = FRONT
     app.include_router(auth_router)
     app.include_router(router)
     app.include_router(admin_router)
+    app.include_router(webhook_router)
 
     @app.exception_handler(Exception)
     async def unexpected_error(request: Request, exc: Exception) -> JSONResponse:
