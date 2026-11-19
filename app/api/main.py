@@ -11,12 +11,19 @@ re-index or watcher update waits for them and runs alone. (Phase 1 held a single
 for the whole of every question; removed in M9, audit finding R-5-par.)
 
 Streaming (POST /query, Server-Sent Events):
-    event: progress   {"step": "retrieving", ...}   live, one per agent step
-    event: token      {"text": "..."}                the VERIFIED answer, in pieces
-    event: final      FinalPayload                   status, confidence, citations
-    event: error      {"message": "..."}
-Only verified text is streamed: verification can remove sentences from the draft, so
-the draft itself is never sent (author's choice, M6).
+    event: progress       {"step": "retrieving", ...}  live, one per agent step
+    event: draft_token    {"text": "..."}               the DRAFT, as the model writes it (M14b)
+    event: claim_verdict  {"claim_id", "text", "citations", "verdict"}  one per claim,
+                          verdict = supported | removed | flagged ("check this point")
+    event: token          {"text": "..."}               the VERIFIED answer, in pieces
+    event: final          FinalPayload                  status, confidence, citations, flags
+    event: error          {"message": "..."}
+The draft is shown as it is written, marked as being checked (CLAUDE.md sections 10 and
+11; this replaces the M6 choice of sending verified text only). Verification may remove
+sentences from it, so the client must replace the draft with the verified text: the
+claim_verdict events say which sentences stay, and `final` carries the verified answer.
+A retry after low confidence writes a new draft: each "synthesizing" progress event
+starts one.
 
 Sign-in (app/api/auth.py, added 2026-11-14 at the author's request): every endpoint
 except /health and /auth/login|register|forgot-password|reset-password needs
@@ -214,7 +221,8 @@ def _final(svc: Services, r: AnswerResult, seconds: float) -> FinalPayload:
         superseded_involved=r.superseded_involved,
         injection_flagged_chunks=len(r.injection_hits),
         citations=_citations(svc, [(c.chunk_id, c.span_start, c.span_end) for c in r.citations]),
-        seconds_to_answer=round(seconds, 2))
+        seconds_to_answer=round(seconds, 2),
+        flagged_claims=[f["claim"] for f in r.flagged_claims])
 
 
 def stream_pieces(text: str) -> list[str]:
@@ -235,9 +243,10 @@ router = APIRouter(prefix="/api/v1")
 
 
 @router.post("/query", response_class=EventSourceResponse, responses={200: {
-    "description": "Server-Sent Events: `progress` (agent steps), `token` (the verified answer "
-                   "in pieces), then `final` (a FinalPayload as JSON) or `error` (generic "
-                   "message and a reference).",
+    "description": "Server-Sent Events: `progress` (agent steps), `draft_token` (the draft as "
+                   "it is written), `claim_verdict` (one per claim), `token` (the verified "
+                   "answer in pieces), then `final` (a FinalPayload as JSON) or `error` "
+                   "(generic message and a reference).",
     "content": {"text/event-stream": {"schema": {"type": "string"}}}}})
 async def query(req: QueryRequest, request: Request,
                 user: User = Depends(current_user)) -> EventSourceResponse:
@@ -255,7 +264,10 @@ async def query(req: QueryRequest, request: Request,
             with svc.lock.reading():  # many questions at once; never during an index write
                 result = svc.assistant.ask(
                     req.text, user.user_id,
-                    on_event=lambda step, payload: emit("progress", {"step": step, **payload}))
+                    on_event=lambda step, payload: emit(
+                        "claim_verdict" if step == "claim_verdict" else "progress",
+                        payload if step == "claim_verdict" else {"step": step, **payload}),
+                    on_token=lambda text: emit("draft_token", {"text": text}))
             emit("result", (result, time.perf_counter() - start))
         except Exception:  # noqa: BLE001 - details to the server log, generic text to the client
             ref = error_reference()
@@ -269,8 +281,8 @@ async def query(req: QueryRequest, request: Request,
     async def events():
         while True:
             kind, data = await queue.get()
-            if kind == "progress":
-                yield {"event": "progress", "data": json.dumps(data, default=str)}
+            if kind in ("progress", "draft_token", "claim_verdict"):
+                yield {"event": kind, "data": json.dumps(data, default=str)}
             elif kind == "result":
                 result, seconds = data
                 for piece in stream_pieces(result.text):
@@ -362,7 +374,8 @@ def history_answer(query_id: int, request: Request,
         removed_claims=len(verification.get("removed") or []),
         superseded_involved=bool(synthesis.get("superseded_involved")) and answer.status == "answered",
         injection_flagged_chunks=len(flagged),
-        citations=_citations(svc, cited), seconds_to_answer=None)
+        citations=_citations(svc, cited), seconds_to_answer=None,
+        flagged_claims=[f.get("claim", "") for f in (answer.flagged_claims or [])])
 
 
 @router.get("/traces/{query_id}", response_model=list[TraceRow])

@@ -103,8 +103,10 @@ def test_query_streams_progress_then_verified_answer_then_final(client) -> None:
     kinds = [k for k, _ in events]
     assert kinds[0] == "progress" and kinds[-1] == "final"
     first_token = kinds.index("token")
-    assert all(k == "progress" for k in kinds[:first_token])  # tokens only after verification
-    assert "verifying" in [d["step"] for k, d in events[:first_token]]
+    # Verified text only after verification. Before it, since M14b (CLAUDE.md sections 10
+    # and 11, replacing the M6 verified-only choice): the draft and the claim verdicts.
+    assert set(kinds[:first_token]) <= {"progress", "draft_token", "claim_verdict"}
+    assert "verifying" in [d["step"] for k, d in events[:first_token] if k == "progress"]
     final = events[-1][1]
     streamed = "".join(d["text"] for k, d in events if k == "token")
     assert streamed == final["text"] and final["text"].endswith(JUDGEMENT_NOTE)

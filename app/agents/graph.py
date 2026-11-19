@@ -46,6 +46,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.agents.budgets import BudgetExceeded, StepBudget
 from app.agents.llm import LLM, LLMCaller, LLMResult
+from app.agents.nli import NliScorer
 from app.agents.model_router import (
     RESTRICTED_UNAVAILABLE_MESSAGE,
     ModelRouter,
@@ -66,7 +67,7 @@ from app.agents.synthesizer import (
 )
 from app.agents.tracing import Tracer
 from app.agents.versions import ensure_active_versions
-from app.agents.verifier import Verification, verify
+from app.agents.verifier import FLAG_MARK, Verification, verify
 from app.config import Settings, get_settings
 from app.db.models import Answer, Citation, Document, Query, Retrieval
 from app.ingest.indexer import folder_source_id
@@ -117,6 +118,7 @@ class AgentDeps:
     reranker: Reranker
     sessions: sessionmaker[Session]
     clients: ClientMatcher
+    nli: NliScorer | None = None  # M14b: the second verification opinion (None: LLM only)
 
 
 class GraphState(TypedDict, total=False):
@@ -192,6 +194,7 @@ class AnswerResult:
     removed_claims: list[str] = field(default_factory=list)
     claims_factual: int = 0
     claims_supported: int = 0
+    flagged_claims: list[dict] = field(default_factory=list)  # M14b: "check this point"
 
 
 def _emit(state: GraphState, step: str, **payload: Any) -> None:
@@ -377,14 +380,28 @@ class AuditAssistant:
         draft = state["synthesis"].text.removesuffix(JUDGEMENT_NOTE).rstrip()
         chunks = {r.chunk.chunk_id: r.chunk for r in state["ranked"]}
         docs = self._doc_info({c.doc_id for c in chunks.values()}, state["user"])
+        s = self.deps.settings
         v, res = verify(state["question"], draft, chunks, self.deps.llm, docs,
-                        [e.chunk_id for e in state["evidence"]])
+                        [e.chunk_id for e in state["evidence"]], nli=self.deps.nli,
+                        evidence={e.chunk_id: e.sentences for e in state["evidence"]},
+                        entail_at=s.nli_entailment_threshold,
+                        contradict_at=s.nli_contradiction_threshold)
         state["tracer"].log(
             "verification",
             {"claims": [{"id": c.id, "text": c.text, "cites": c.citations} for c in v.claims]},
             {"verdicts": v.verdicts, "confidence": v.confidence, "factual": v.factual,
-             "supported": v.supported, "removed": v.removed, "repaired": v.repaired},
+             "supported": v.supported, "removed": v.removed, "repaired": v.repaired,
+             "flagged": v.flagged,
+             "nli": {cid: {"label": c.label, "entailment": round(c.entailment, 3),
+                           "contradiction": round(c.contradiction, 3)} for cid, c in v.nli.items()}},
             [res] if res else [])
+        # One claim_verdict event per claim, while the draft is still on screen (M14b).
+        flagged = {f["claim"] for f in v.flagged}
+        for c in v.claims:
+            supported = v.verdicts.get(c.id, {}).get("verdict") == "supported"
+            _emit(state, "claim_verdict", claim_id=c.id, text=c.text, citations=c.citations,
+                  verdict="removed" if not supported else
+                  "flagged" if c.text.removesuffix(FLAG_MARK) in flagged else "supported")
         answer = f"{v.text}\n\n{JUDGEMENT_NOTE}" if v.text else ""
         return {"verification": v, "confidence": v.confidence, "answer": answer}
 
@@ -561,16 +578,20 @@ class AuditAssistant:
         cited = v.cited_ids if v is not None and state["status"] == "answered" else []
         evidence = {e.chunk_id: e.sentences for e in state.get("evidence", [])}
         citations = []
+        support = v.support if v is not None and state["status"] == "answered" else {}
         for cid in (c for c in cited if c in chunks):
-            span = supporting_span(chunks[cid].text, evidence.get(cid, []))
+            # M14b: the sentences NLI found entail the claims citing this chunk; else the
+            # chunk's evidence region (M11).
+            span = supporting_span(chunks[cid].text, support.get(cid) or evidence.get(cid, []))
             citations.append(CitationInfo(
                 cid, chunks[cid].doc_id, chunks[cid].title, chunks[cid].section,
                 chunks[cid].section_title, chunks[cid].page_start, chunks[cid].page_end,
                 chunks[cid].superseded, *(span or (None, None))))
         confidence = state.get("confidence")
         with self.deps.sessions() as s:
+            flagged_claims = v.flagged if v is not None and state["status"] == "answered" else []
             answer = Answer(query_id=query_id, text=state["answer"], confidence=confidence,
-                            status=state["status"])
+                            status=state["status"], flagged_claims=flagged_claims or None)
             s.add(answer)
             s.flush()
             s.add_all(Citation(answer_id=answer.id, chunk_id=c.chunk_id, span_start=c.span_start,
@@ -583,7 +604,8 @@ class AuditAssistant:
             query_id, answer_id, state["status"], state["answer"], citations,
             bool(synthesis and synthesis.superseded_involved and state["status"] == "answered"),
             state.get("injection_hits", {}), confidence,
-            v.removed if v else [], v.factual if v else 0, v.supported if v else 0)
+            v.removed if v else [], v.factual if v else 0, v.supported if v else 0,
+            flagged_claims)
 
 
 def build_assistant(settings: Settings) -> AuditAssistant:
@@ -597,8 +619,11 @@ def build_assistant(settings: Settings) -> AuditAssistant:
     # private model (PRIVATE_MODEL on Ollama), or nothing if none is configured (M13a).
     private = OllamaLLM(settings.private_model, settings.ollama_url) if settings.private_model else None
     llm = ModelRouter(LLM(make_client(settings), settings), private)
+    from app.agents.nli import CrossEncoderNli
+
+    nli = CrossEncoderNli(settings.nli_model) if settings.nli_model else None
     return AuditAssistant(AgentDeps(
-        settings=settings, llm=llm, searcher=searcher,
+        settings=settings, llm=llm, searcher=searcher, nli=nli,
         reranker=CrossEncoderReranker(settings.reranker_model), sessions=searcher.sessions,
         clients=clients))
 

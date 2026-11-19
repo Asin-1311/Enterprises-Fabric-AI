@@ -2385,3 +2385,83 @@ after M13b was merged.
   - integration: 15 passed;
   - frontend: 21 passed;
   - `check_compliance.py --run --run-integration`: passes.
+
+
+## M14b: NLI second opinion, claim-level spans and draft streaming (2026-11-19)
+
+Branch `m14b-verify-stream`, made from `phase2` after M14a was merged. Author's choices:
+NLI model `cross-encoder/nli-deberta-v3-xsmall`; draft streaming in the API now, the UI
+view in M16; no paid evaluation.
+
+### What was built
+- **A second verification opinion (`app/agents/nli.py`).** Natural language inference
+  scores a pair (premise, claim) as entailment, neutral or contradiction.
+  - Every claim the LLM verifier accepts is scored against each evidence sentence of the
+    chunks it cites, by a small cross-encoder running locally on CPU (no document text
+    leaves the machine).
+  - **Both agree** (entailment): the claim is kept, and the entailing sentences become its
+    citation span.
+  - **The LLM accepts but NLI finds a contradiction:** the claim is kept but flagged. The
+    answer shows "*(check this point)*" after it; the flag is stored with the answer
+    (`answers.flagged_claims`) and sent in `final.flagged_claims`.
+  - **The LLM rejects:** the claim is removed, whatever NLI says.
+  - **NLI neutral:** the LLM's verdict stands. NLI models are cautious with paraphrase, so
+    neutral is not evidence of an error.
+  - A flagged claim still counts as supported in the confidence score: the flag asks the
+    reader to look, it does not overrule the verifier.
+  - The label order (contradiction, entailment, neutral) is read from the model's own
+    configuration, not assumed.
+- **Citation spans now point at the supporting text of the claims** (R-9-span).
+  - The span is the sentence(s) that entail the claims citing that chunk.
+  - Without an entailing sentence it falls back to M11's evidence region, and it is empty
+    when nothing can be located.
+- **Draft streaming (API).** `POST /query` now streams:
+  - `draft_token` while the model writes the draft;
+  - one `claim_verdict` per claim (supported, removed or flagged);
+  - then, as before, the verified text (`token`) and `final`.
+
+  This replaces the M6 choice of streaming verified text only, as the Phase 2
+  requirements ask (CLAUDE.md sections 10 and 11). A client must replace the draft with
+  the verified text: the verdicts say which sentences stay. The current UI still shows
+  only the verified text; the muted "Checking…" draft view is built in M16.
+
+### Checking the real model
+- **Download:** the NLI model was fetched once on this laptop (open weights).
+- **Sanity check:** on a premise about assembling the audit file within sixty days, it
+  scored a matching claim as entailment, a "one year" claim as contradiction, and an
+  unrelated claim as neutral, each above 0.97.
+- **The test:** `test_the_real_nli_model_separates_entailment_and_contradiction` runs where
+  the model is downloaded and is skipped (reported) elsewhere. How often flags are right
+  on live answers is measured in M18, not claimed here.
+
+### Smaller changes
+- **The M6 streaming test** now allows draft and verdict events before the verified text;
+  it still requires that verified text comes only after verification.
+- **The OpenAPI snapshot** has the new `flagged_claims` field and the updated event list.
+
+### Why it matters
+- **Two independent checks:** a large model and a small, differently built one must agree
+  before a claim stands unmarked. Where they disagree, the reader is told to look,
+  instead of the system picking a winner silently.
+- **Users see the answer forming at once,** and they also see which sentences survive
+  checking.
+- **A citation points to the sentence that supports the claim,** not just to a passage,
+  which makes reviewing an answer faster.
+
+### Likely viva questions
+- *Why not let the NLI model remove claims too?* It is small and conservative; it often
+  says "neutral" for a correct paraphrase. It is a second opinion that raises flags, not
+  a judge that deletes.
+- *Is streaming an unverified draft safe?* It is labelled as being checked, the verdicts
+  follow within seconds, and only the verified text is stored and returned in `final`.
+  This is what the requirements ask; the M6 design is superseded.
+
+### Status
+- **Met:** R-7.8, R-9-span.
+- **Advanced:** R-5-exp (API part done; the UI view in M16).
+- **COMPLIANCE.md:** 43 requirements; 22 Met, 13 Partial, 8 Not met.
+- **Tests (2026-11-19):**
+  - default suite: 508 passed (6 new; the real-model test ran, because the model is downloaded on this laptop);
+  - integration: 15 passed;
+  - frontend: 21 passed;
+  - `check_compliance.py --run --run-integration`: passes.

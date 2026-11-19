@@ -103,6 +103,9 @@ class FinalPayload(BaseModel):
     injection_flagged_chunks: int
     citations: list[CitationOut]
     seconds_to_answer: float | None  # None when a past answer is reopened from history
+    # M14b: claims the LLM verifier accepted but the NLI model found contradicted by their
+    # cited text; they stay in the answer, marked "check this point".
+    flagged_claims: list[str] = []
 
 
 class HistoryItem(BaseModel):
