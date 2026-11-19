@@ -199,6 +199,29 @@ def test_history_is_personal_newest_first_and_reopens_the_same_answer(client) ->
     assert client.get("/api/v1/history/999999", headers=as_user(client, "S1")).status_code == 404
 
 
+def test_answers_citing_phase1_chunk_ids_still_open_their_sources(client) -> None:
+    """M12b: an answer written before stable chunk ids cites "<doc>:0003"; the API resolves
+    it through legacy_chunk_id to the chunk with the same text."""
+    from app.db.models import Chunk, Citation
+
+    original = ask(client, QUESTION, "S1")[-1][1]
+    cited = original["citations"][0]
+    assert cited["chunk_id"].count(":") == 2  # new answers cite stable ids
+    old_id = f"{cited['doc_id']}:0003"
+    with client.app.state.services.indexer.sessions() as s:
+        s.get(Chunk, cited["chunk_id"]).legacy_chunk_id = old_id
+        for row in s.scalars(select(Citation).where(Citation.answer_id == original["answer_id"],
+                                                    Citation.chunk_id == cited["chunk_id"])):
+            row.chunk_id = old_id  # as a Phase 1 answer stored it
+        s.commit()
+
+    reopened = client.get(f"/api/v1/history/{original['query_id']}",
+                          headers=as_user(client, "S1")).json()
+    old = next(c for c in reopened["citations"] if c["chunk_id"] == old_id)
+    assert {k: v for k, v in old.items() if k != "chunk_id"} == \
+        {k: v for k, v in cited.items() if k != "chunk_id"}
+
+
 def test_traces_are_partner_only(client) -> None:
     query_id = ask(client, QUESTION, "S1")[-1][1]["query_id"]
     assert client.get(f"/api/v1/traces/{query_id}", headers=as_user(client, "S1")).status_code == 403

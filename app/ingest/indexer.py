@@ -4,9 +4,22 @@ Change detection is keyed by a SHA-256 hash of the file content:
 - unchanged hash, title and path, same metadata  -> nothing to do;
 - unchanged content, but access metadata changed  -> update the SQLite row and the
   Qdrant payload only (no re-embedding);
-- changed content (or title/path)                 -> remove the document's old chunks
-  from BOTH SQLite and Qdrant, then re-chunk, re-embed and insert;
+- changed content (or title/path, or the source type's chunking profile, or the
+  embedding model)                                -> re-chunk, then update only the
+  chunks that changed (M12b, below);
 - document removed from the manifest or deleted   -> remove its chunks everywhere.
+
+Chunk-level updates (M12b; CLAUDE.md section 6; Gap Register R-7.1-b). Chunk ids are
+stable (`<doc_id>:<section>:<window>`, app/ingest/chunker.py) and every chunk stores a
+SHA-256 of its text. After re-chunking, each new chunk is one of:
+- kept      same id, same text, same embedding model: not touched in any index;
+- reused    text seen before in this document under another id (a moved section, or a
+            Phase 1 id being converted): the stored vector is copied, not recomputed;
+- embedded  new or changed text: embedded now;
+and every old chunk whose id is gone is deleted from SQLite, Qdrant and the keyword index.
+A forced re-index (`reindex_document`, `reindex_source`) embeds every chunk again.
+Old Phase 1 ids ("STD-CH06:0004") survive as `legacy_chunk_id` on the chunk with the same
+text, so citations in answers written before M12b still resolve.
 
 After any change, the `superseded` payload flag is recomputed for every document and the
 BM25 index is rebuilt from SQLite. Every reindex, metadata update and removal writes one
@@ -28,6 +41,7 @@ import csv
 import hashlib
 import logging
 import threading
+from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -38,7 +52,9 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.config import Settings, get_settings
 from app.db.models import Chunk, Document, Engagement, EngagementMember, Source, User
 from app.db.session import write_audit_log
-from app.ingest.chunker import ChunkingResult, chunk_icai_chapter, chunk_markdown
+from app.ingest.chunker import Chunk as ChunkSpec
+from app.ingest.chunker import ChunkingResult, chunk_icai_chapter, chunk_markdown, text_hash
+from app.ingest.chunking_profiles import ChunkingProfile, profile_for
 from app.ingest.enrich import (
     DocumentSpec,
     EnrichmentError,
@@ -79,6 +95,8 @@ class SyncReport:
     metadata_updated: list[str] = field(default_factory=list)
     unchanged: list[str] = field(default_factory=list)
     removed: list[str] = field(default_factory=list)
+    # Chunk-level work (M12b): kept, reused, embedded, deleted.
+    chunks: Counter = field(default_factory=Counter)
 
 
 def file_hash(path: Path) -> str:
@@ -90,6 +108,26 @@ def file_hash(path: Path) -> str:
 # confidential; everything else is internal. Admins can change a source's classification;
 # the per-document classification and the private-model routing come in M12/M13.
 FOLDER_CLASSIFICATION = {"engagement": "confidential"}
+
+# Phase 1 stored no embedding_ref: every chunk it indexed was embedded with this model
+# (the only one it ever used, CLAUDE.md section 3).
+PHASE1_EMBEDDING_MODEL = "BAAI/bge-small-en-v1.5"
+
+
+def _is_phase1_id(chunk_id: str) -> bool:
+    """A Phase 1 id is "<doc_id>:0004"; a stable id has a section part as well."""
+    return chunk_id.count(":") == 1
+
+
+@dataclass
+class _ChunkPlan:
+    """What happens to each chunk of one re-chunked document (see the module doc)."""
+
+    kept: list[ChunkSpec] = field(default_factory=list)
+    reused: list[tuple[ChunkSpec, str]] = field(default_factory=list)  # (new, old chunk id)
+    embedded: list[ChunkSpec] = field(default_factory=list)
+    deleted: list[str] = field(default_factory=list)
+    legacy: dict[str, str | None] = field(default_factory=dict)  # new chunk id -> Phase 1 id
 
 
 class Indexer:
@@ -111,6 +149,7 @@ class Indexer:
         overlap_tokens: int = 50,
         synthetic_manifest_path: Path | None = None,
         landing_dir: Path | None = None,
+        embedding_ref: str | None = None,
     ) -> None:
         self.project_root = project_root
         self.corpus_dir = project_root / "data" / "corpus"
@@ -124,6 +163,11 @@ class Indexer:
         self.sessions, self.store, self.embedder, self.bm25 = (
             session_factory, store, embedder, bm25)
         self.max_tokens, self.overlap_tokens = max_tokens, overlap_tokens
+        # Recorded on every chunk, so a change of embedding model is detected (M12b).
+        self.embedding_ref = (embedding_ref or getattr(embedder, "model_name", None)
+                              or PHASE1_EMBEDDING_MODEL)
+        # Running totals of chunk-level work (kept, reused, embedded, deleted).
+        self.chunk_stats: Counter = Counter()
         # The watcher calls us from its own thread; one change is processed at a time.
         self.lock = threading.RLock()
 
@@ -226,19 +270,17 @@ class Indexer:
             return self._force(rows, actor)
 
     def _force(self, rows: list[ManifestRow], actor: str) -> SyncReport:
-        """Index exactly these rows from scratch; every other document is left alone."""
+        """Index exactly these rows from scratch (re-chunk and re-embed every chunk);
+        every other document is left alone."""
         self.load_reference_data()
-        report = SyncReport()
+        report, before = SyncReport(), self.chunk_stats.copy()
         with self.sessions() as s:
             for row in rows:
-                doc = s.get(Document, row.doc_id)
-                if doc is not None:
-                    doc.content_hash = None  # forces a full re-chunk and re-embed
-                    s.flush()
-                self._index_row(s, row, actor)
+                self._index_row(s, row, actor, force=True)
                 report.indexed.append(row.doc_id)
             self._refresh_superseded(s)
         self.rebuild_bm25()
+        report.chunks = self.chunk_stats - before
         return report
 
     def sync(self, actor: str = "system") -> SyncReport:
@@ -246,7 +288,7 @@ class Indexer:
         with self.lock:
             rows = self._valid_rows(actor)
             self.load_reference_data()
-            report = SyncReport()
+            report, before = SyncReport(), self.chunk_stats.copy()
             with self.sessions() as s:
                 for row in rows:
                     status = self._index_row(s, row, actor)
@@ -262,6 +304,7 @@ class Indexer:
                         report.removed.append(doc_id)
                 self._refresh_superseded(s)
             self.rebuild_bm25()
+            report.chunks = self.chunk_stats - before
             return report
 
     def index_path(self, path: Path, actor: str = "watcher") -> str | None:
@@ -410,19 +453,63 @@ class Indexer:
     def _relative(self, path: Path) -> str:
         return path.resolve().relative_to(self.project_root.resolve()).as_posix()
 
-    def _chunk(self, row: DocumentSpec, file: Path) -> ChunkingResult:
+    def profile(self, source_type: str) -> ChunkingProfile:
+        """The chunking profile of a source type, with the configured window sizes."""
+        return profile_for(source_type, self.max_tokens, self.overlap_tokens)
+
+    def _chunk(self, row: DocumentSpec, file: Path, profile: ChunkingProfile) -> ChunkingResult:
         if file.suffix.lower() == ".pdf":
             chapter = load_icai_pdf(file, row.title)
             return chunk_icai_chapter(
                 doc_id=row.doc_id, doc_title=row.title, chapter=chapter.chapter,
                 pages=[(p.page_number, p.text) for p in chapter.pages],
-                count_tokens=self.embedder.count_tokens,
-                max_tokens=self.max_tokens, overlap_tokens=self.overlap_tokens)
+                count_tokens=self.embedder.count_tokens, profile=profile)
         md = load_markdown(file)
         return chunk_markdown(
             doc_id=row.doc_id, doc_title=row.title, source_type=row.source_type,
-            sections=md.sections, count_tokens=self.embedder.count_tokens,
-            max_tokens=self.max_tokens, overlap_tokens=self.overlap_tokens)
+            sections=md.sections, count_tokens=self.embedder.count_tokens, profile=profile)
+
+    def _model_of(self, chunk: Chunk) -> str:
+        return chunk.embedding_ref or PHASE1_EMBEDDING_MODEL
+
+    def _plan(self, old: list[Chunk], new: list[ChunkSpec], force: bool) -> _ChunkPlan:
+        """Decide, per chunk, what a re-chunked document needs (see the module doc).
+
+        Each old chunk is matched to at most one new chunk with the same text: first one
+        with the same id, then any. A match passes on its Phase 1 id; its vector is reused
+        only if it was made by the current embedding model and this is not a forced run."""
+        plan = _ChunkPlan()
+        new_ids = {c.chunk_id for c in new}
+        plan.deleted = [o.chunk_id for o in old if o.chunk_id not in new_ids]
+        old_by_id = {o.chunk_id: o for o in old}
+        hash_of = {o.chunk_id: o.content_hash or text_hash(o.text) for o in old}
+
+        match: dict[str, Chunk] = {}
+        for c in new:
+            o = old_by_id.get(c.chunk_id)
+            if o is not None and hash_of[o.chunk_id] == c.content_hash:
+                match[c.chunk_id] = o
+        taken = {o.chunk_id for o in match.values()}
+        pool: dict[str, list[Chunk]] = defaultdict(list)
+        for o in old:
+            if o.chunk_id not in taken:
+                pool[hash_of[o.chunk_id]].append(o)
+        for c in new:
+            if c.chunk_id not in match and pool.get(c.content_hash):
+                match[c.chunk_id] = pool[c.content_hash].pop(0)
+
+        for c in new:
+            o = match.get(c.chunk_id)
+            # Changed text gets no Phase 1 id: an old citation must not move to new text.
+            plan.legacy[c.chunk_id] = None if o is None else (
+                o.legacy_chunk_id or (o.chunk_id if _is_phase1_id(o.chunk_id) else None))
+            if o is None or force or self._model_of(o) != self.embedding_ref:
+                plan.embedded.append(c)
+            elif o.chunk_id == c.chunk_id:
+                plan.kept.append(c)
+            else:
+                plan.reused.append((c, o.chunk_id))
+        return plan
 
     def _spec_for_row(self, s: Session, row: ManifestRow) -> DocumentSpec:
         """Enrich a manifest row like any other change (same defaults, same checks)."""
@@ -438,19 +525,27 @@ class Indexer:
         except EnrichmentError as exc:
             raise ManifestError([str(exc)]) from exc
 
-    def _index_row(self, s: Session, row: ManifestRow, actor: str) -> str:
+    def _index_row(self, s: Session, row: ManifestRow, actor: str, force: bool = False) -> str:
         """Index one manifest row. Returns 'unchanged', 'metadata' or 'indexed'."""
-        return self._index_doc(s, self._spec_for_row(s, row), self.project_root / row.path, actor)
+        return self._index_doc(s, self._spec_for_row(s, row), self.project_root / row.path,
+                               actor, force=force)
 
-    def _index_doc(self, s: Session, row: DocumentSpec, file: Path, actor: str) -> str:
+    def _index_doc(self, s: Session, row: DocumentSpec, file: Path, actor: str,
+                   force: bool = False) -> str:
         """Index one enriched document from `file`. Returns 'unchanged', 'metadata' or
-        'indexed'. Idempotent: the same content and metadata again change nothing."""
+        'indexed'. Idempotent: the same content and metadata again change nothing.
+        `force` re-chunks and re-embeds every chunk even if nothing changed."""
         content_hash = file_hash(file)
         meta = row.document_fields()
         doc = s.get(Document, row.doc_id)
         now = datetime.now(timezone.utc)
+        profile = self.profile(row.source_type)
+        old = list(s.scalars(select(Chunk).where(Chunk.doc_id == row.doc_id)))
+        # Chunks made by another profile or embedding model must be redone (M12b).
+        current = all(c.chunking_profile == profile.ref and self._model_of(c) == self.embedding_ref
+                      for c in old)
 
-        if doc is not None and doc.content_hash == content_hash \
+        if not force and current and doc is not None and doc.content_hash == content_hash \
                 and doc.title == row.title and doc.path == row.path:
             if all(getattr(doc, k) == v for k, v in meta.items()):
                 return "unchanged"
@@ -463,28 +558,51 @@ class Indexer:
             write_audit_log(s, actor, "metadata_update", row.doc_id)
             return "metadata"
 
-        result = self._chunk(row, file)
+        result = self._chunk(row, file, profile)
+        meta_changed = doc is None or any(getattr(doc, k) != v for k, v in meta.items())
         try:
-            # Remove the old version from EVERY store before inserting the new one.
-            s.execute(delete(Chunk).where(Chunk.doc_id == row.doc_id))
-            self.store.delete_document(row.doc_id)
-            self.bm25.delete_document(row.doc_id)
+            plan = self._plan(old, result.chunks, force)
+            # Vectors first (an old point may be deleted below); a missing one is embedded.
+            stored = self.store.vectors([old_id for _, old_id in plan.reused])
+            for c, old_id in list(plan.reused):
+                if old_id not in stored:
+                    plan.reused.remove((c, old_id))
+                    plan.embedded.append(c)
+            written = [*plan.embedded, *(c for c, _ in plan.reused)]
+            vectors = [*self.embedder.embed_documents([c.text for c in plan.embedded]),
+                       *(stored[old_id] for _, old_id in plan.reused)]
 
+            # Metadata store: drop vanished chunks, update kept ones, add the rest.
+            if plan.deleted:
+                s.execute(delete(Chunk).where(Chunk.chunk_id.in_(plan.deleted)))
             s.merge(Document(doc_id=row.doc_id, content_hash=content_hash,
                              indexed_at=now, updated_at=row.updated_at or now, **meta))
             self._touch_source(s, row.source_id)
             s.flush()
             for c in result.chunks:
-                s.add(Chunk(chunk_id=c.chunk_id, doc_id=c.doc_id, parent_id=c.parent_id,
-                            text=c.text, token_count=c.token_count, section=c.section,
-                            section_title=c.section_title, chapter=c.chapter,
-                            page_start=c.page_start, page_end=c.page_end,
-                            sa_refs=",".join(c.sa_refs)))
-            vectors = self.embedder.embed_documents([c.text for c in result.chunks])
+                s.merge(Chunk(chunk_id=c.chunk_id, doc_id=c.doc_id, parent_id=c.parent_id,
+                              text=c.text, token_count=c.token_count, section=c.section,
+                              section_title=c.section_title, chapter=c.chapter,
+                              page_start=c.page_start, page_end=c.page_end,
+                              sa_refs=",".join(c.sa_refs), content_hash=c.content_hash,
+                              chunking_profile=c.chunking_profile,
+                              embedding_ref=self.embedding_ref,
+                              legacy_chunk_id=plan.legacy.get(c.chunk_id)))
+
+            # Both indexes, from the same plan: new points first, then the deletions.
             base = row.payload() | {"superseded": False}  # fixed by _refresh
-            self.store.upsert([base | {"chunk_id": c.chunk_id} for c in result.chunks], vectors)
+            self.store.upsert([base | {"chunk_id": c.chunk_id} for c in written], vectors)
             self.bm25.upsert_chunks([base | {"chunk_id": c.chunk_id, "text": c.text}
-                                     for c in result.chunks])
+                                     for c in written])
+            self.store.delete_chunks(plan.deleted)
+            self.bm25.delete_chunks(plan.deleted)
+            if plan.kept and meta_changed:  # kept points still carry the old access fields
+                self.store.set_document_payload(row.doc_id, row.payload())
+                self.bm25.set_document_payload(row.doc_id, row.payload())
+
+            counts = {"kept": len(plan.kept), "reused": len(plan.reused),
+                      "embedded": len(plan.embedded), "deleted": len(plan.deleted)}
+            self.chunk_stats.update(counts)
             write_audit_log(s, actor, "reindex", f"{row.doc_id} ({len(result.chunks)} chunks)")
         except Exception:
             s.rollback()
@@ -496,7 +614,7 @@ class Indexer:
                 s.commit()
             raise
         self._write_tyk(row.doc_id, result.excluded_test_your_knowledge)
-        log.info("indexed %s (%d chunks)", row.doc_id, len(result.chunks))
+        log.info("indexed %s (%d chunks: %s)", row.doc_id, len(result.chunks), counts)
         return "indexed"
 
     def _remove(self, s: Session, doc_id: str, actor: str) -> None:
@@ -558,6 +676,7 @@ def build_indexer(settings: Settings, embedder: Embedder | None = None,
         overlap_tokens=settings.chunk_overlap_tokens,
         synthetic_manifest_path=settings.synthetic_manifest_path,
         landing_dir=settings.landing_dir,
+        embedding_ref=settings.embedding_model,
     )
 
 def main(argv: list[str] | None = None) -> int:
@@ -584,6 +703,8 @@ def main(argv: list[str] | None = None) -> int:
         n_chunks = s.scalar(select(func.count()).select_from(Chunk))
     print(f"indexed={len(report.indexed)} metadata_updated={len(report.metadata_updated)} "
           f"unchanged={len(report.unchanged)} removed={len(report.removed)}")
+    print("chunks: " + ", ".join(f"{k}={report.chunks.get(k, 0)}"
+                                 for k in ("kept", "reused", "embedded", "deleted")))
     print(f"SQLite chunks={n_chunks}  Qdrant points={indexer.store.count()}  "
           f"BM25 docs={len(indexer.bm25)}")
     return 0

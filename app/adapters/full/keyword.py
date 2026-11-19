@@ -79,6 +79,14 @@ class OpenSearchKeywordIndex:
         self.client.delete_by_query(index=self.index, refresh=True, conflicts="proceed",
                                     body={"query": {"term": {"doc_id": doc_id}}})
 
+    def delete_chunks(self, chunk_ids: Sequence[str]) -> None:
+        """Remove these chunks only (M12b); a chunk's OpenSearch _id is its chunk id."""
+        from opensearchpy import helpers
+
+        actions = [{"_op_type": "delete", "_index": self.index, "_id": c} for c in chunk_ids]
+        if actions:
+            helpers.bulk(self.client, actions, raise_on_error=False)  # 404s: already gone
+
     def set_document_payload(self, doc_id: str, payload: dict) -> None:
         fields = {k: v for k, v in payload.items() if k in (*KEYWORD_FIELDS, "superseded")}
         if not fields:

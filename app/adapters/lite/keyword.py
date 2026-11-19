@@ -23,6 +23,9 @@ class RankBm25Index(Bm25Index):
     def delete_document(self, doc_id: str) -> None:
         """Nothing to do: `refresh` rebuilds from the metadata store."""
 
+    def delete_chunks(self, chunk_ids: Sequence[str]) -> None:
+        """Nothing to do: `refresh` rebuilds from the metadata store."""
+
     def set_document_payload(self, doc_id: str, payload: dict) -> None:
         """Nothing to do: access is decided from the metadata store at search time."""
 

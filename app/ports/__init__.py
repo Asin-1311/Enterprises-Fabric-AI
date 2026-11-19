@@ -63,6 +63,15 @@ class VectorIndex(Protocol):
 
     def delete_document(self, doc_id: str) -> None: ...
 
+    def delete_chunks(self, chunk_ids: Sequence[str]) -> None:
+        """Remove these chunks only (M12b: chunk-level updates). Unknown ids are ignored."""
+        ...
+
+    def vectors(self, chunk_ids: Sequence[str]) -> dict[str, list[float]]:
+        """Stored vectors by chunk id, so unchanged text is never embedded twice (M12b).
+        Ids not in the index are left out."""
+        ...
+
     def set_document_payload(self, doc_id: str, payload: dict) -> None: ...
 
     def search_scoped(self, vector: Sequence[float], scope: AccessScope,
@@ -86,6 +95,10 @@ class KeywordIndex(Protocol):
         ...
 
     def delete_document(self, doc_id: str) -> None: ...
+
+    def delete_chunks(self, chunk_ids: Sequence[str]) -> None:
+        """Remove these chunks only (M12b: chunk-level updates). Unknown ids are ignored."""
+        ...
 
     def set_document_payload(self, doc_id: str, payload: dict) -> None: ...
 

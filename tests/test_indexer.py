@@ -111,7 +111,7 @@ def test_edit_is_reflected_in_both_indexes(env) -> None:
     assert indexer.index_path(path, actor="test") == "POL-1"
 
     ids = assert_in_step(indexer, "POL-1")
-    assert ids == {"POL-1:0001"}  # section 2 was removed: its old chunk must be gone
+    assert ids == {"POL-1:1:1"}  # section 2 was removed: its old chunk must be gone
     assert indexer.bm25.search("zebrawordone") == []          # old text gone from BM25
     hits = [cid for cid, _ in indexer.bm25.search("quokkaword")]
     assert hits and all(h.startswith("POL-1:") for h in hits)  # new text found

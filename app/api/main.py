@@ -181,9 +181,13 @@ def _citations(svc: Services, cited: list[tuple[str, int | None, int | None]]) -
     chunk_ids = [cid for cid, _, _ in cited]
     with svc.sessions() as s:
         superseded = {d for d in s.scalars(select(Document.supersedes)) if d}
-        rows = {c.chunk_id: (c, d) for c, d in s.execute(
+        found = s.execute(
             select(Chunk, Document).join(Document, Document.doc_id == Chunk.doc_id)
-            .where(Chunk.chunk_id.in_(chunk_ids))).all()}
+            .where(Chunk.chunk_id.in_(chunk_ids) | Chunk.legacy_chunk_id.in_(chunk_ids))).all()
+    # An answer written before M12b cites Phase 1 ids ("STD-CH06:0004"); they resolve to
+    # the chunk that had that id and still has the same text (legacy_chunk_id).
+    rows = {c.legacy_chunk_id: (c, d) for c, d in found if c.legacy_chunk_id}
+    rows |= {c.chunk_id: (c, d) for c, d in found}
     out = []
     for cid, span_start, span_end in cited:
         if cid in rows:
