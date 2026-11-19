@@ -35,7 +35,8 @@ router = APIRouter(prefix="/api/v1", tags=["admin"])
 
 ADMIN_ONLY = "This action is restricted to administrators."
 
-# Settings each connector type needs (the connectors themselves arrive in M12).
+# Settings each connector type needs (connectors: app/connectors/, M12c). Polling types
+# also need "defaults" (checked in app/connectors/config_problems).
 REQUIRED_SETTINGS: dict[str, tuple[str, ...]] = {
     "filesystem": ("path",),
     "git": ("url", "branch"),
@@ -89,6 +90,9 @@ def _setting_problems(req: SourceCreate, corpus_dir: Path, project_root: Path) -
             problems.append("a filesystem source must be a folder inside data/corpus/")
         elif not folder.is_dir():
             problems.append(f"folder not found: {raw}")
+    from app.connectors import config_problems
+
+    problems += config_problems(req.type, req.connector_config, project_root)
     return problems + secret_problems(req.connector_config)
 
 
@@ -104,7 +108,8 @@ def _source_out(source: Source) -> SourceOut:
 @router.post("/sources", response_model=SourceOut, status_code=201)
 def register_source(req: SourceCreate, request: Request,
                     admin: User = Depends(require_admin)) -> SourceOut:
-    """Register a source of documents. Its connector starts ingesting in M12."""
+    """Register a source of documents. A polling source (git, s3, confluence, jira,
+    sharepoint) is picked up by the connector runner on its next round."""
     settings = request.app.state.services.settings
     from app.config import PROJECT_ROOT
 

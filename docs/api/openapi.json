@@ -2011,7 +2011,7 @@
     },
     "/api/v1/sources": {
       "post": {
-        "description": "Register a source of documents. Its connector starts ingesting in M12.",
+        "description": "Register a source of documents. A polling source (git, s3, confluence, jira,\nsharepoint) is picked up by the connector runner on its next round.",
         "operationId": "register_source_api_v1_sources_post",
         "requestBody": {
           "content": {

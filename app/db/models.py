@@ -253,6 +253,9 @@ class Source(Base):
     status: Mapped[str] = mapped_column(String)  # active | paused
     last_event_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+    # M12c: what a polling connector saw last time (item -> version token), when it last
+    # polled, and its last error. Written by app/connectors/runner.py only.
+    sync_state: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
 
 class Retrieval(Base):

@@ -1,7 +1,7 @@
 """The webhook connector: POST /api/v1/webhooks/documents (M12a).
 
-Covers: R-5-ing (webhook listener), R-7.1-c (webhook part; Git, S3 and the fixture
-connectors follow in M12c).
+Covers: R-5-ing (webhook listener), R-7.1-c (webhook part; the other connectors are in
+tests/test_connectors.py and tests/test_connector_contracts.py).
 """
 
 import json

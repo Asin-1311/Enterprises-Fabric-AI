@@ -58,7 +58,8 @@ def test_registering_a_source_checks_settings_and_refuses_stored_secrets(client)
     admin = as_user(client, "A1")
     git = {"id": "git-firm-docs", "type": "git", "classification": "confidential",
            "connector_config": {"url": "https://git.example/firm.git", "branch": "main",
-                                "auth": {"token": "ghp_not_a_reference"}}}
+                                "auth": {"token": "ghp_not_a_reference"},
+                                "defaults": {"source_type": "firm_policy", "access_level": "staff"}}}
     r = client.post("/api/v1/sources", json=git, headers=admin)
     assert r.status_code == 422 and "auth.token looks like a secret" in str(r.json())
 
@@ -77,6 +78,11 @@ def test_registering_a_source_checks_settings_and_refuses_stored_secrets(client)
         {"id": "s3-no-bucket", "type": "s3", "connector_config": {}},
         {"id": "BadId!", "type": "s3", "connector_config": {"bucket": "b"}},
         {"id": "s3-role", "type": "s3", "connector_config": {"bucket": "b"}, "role": "partner"},
+        # M12c: a polling source must say what its documents are and who may see them.
+        {"id": "s3-no-defaults", "type": "s3", "connector_config": {"bucket": "b"}},
+        {"id": "git-ext", "type": "git", "connector_config": {
+            "url": "ext::sh -c id", "branch": "main",
+            "defaults": {"source_type": "firm_policy", "access_level": "staff"}}},
     ]
     for body in bad:
         assert client.post("/api/v1/sources", json=body, headers=admin).status_code == 422, body

@@ -629,11 +629,18 @@ class Indexer:
         (self.tyk_dir / f"{doc_id}.txt").unlink(missing_ok=True)
 
     def _refresh_superseded(self, s: Session) -> None:
-        """Set the `superseded` payload flag on every document from SQLite links."""
+        """Make the `superseded` payload flag match the SQLite links, changing only the
+        documents whose flag is wrong (M12c). Rewriting every document after each change
+        made one small batch take minutes on the embedded Qdrant, which writes every point
+        it touches to disk. Both indexes are written from the same decisions, so the
+        documents found wrong in Qdrant are the ones updated in the keyword index too."""
         docs = s.execute(select(Document.doc_id, Document.supersedes)).all()
         ids = {d for d, _ in docs}
         superseded = {old for _, old in docs if old and old in ids}
-        for doc_id in ids:
+        # A document is wrong if any of its points disagrees (new points start as False).
+        wrong = ((self.store.doc_ids_with("superseded", False) & superseded)
+                 | (self.store.doc_ids_with("superseded", True) - superseded)) & ids
+        for doc_id in sorted(wrong):
             self.store.set_document_payload(doc_id, {"superseded": doc_id in superseded})
             self.bm25.set_document_payload(doc_id, {"superseded": doc_id in superseded})
 

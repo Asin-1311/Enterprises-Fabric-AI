@@ -272,3 +272,190 @@ def test_change_events_flow_through_kafka_into_every_full_index(
     finally:
         worker.close()
         bus.close()
+
+
+# ------------------------------------------------------------- connectors (M12c)
+
+def _full_indexer(root, pg_store, qdrant_server, opensearch_index):
+    from app.ingest.indexer import Indexer
+
+    data = root / "data"
+    indexer = Indexer(project_root=root, manifest_path=data / "manifest.csv",
+                      users_path=data / "users.csv", engagements_path=data / "engagements.csv",
+                      tyk_dir=data / "tyk", session_factory=pg_store.sessions,
+                      store=qdrant_server, embedder=HashingEmbedder(), bm25=opensearch_index,
+                      synthetic_manifest_path=data / "manifest.synthetic.csv")
+    indexer.load_reference_data()
+    return indexer
+
+
+def _drain_until(worker, expected: int) -> list[str]:
+    outcomes: list[str] = []
+    for _ in range(6):  # the Kafka consumer group may take a few seconds to start
+        outcomes += [o for _, o in worker.drain(wait_seconds=10)]
+        if len(outcomes) >= expected:
+            break
+    return outcomes
+
+
+def _in_every_full_index(pg_store, qdrant_server, opensearch_index, doc_id: str) -> bool:
+    with pg_store.sessions() as s:
+        in_pg = s.get(Document, doc_id) is not None
+    return in_pg and qdrant_server.count(doc_id) > 0 and opensearch_index.count(doc_id) > 0
+
+
+def test_s3_connector_on_minio_through_kafka_into_every_full_index(
+        tmp_path, settings, pg_store, qdrant_server, opensearch_index) -> None:
+    """Covers: R-7.1-c, R-5-ing (S3 on the real MinIO). Objects in the bucket are polled,
+    published on Kafka and indexed in PostgreSQL, Qdrant and OpenSearch; an overwritten
+    object is re-sent alone; a deleted object is removed from every index."""
+    import os
+
+    from app.adapters.full.events import KafkaEventBus
+    from app.config import env_reference
+    from app.connectors import build_connector
+    from app.connectors.runner import ConnectorRunner
+    from app.db.models import Source
+    from app.ingest.worker import IngestWorker
+    from scripts.seed_minio import BUCKET, DOCS, seed
+
+    endpoint = _need(os.environ.get("S3_ENDPOINT_URL", "http://127.0.0.1:9000"), "S3_ENDPOINT_URL",
+                     "ingest", 9000)
+    if not env_reference("env:MINIO_ROOT_USER"):
+        pytest.skip("set MINIO_ROOT_USER and MINIO_ROOT_PASSWORD in .env (see .env.example)")
+    import boto3
+
+    s3 = boto3.client("s3", endpoint_url=endpoint, region_name="us-east-1",
+                      aws_access_key_id=env_reference("env:MINIO_ROOT_USER"),
+                      aws_secret_access_key=env_reference("env:MINIO_ROOT_PASSWORD"))
+    run = uuid.uuid4().hex[:8]
+    prefix, topic = f"test-{run}/", f"doc-changes-test-{run}"
+    keys = seed(s3, prefix=prefix)
+    bus = KafkaEventBus(_need(settings.kafka_bootstrap, "KAFKA_BOOTSTRAP", "ingest", 9092))
+    root = _clean_clone(tmp_path)
+    indexer = _full_indexer(root, pg_store, qdrant_server, opensearch_index)
+    worker = IngestWorker(indexer, bus, topic=topic, group=f"indexer-test-{run}")
+    source_id = f"s3-test-{run}"
+    with pg_store.sessions() as s:
+        s.add(Source(id=source_id, type="s3", owner="P02", classification="public_internal",
+                     status="active", connector_config={
+                         "bucket": BUCKET, "prefix": prefix, "endpoint_url": endpoint,
+                         "access_key": "env:MINIO_ROOT_USER", "secret_key": "env:MINIO_ROOT_PASSWORD",
+                         "defaults": {"source_type": "firm_policy", "access_level": "staff"}}))
+        s.commit()
+    runner = ConnectorRunner(pg_store.sessions, bus, settings, topic=topic, factory=lambda src: build_connector(
+        src.id, src.type, src.connector_config, landing_dir=indexer.landing_dir,
+        work_dir=root / "data" / "connectors", project_root=root))
+    try:
+        assert runner.poll_once() == {source_id: len(DOCS)}
+        assert _drain_until(worker, len(DOCS)) == ["indexed"] * len(DOCS)
+        doc_ids = [f"{source_id}-{k.replace('/', '-')}" for k in keys]
+        for doc_id in doc_ids:
+            assert _in_every_full_index(pg_store, qdrant_server, opensearch_index, doc_id), doc_id
+        with pg_store.sessions() as s:
+            assert s.get(Document, doc_ids[0]).owner == "P02"
+
+        s3.put_object(Bucket=BUCKET, Key=keys[0], Body=s3.get_object(Bucket=BUCKET, Key=keys[0])[
+            "Body"].read() + b"\n## 3. Added\nAn added section.\n")
+        assert runner.poll_once() == {source_id: 1}
+        assert _drain_until(worker, 1) == ["indexed"]
+
+        s3.delete_object(Bucket=BUCKET, Key=keys[1])
+        assert runner.poll_once() == {source_id: 1}
+        assert _drain_until(worker, 1) == ["removed"]
+        assert qdrant_server.count(doc_ids[1]) == 0 and opensearch_index.count(doc_ids[1]) == 0
+    finally:
+        for key in keys:
+            s3.delete_object(Bucket=BUCKET, Key=key)
+        worker.close()
+        bus.close()
+
+
+def test_git_connector_through_kafka_into_every_full_index(
+        tmp_path, settings, pg_store, qdrant_server, opensearch_index) -> None:
+    """Covers: R-7.1-c, R-5-ing (git, full profile): a commit to the synthetic repository
+    reaches PostgreSQL, Qdrant and OpenSearch through Kafka."""
+    from app.adapters.full.events import KafkaEventBus
+    from app.connectors import build_connector
+    from app.connectors.runner import ConnectorRunner
+    from app.db.models import Source
+    from app.ingest.worker import IngestWorker
+    from scripts.make_synthetic_git_repo import DOCS_V1, make_repo
+
+    bus = KafkaEventBus(_need(settings.kafka_bootstrap, "KAFKA_BOOTSTRAP", "ingest", 9092))
+    run = uuid.uuid4().hex[:8]
+    topic = f"doc-changes-test-{run}"
+    root = _clean_clone(tmp_path)
+    make_repo(root / "data" / "sources" / "repo", [DOCS_V1])
+    indexer = _full_indexer(root, pg_store, qdrant_server, opensearch_index)
+    worker = IngestWorker(indexer, bus, topic=topic, group=f"indexer-test-{run}")
+    with pg_store.sessions() as s:
+        s.add(Source(id="git-test", type="git", classification="public_internal", status="active",
+                     connector_config={"url": "data/sources/repo", "branch": "main",
+                                       "defaults": {"source_type": "firm_policy", "access_level": "staff"}}))
+        s.commit()
+    runner = ConnectorRunner(pg_store.sessions, bus, settings, topic=topic, factory=lambda src: build_connector(
+        src.id, src.type, src.connector_config, landing_dir=indexer.landing_dir,
+        work_dir=root / "data" / "connectors", project_root=root))
+    try:
+        expected = [p for p in DOCS_V1 if p.endswith(".md")]
+        assert runner.poll_once() == {"git-test": len(expected)}
+        assert _drain_until(worker, len(expected)) == ["indexed"] * len(expected)
+        for path in expected:
+            doc_id = "git-test-" + path.replace("/", "-")
+            assert _in_every_full_index(pg_store, qdrant_server, opensearch_index, doc_id), doc_id
+    finally:
+        worker.close()
+        bus.close()
+
+
+def test_signed_webhook_push_through_kafka_into_every_full_index(
+        tmp_path, settings, pg_store, qdrant_server, opensearch_index, monkeypatch) -> None:
+    """Covers: R-7.1-c, R-5-ing (webhook, full profile): a signed POST to the API is
+    published on Kafka and indexed in PostgreSQL, Qdrant and OpenSearch."""
+    import json
+    from types import SimpleNamespace
+
+    from fastapi.testclient import TestClient
+
+    from app.adapters.full.events import KafkaEventBus
+    from app.api.main import Services, create_app
+    from app.api.webhooks import signature
+    from app.concurrency import ReadWriteLock
+    from app.db.models import Source
+    from app.ingest.events import TOPIC
+    from app.ingest.worker import IngestWorker
+
+    bus = KafkaEventBus(_need(settings.kafka_bootstrap, "KAFKA_BOOTSTRAP", "ingest", 9092))
+    run = uuid.uuid4().hex[:8]
+    root = _clean_clone(tmp_path)
+    indexer = _full_indexer(root, pg_store, qdrant_server, opensearch_index)
+    worker = IngestWorker(indexer, bus, topic=TOPIC, group=f"indexer-test-{run}")
+    monkeypatch.setenv("TEST_WEBHOOK_SECRET", "integration-secret")
+    with pg_store.sessions() as s:
+        s.add(Source(id="webhook-test", type="webhook", classification="public_internal",
+                     status="active", connector_config={"secret": "env:TEST_WEBHOOK_SECRET"}))
+        s.commit()
+    services = Services(settings.model_copy(update={"landing_dir": indexer.landing_dir}),
+                        SimpleNamespace(deps=SimpleNamespace(sessions=pg_store.sessions)),  # type: ignore[arg-type]
+                        indexer, ReadWriteLock(), bus=bus)
+    doc_id = f"WEBHOOK-IT-{run}"
+    body = json.dumps({"doc_id": doc_id, "title": "Webhook integration", "source_type": "circulars",
+                       "access_level": "staff", "effective_date": "2026-11-19",
+                       "content": "# Webhook integration\n\n## 1. Rule\nPangolinword pushed."}).encode()
+    try:
+        with TestClient(create_app(services, static_dir=None)) as client:
+            r = client.post("/api/v1/webhooks/documents", content=body, headers={
+                "Content-Type": "application/json", "X-Source-Id": "webhook-test",
+                "X-Signature-256": signature("integration-secret", body)})
+        assert r.status_code == 202
+        outcomes: list = []
+        for _ in range(6):
+            outcomes += worker.drain(wait_seconds=10)
+            if any(e == r.json()["event_id"] for e, _ in outcomes):
+                break
+        assert (r.json()["event_id"], "indexed") in outcomes
+        assert _in_every_full_index(pg_store, qdrant_server, opensearch_index, doc_id)
+    finally:
+        worker.close()
+        bus.close()

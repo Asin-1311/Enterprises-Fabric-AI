@@ -1839,3 +1839,133 @@ Branch `m12b-chunk-updates`, made from `phase2` after M12a was merged.
     and the Qdrant server);
   - frontend: 21 passed (1 new);
   - `check_compliance.py --run`: passes.
+
+
+## M12c: Connectors (2026-11-19)
+
+Branch `m12c-connectors`, made from `phase2` after M12b was merged. Author's choices:
+- MinIO in Docker;
+- S3 changes found by polling;
+- a local mock server for Confluence, Jira and SharePoint;
+- after MinIO's own image proved unavailable, the `bitnamilegacy/minio` image.
+
+### What was built
+- **A `Connector` port** (`app/ports/`) and a shared base (`app/connectors/base.py`).
+  - A polling connector answers only two questions: which documents exist now, each with
+    a version token that changes when its content changes; and what is this document's
+    text, as Markdown.
+  - The base compares the listing with the snapshot saved last time. A new or changed
+    item is fetched, written to the landing folder and sent as an upsert event; a vanished
+    item becomes a delete event. Unchanged items are not even fetched.
+- **The connectors:**
+
+  | Type | Backend | Version token |
+  |---|---|---|
+  | git | local mirror of one branch (`git` command line) | blob hash |
+  | s3 | MinIO bucket `firm-documents` (boto3) | ETag |
+  | confluence | Cloud REST v2: space pages with body | page version number |
+  | jira | Cloud REST v3 issue search | `updated` |
+  | sharepoint | Microsoft Graph drive delta | cTag |
+  | filesystem | the existing watcher; `poll` reconciles with the manifest | file hash |
+
+- **Metadata:** every polling source has `defaults` (source type and access level, at
+  least).
+  - Items can override them with labels: `access-manager`, `access-partner`,
+    `engagement-<ID>`, `type-<source type>`, `classification-<value>`.
+  - Enrichment then applies the same checks as for every other document. For example, a
+    Confluence page labelled `access-manager` became `confidential` automatically.
+- **The runner (`app/connectors/runner.py`)** polls every active git, s3, confluence,
+  jira and sharepoint source every 30 s.
+  - The new state is saved (`sources.sync_state`, migration `0004`) only after the events
+    are published. If publishing fails, the same changes are sent next time.
+  - One unreachable source is logged (`last_error`) and the others continue. A paused
+    source is not polled.
+  - It runs inside the API in lite, or as `python -m app.connectors.runner` in full.
+- **Safety:**
+  - **Git:** only `https://` URLs or folders under `data/sources/`; git may use only the
+    `file` and `https` transports, so a URL can never run a command (`ext::`); no
+    credentials inside URLs.
+  - **SaaS:** API tokens are `env:NAME` references; a "next page" link to another host is
+    refused, so a token is never sent elsewhere.
+  - **Jira:** the project key must look like a key, because it goes into a JQL query.
+- **Registration:** `POST /sources` checks all of the above for a polling source.
+- **Synthetic enterprise systems:**
+  - `scripts/make_synthetic_git_repo.py` (a repository with two commits);
+  - `scripts/seed_minio.py` (two documents in the bucket);
+  - `scripts/mock_saas_server.py` with fixtures in `tests/fixtures/connectors/`;
+  - `scripts/register_demo_sources.py` (one demo source of each type).
+  - All content describes fictional firm procedures only and carries the banner.
+- **MinIO in `deploy/compose.yaml`** (profiles `ingest` and `full`).
+  - MinIO no longer publishes its server image: `minio/minio` and `quay.io/minio/minio`
+    could not be pulled.
+  - The author chose `bitnamilegacy/minio:2025.7.23`: the real MinIO server, but a frozen
+    image with no further security fixes. That is acceptable here because it listens on
+    127.0.0.1 only and holds synthetic data.
+  - It needed 384 MB, not 256 MB. All six services together use about 1.7 GB of the
+    3.5 GB Docker cap.
+
+### No live tenant was used
+The Confluence, Jira and SharePoint connectors follow the documented API shapes, but they
+were tested only against fixtures written for this project and served locally. Getting a
+Microsoft Graph token (an Entra ID app registration) is outside the project. The report
+must say this plainly.
+
+### Found and fixed on the way
+- **Secrets in `.env` were not seen (from M12a).**
+  - `env:NAME` references were read from the process environment only, but `.env` values
+    go into the settings object, not the environment. So a webhook secret written in
+    `.env`, as the documentation says, was never found unless the variable was also
+    exported in the shell.
+  - The tests set the variable directly, which hid this.
+  - Now `app/config.py:env_reference` checks the environment, then `.env`. There is a
+    regression test.
+- **Every change rewrote the `superseded` flag on all documents (from Phase 1).**
+  - The live check showed a small batch taking minutes, because embedded Qdrant writes
+    every point it touches to disk (about 15,700 points per batch).
+  - Now only the documents whose flag is wrong are updated. Two filtered scans find them;
+    there is a new port method `doc_ids_with` and a test.
+- **The runner held a database session while talking to the network:** with SQLite that
+  can block the worker's writes. It now reads, closes the session, polls, then saves.
+
+### Live check (2026-11-19, lite profile, on copies of the database and index)
+- **Setup:** the real API, five demo sources (git, MinIO S3, and the mock Confluence, Jira
+  and SharePoint), and a poll interval of 10 s.
+- **Before the refresh fix:** only the first source's 3 documents were indexed; the
+  worker spent minutes rewriting flags.
+- **After the fix:**
+  - All 11 documents were indexed 17 s after the API came up.
+  - A commit that edits one section of one Git document was visible in the index 4 s
+    later. Only that document was re-indexed; the other document's `indexed_at` and
+    chunk hashes did not change.
+  - The demo edit was then reverted in the synthetic repository.
+
+### Why it matters
+- **Freshness from where the firm actually keeps knowledge:** a wiki, a query log, a
+  document library, a repository or a bucket, without anyone exporting files.
+- **One path for every source:** every connector produces the same events, so every
+  document gets the same enrichment, access checks and consistent indexing as a file in
+  the corpus folder.
+
+### Likely viva questions
+- *Why compare snapshots instead of using each system's change feed?* One simple rule
+  works for every system and can be explained and tested once; change feeds (Graph delta
+  links, Confluence webhooks) differ per product. The cost is listing everything each
+  poll, which is fine for a firm's knowledge base but would need change feeds at much
+  larger scale.
+- *What if the server is down?* The poll fails, the error is stored on the source, the
+  old snapshot is kept, and the next poll tries again; nothing is lost or duplicated in
+  the index.
+- *Could a connector leak a restricted document?* It only fetches; access is decided by
+  enrichment and enforced in both indexes exactly as for any other document. A label can
+  raise access; the classification floor still applies.
+
+### Status
+- **Met:** R-7.1-c, R-13.3-contract.
+- **Advanced:** R-5-ing (still Partial: DMS change data capture is M12d).
+- **COMPLIANCE.md:** 43 requirements; 12 Met, 22 Partial, 9 Not met.
+- **Tests (2026-11-19):**
+  - default suite: 441 passed (17 new);
+  - integration: 11 passed (new: git and S3 on MinIO through Kafka; a signed webhook
+    through Kafka);
+  - frontend: 21 passed;
+  - `check_compliance.py --run`: passes.

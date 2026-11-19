@@ -2,7 +2,7 @@
 #
 # Start a group (from the project root; credentials come from .env, never from git):
 #   docker compose --env-file .env -f deploy/compose.yaml --profile core up -d     # PostgreSQL, Qdrant, OpenSearch, Redis
-#   docker compose --env-file .env -f deploy/compose.yaml --profile ingest up -d   # Kafka
+#   docker compose --env-file .env -f deploy/compose.yaml --profile ingest up -d   # Kafka, MinIO
 #   docker compose --env-file .env -f deploy/compose.yaml --profile full up -d     # all of the above
 # Stop:            docker compose --env-file .env -f deploy/compose.yaml --profile full down
 # Stop and ERASE:  ... --profile full down -v   (deletes the volumes: all full-profile data)
@@ -112,8 +112,32 @@ services:
       resources:
         limits: {memory: 768m}
 
+  minio:
+    # S3-compatible object store for the S3 connector (bucket "firm-documents", M12c).
+    # MinIO no longer publishes its own server image (docker.io/minio/minio and
+    # quay.io/minio/minio could not be pulled on 2026-11-19), so this is the MinIO server
+    # packaged by Bitnami, from their frozen "legacy" repository: it gets no further
+    # updates or security fixes (author's decision; noted in docs/report/COMPLIANCE.md).
+    # Acceptable here: it listens on 127.0.0.1 only and holds synthetic documents.
+    image: bitnamilegacy/minio:2025.7.23
+    profiles: [ingest, full]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?set MINIO_ROOT_USER in .env}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD in .env}
+      MINIO_DEFAULT_BUCKETS: firm-documents
+    ports: ["127.0.0.1:9000:9000"]   # S3 API only; the web console is not published
+    volumes: [minio-data:/bitnami/minio/data]
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      retries: 30
+    deploy:
+      resources:
+        limits: {memory: 384m}
+
 volumes:
   postgres-data:
   qdrant-data:
   opensearch-data:
   kafka-data:
+  minio-data:

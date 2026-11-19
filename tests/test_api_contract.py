@@ -7,7 +7,7 @@
    must match the response model the endpoint declares. A new endpoint without a case
    here fails the test.
 
-Covers: R-13.3-contract (API part; connector contracts come in M12).
+Covers: R-13.3-contract (API part; the connector contracts are in tests/test_connector_contracts.py).
 """
 
 import json
@@ -143,7 +143,9 @@ def test_every_endpoint_answers_valid_input_with_its_declared_shape(client, tmp_
             "/api/v1/documents/reindex", headers=admin, json={"doc_id": "POL-NEW"}),
         ("GET", "/api/v1/sources/status"): lambda c: c.get("/api/v1/sources/status", headers=staff),
         ("POST", "/api/v1/sources"): lambda c: c.post("/api/v1/sources", headers=admin, json={
-            "id": "contract-s3", "type": "s3", "connector_config": {"bucket": "firm-documents"}}),
+            "id": "contract-s3", "type": "s3", "connector_config": {
+                "bucket": "firm-documents",
+                "defaults": {"source_type": "firm_policy", "access_level": "staff"}}}),
         ("GET", "/api/v1/sources/{source_id}/status"): lambda c: c.get(
             "/api/v1/sources/fs-firm_policy/status", headers=admin),
         ("PUT", "/api/v1/routing-policy"): lambda c: c.put(

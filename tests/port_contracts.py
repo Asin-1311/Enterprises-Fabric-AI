@@ -110,6 +110,8 @@ def check_vector_index(index: VectorIndex, sessions: sessionmaker[Session], embe
     assert index.count() == 3 and index.chunk_ids("POL-1") == {"POL-1:0001"}
     index.set_document_payload("POL-1", {"access_level": "manager"})
     assert index.search_scoped(query, scope(sessions, STAFF_B), 10) == []
+    assert index.doc_ids_with("access_level", "manager") == {"POL-1", "MGR-1"}  # M12c
+    assert index.doc_ids_with("superseded", True) == set()
     assert index.payloads("POL-1")[0]["access_level"] == "manager"
     index.delete_document("MGR-1")
     assert index.count("MGR-1") == 0 and index.count() == 2

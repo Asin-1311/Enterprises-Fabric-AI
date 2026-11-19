@@ -145,6 +145,19 @@ class QdrantStore:
                     out[p.payload["chunk_id"]] = list(p.vector)  # type: ignore[arg-type]
         return out
 
+    def doc_ids_with(self, field: str, value: bool | str) -> set[str]:
+        """Documents with at least one point whose payload `field` equals `value`."""
+        flt = models.Filter(must=[models.FieldCondition(key=field, match=models.MatchValue(value=value))])
+        found: set[str] = set()
+        offset = None
+        while True:
+            points, offset = self.client.scroll(self.collection, scroll_filter=flt, limit=10_000,
+                                                offset=offset, with_payload=["doc_id"],
+                                                with_vectors=False)
+            found |= {p.payload["doc_id"] for p in points if p.payload}
+            if offset is None:
+                return found
+
     def set_document_payload(self, doc_id: str, payload: dict) -> None:
         """Update payload fields (e.g. access_level, superseded) on all points of a document."""
         self.client.set_payload(self.collection, payload=payload,
