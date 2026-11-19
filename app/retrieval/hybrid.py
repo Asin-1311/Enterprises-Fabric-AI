@@ -4,7 +4,7 @@ Order of operations for one request (CLAUDE.md section 7.3):
 1. ACL first: build the access scope for this user (app/ports.AccessScope). Each index
    applies it inside its own query (Qdrant payload filter; BM25 candidate set or
    OpenSearch filter), so restricted chunks are never scored by either retriever.
-2. For each sub-query: dense top-k and BM25 top-k.
+2. For each sub-query: dense top-k and BM25 top-k, run concurrently (M14a).
 3. Reciprocal rank fusion of all ranked lists (k = 60).
 4. Multiply by the superseded weight (and, for time-sensitive questions, the recency
    boost).
@@ -23,6 +23,7 @@ Modes (for the retrieval ablation in eval/run_retrieval_eval.py):
 
 import logging
 from collections.abc import Sequence
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import date
 
@@ -123,12 +124,15 @@ class HybridSearcher:
         limit: int = 20,
         as_of: date | None = None,
         record: list[dict] | None = None,
+        top_k: int | None = None,
+        plan: dict | None = None,
     ) -> list[RetrievedChunk]:
         """Search for one query or several sub-queries on behalf of `user`.
 
         With `record`, appends what each step did (for the `retrievals` table): per
         sub-query and method the raw scores and ranks, then the fused list with every
-        weight and multiplier applied."""
+        weight and multiplier applied. `top_k` overrides the candidates per retriever;
+        `plan` (the question's retrieval plan) is recorded with the fused list (M14a)."""
         if mode not in MODES:
             raise ValueError(f"mode must be one of {MODES}")
         queries = [queries] if isinstance(queries, str) else list(queries)
@@ -140,25 +144,27 @@ class HybridSearcher:
         scope = AccessScope(user, tuple(source_types) if source_types else None,
                             frozenset(allowed))
 
-        # 2. Ranked lists per sub-query.
+        # 2. Ranked lists per sub-query; dense and keyword search run at the same time.
+        k = top_k or self.top_k
         rankings: list[list[str]] = []
         dense_rank: dict[str, int] = {}
         bm25_rank: dict[str, int] = {}
-        for q in queries:
-            if mode in ("dense", "hybrid_raw", "hybrid"):
-                hits = self.store.search_scoped(self.embedder.embed_query(q), scope, self.top_k)
-                ids = [cid for cid, _ in hits]
-                rankings.append(ids)
-                for r, cid in enumerate(ids, 1):
-                    dense_rank[cid] = min(r, dense_rank.get(cid, r))
-                _record_ranked(record, q, "dense", hits)
-            if mode in ("bm25", "hybrid_raw", "hybrid"):
-                hits = self.bm25.search_scoped(q, scope, self.top_k)
-                ids = [cid for cid, _ in hits]
-                rankings.append(ids)
-                for r, cid in enumerate(ids, 1):
-                    bm25_rank[cid] = min(r, bm25_rank.get(cid, r))
-                _record_ranked(record, q, "keyword", hits)
+        use_dense, use_keyword = mode in ("dense", "hybrid_raw", "hybrid"), mode in ("bm25", "hybrid_raw", "hybrid")
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            for q in queries:
+                dense_job = pool.submit(lambda q=q: self.store.search_scoped(
+                    self.embedder.embed_query(q), scope, k)) if use_dense else None
+                keyword_job = pool.submit(self.bm25.search_scoped, q, scope, k) if use_keyword else None
+                for method, job, ranks in (("dense", dense_job, dense_rank),
+                                           ("keyword", keyword_job, bm25_rank)):
+                    if job is None:
+                        continue
+                    hits = job.result()
+                    ids = [cid for cid, _ in hits]
+                    rankings.append(ids)
+                    for r, cid in enumerate(ids, 1):
+                        ranks[cid] = min(r, ranks.get(cid, r))
+                    _record_ranked(record, q, method, hits)
 
         # 3. Fuse.
         fused = reciprocal_rank_fusion(rankings, k=self.rrf_k)
@@ -211,9 +217,32 @@ class HybridSearcher:
             record.append({"sub_query": " || ".join(queries), "method": "fused", "scores": [
                 {"chunk_id": r.chunk_id, "rank": rank, "rrf_score": round(r.rrf_score, 6),
                  "weights": dict(RETRIEVER_WEIGHTS),
-                 "multipliers": {k: round(v, 6) for k, v in r.multipliers.items()},
-                 "final_score": round(r.score, 6)} for rank, r in enumerate(results, 1)]})
+                 "multipliers": {name: round(v, 6) for name, v in r.multipliers.items()},
+                 "final_score": round(r.score, 6), **({"plan": plan} if plan else {})}
+                for rank, r in enumerate(results, 1)]})
         return results
+
+    def fetch(self, chunk_ids: list[str], user: UserContext) -> list[RetrievedChunk]:
+        """These chunks (in this order), with the same access checks as a search: the
+        pre-filter rule, then the policy engine. Chunks the user may not see are left
+        out silently. Used by small-to-big expansion (app/retrieval/parent_expand.py)."""
+        if not chunk_ids:
+            return []
+        with self.sessions() as s:
+            allowed = allowed_chunk_ids(s, user)
+        meta = self._metadata([c for c in chunk_ids if c in allowed])
+        candidates = [(cid, meta[cid]) for cid in chunk_ids if cid in meta]
+        decisions = self.policy.allowed(user, [
+            {"doc_id": m.doc_id, "access_level": m.access_level, "engagement_id": m.engagement_id,
+             "source_type": m.source_type, "classification": m.classification}
+            for _, m in candidates])
+        return [RetrievedChunk(
+            chunk_id=cid, doc_id=m.doc_id, title=m.title, source_type=m.source_type,
+            section=m.section, section_title=m.section_title, page_start=m.page_start,
+            page_end=m.page_end, effective_date=m.effective_date, superseded=m.superseded,
+            text=m.text, score=0.0, rrf_score=0.0, dense_rank=None, bm25_rank=None,
+            classification=m.classification)
+            for (cid, m), ok in zip(candidates, decisions, strict=True) if ok]
 
     def _metadata(self, chunk_ids: list[str]) -> dict[str, _Meta]:
         if not chunk_ids:

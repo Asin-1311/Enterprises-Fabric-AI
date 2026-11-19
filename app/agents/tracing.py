@@ -5,6 +5,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.agents.budgets import BudgetTracker, StepBudget
 from app.agents.llm import LLMResult
 from app.agents.versions import ActiveVersions
 from app.db.models import Trace
@@ -15,13 +16,20 @@ class Tracer:
     """Records agent steps for one query."""
 
     def __init__(self, session_factory: sessionmaker[Session], query_id: int,
-                 versions: ActiveVersions | None = None) -> None:
+                 versions: ActiveVersions | None = None, budget: StepBudget | None = None) -> None:
         self.sessions, self.query_id = session_factory, query_id
         self.versions = versions or ActiveVersions(None)
+        # M14a: the question's step budget, charged with every LLM result logged here, and
+        # the latest graph state, so a run stopped by its budget can still return the best
+        # verified answer it reached.
+        self.budget = BudgetTracker(budget or StepBudget())
+        self.snapshot: dict[str, Any] = {}
 
     def log(self, agent: str, input: Any, output: Any, llm: Sequence[LLMResult] = (),
             latency_ms: float | None = None) -> None:
-        """Write a row. If the step made LLM calls, their models/tokens/latency are summed."""
+        """Write a row. If the step made LLM calls, their models/tokens/latency are summed
+        and charged to the question's budget."""
+        self.budget.charge(llm)
         models = sorted({r.model for r in llm})
         efforts = sorted({r.effort for r in llm})
         row = Trace(

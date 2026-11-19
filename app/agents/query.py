@@ -17,7 +17,11 @@ from app.agents.llm import LLMCaller, LLMResult
 from app.db.models import Engagement
 from app.ingest.chunker import extract_sa_refs
 
-INTENTS = ("no_retrieval", "factual", "procedural", "comparison", "time_sensitive")
+INTENTS = ("no_retrieval", "factual", "procedural", "comparison", "analytical", "open_ended",
+           "time_sensitive")
+# Intents that need wider context: their chunks are expanded to the whole section
+# (small-to-big, app/retrieval/parent_expand.py) before compression (M14a).
+EXPLORATORY = ("comparison", "analytical", "open_ended")
 MAX_SUB_QUERIES = 3
 
 SCHEMA = {
@@ -41,6 +45,10 @@ Return JSON with:
   factual        (what a standard, policy or file says),
   procedural     (how to perform a task, steps, checklists),
   comparison     (differences between two or more things),
+  analytical     (why something matters, implications, evaluating a situation against
+                  the standards or policy, e.g. "is this a significant risk and why?"),
+  open_ended     (broad or exploratory: "tell me about", "what should I know about",
+                  "explain the approach to"),
   time_sensitive (due dates, deadlines, "latest", "this year", current period).
 - sa_numbers: Standards on Auditing mentioned, written like "SA 505".
 - clients: client or entity names mentioned.

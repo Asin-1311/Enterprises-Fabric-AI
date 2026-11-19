@@ -60,3 +60,31 @@ def merge(old: list[RetrievedChunk], new: list[RetrievedChunk]) -> list[Retrieve
     for c in [*old, *new]:
         seen.setdefault(c.chunk_id, c)
     return list(seen.values())
+
+
+@dataclass
+class SubQueryResult:
+    """One sub-query's search in one retrieval round (M14a fan-out)."""
+
+    round: int
+    query: str
+    candidates: list[RetrievedChunk]
+    injection_hits: dict[str, list[str]]
+    steps: list[dict]
+    started: float  # time.monotonic(), so tests and traces can see the searches overlap
+    ended: float
+
+
+def retrieve_one(searcher: HybridSearcher, query: str, user: UserContext, *, round: int,
+                 source_types: list[str] | None, time_sensitive: bool, limit: int,
+                 top_k: int | None = None, plan: dict | None = None) -> SubQueryResult:
+    """Search ONE sub-query (the graph runs one of these per sub-query, in parallel)."""
+    import time
+
+    started = time.monotonic()
+    steps: list[dict] = []
+    hits = searcher.search([query], user, source_types=source_types or None,
+                           time_sensitive=time_sensitive, limit=limit, record=steps,
+                           top_k=top_k, plan=plan)
+    flagged = {h.chunk_id: found for h in hits if (found := scan(h.text))}
+    return SubQueryResult(round, query, hits, flagged, steps, started, time.monotonic())
