@@ -218,7 +218,8 @@ def test_expired_reset_link_is_refused(app_client, caplog) -> None:
 def test_registration_is_off_by_default(tmp_path) -> None:
     """Covers: R-12-auth (no open registration)."""
     with _client(tmp_path) as client:
-        assert client.get("/api/v1/auth/config").json() == {"self_registration": False}
+        assert client.get("/api/v1/auth/config").json() == {"self_registration": False, "mode": "session",
+                                                              "oidc_issuer": None, "oidc_client_id": None}
         r = client.post("/api/v1/auth/register", json={
             "name": "Asha Verma", "email": "asha@example-associates.test", "password": "long-enough-1"})
         assert r.status_code == 403 and r.json()["detail"] == "Accounts are created by the firm administrator."
@@ -228,7 +229,8 @@ def test_registration_is_off_by_default(tmp_path) -> None:
 
 def test_when_registration_is_on_only_the_firm_domain_may_register(app_client) -> None:
     """Covers: R-12-auth (registration, when enabled, is limited to the firm's domain)."""
-    assert app_client.get("/api/v1/auth/config").json() == {"self_registration": True}
+    assert app_client.get("/api/v1/auth/config").json() == {"self_registration": True, "mode": "session",
+                                                              "oidc_issuer": None, "oidc_client_id": None}
     r = app_client.post("/api/v1/auth/register", json={
         "name": "Mallory Outside", "email": "mallory@gmail.example", "password": "long-enough-1"})
     assert r.status_code == 422 and "@example-associates.test" in r.json()["detail"]

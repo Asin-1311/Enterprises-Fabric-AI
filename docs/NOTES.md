@@ -2185,3 +2185,99 @@ named the leaked chunks (`POL-SEC-01`, `ENG-NWT-ALLEG`).
   - integration: 14 passed (new: `opa test`, OPA equivalence);
   - frontend: 21 passed;
   - `check_compliance.py --run --run-integration`: passes.
+
+
+## M13b: Identity with Keycloak and JWTs (2026-11-19)
+
+Branch `m13b-identity`, made from `phase2` after M13a was merged. As agreed, the API
+validates Keycloak tokens now; the browser sign-in comes with the UI work in M16.
+
+### What was built
+- **Keycloak 26.0.7** (`deploy/compose.yaml`, profiles `identity` and `full`) with a
+  SYNTHETIC realm `fabric`.
+  - `deploy/keycloak/realm.json` is generated from `data/users.csv` by
+    `scripts/make_keycloak_realm.py`, so the realm and the application's users cannot
+    drift apart.
+  - **Roles:** staff, manager, partner, and admin (the admin console; no extra document
+    access).
+  - **Users:** the 8 synthetic users.
+  - **Clients:** `fabric-api` (the audience), `fabric-ui` (the browser, authorization
+    code with PKCE, for M16), and `fabric-cli` (password grant, for tests and the demo
+    token script only).
+  - **Realm settings:** self-registration off; brute-force protection with the same
+    limits as the lite sign-in (10 failures, up to 15 minutes); 5-minute access tokens.
+  - **No passwords in git:** `scripts/keycloak_setup.py` sets the demo users' password
+    from `.env` (`KEYCLOAK_DEMO_PASSWORD`); the admin password is in `.env` too.
+- **Token validation (`app/api/oidc.py`):**
+  - A token is accepted only if it is signed by the realm's current key (fetched from its
+    JWKS and cached), uses an asymmetric algorithm, comes from the right issuer, is for
+    the `fabric-api` audience, is within its validity time (with a 30 s clock
+    tolerance), and names a user and a role.
+  - Every rejection gets the same generic 401; the reason goes only to the server log. If
+    Keycloak cannot be reached for its keys, the answer is 503, not 401.
+- **Who decides what:**
+  - **Keycloak:** the role (the highest of staff, manager, partner) and the admin flag. If
+    the users table differs, it is updated and the change is written to `audit_log`
+    (`identity_synced`).
+  - **The database:** engagement membership stays here, because which client files
+    someone may see is an engagement-team decision, not an identity attribute.
+  - A valid token for a user the application does not know gets 403; accounts are never
+    created from tokens.
+- **One way to sign in per profile:**
+  - In full, the email/password routes (login, register, forgot and reset password,
+    logout) answer 404.
+  - `GET /auth/config` tells the UI which mode is active, and names the issuer and client
+    for M16.
+- **`scripts/keycloak_token.py S01`** prints a token for a demo user, for curl and tests.
+- **PyJWT 2.15.1 with cryptography** (approved in CLAUDE.md §3), installed after a dry run
+  showed it changes no existing package.
+
+### Tests
+- **Unit (`tests/test_oidc.py`)**, with a locally generated RSA key. 12 kinds of bad token
+  are rejected:
+  - time and identity: expired, not yet valid, wrong audience, wrong issuer, no expiry;
+  - signature: signed by another key, unsigned (`alg: none`), HMAC-signed, a payload
+    swapped onto another token's signature;
+  - content: no role, no user name, garbage.
+- **Through the API:** valid tokens sign in; every bad token gets the same 401; the
+  email/password routes are gone; role and admin follow Keycloak (with the audit row);
+  unknown users get 403; a question works with a token.
+- **Against the real realm (integration):** tokens for S01 and A01 sign in with the right
+  role and admin flag. A token from the realm's built-in `admin-cli` client (another
+  audience) and a tampered token are rejected.
+
+### Not done yet, on purpose
+- **Browser sign-in (M16):** the React app's sign-in redirects to Keycloak with the
+  authorization code flow and PKCE. Until then, in the full profile only API clients with
+  a token (for example from `scripts/keycloak_token.py`) can sign in, not the UI. Lite is
+  unchanged.
+- **Keycloak storage:** it runs in development mode with its built-in database; its state
+  is re-imported from `realm.json` when the container is recreated. A production setup
+  (a real database, TLS, no `fabric-cli` client) belongs to deployment (M17).
+
+### Why it matters
+- **One identity, managed in one place:** a partner promoted or an admin removed in
+  Keycloak takes effect at the next request, and the change is in the audit log.
+- **Forged tokens are refused:** tokens are checked cryptographically, so a modified role,
+  a token for another system or an expired one is useless.
+
+### Likely viva questions
+- *Why not trust the role in the database?* The identity provider is where people and
+  their roles are managed; the database only mirrors it, so there is one source of truth.
+  Engagement teams stay in the database because they are an audit-engagement decision.
+- *What stops someone signing their own token?* It must be signed by the realm's private
+  key, which only Keycloak has; the API checks the signature against the realm's public
+  keys and refuses HMAC and unsigned tokens, which are the classic forgery tricks.
+- *Why 503 when Keycloak is down?* Because the problem is the server's, not the user's
+  token; telling the user to sign in again would not help.
+
+### Status
+- **Met:** R-12-auth.
+- **Advanced:** R-6-stack (Keycloak and OIDC/JWT; observability and deployment remain,
+  M17).
+- **COMPLIANCE.md:** 43 requirements; 17 Met, 18 Partial, 8 Not met.
+- **Tests (2026-11-19):**
+  - default suite: 484 passed (18 new);
+  - integration: 15 passed (new: the real Keycloak realm);
+  - frontend: 21 passed;
+  - `check_compliance.py --run --run-integration`: passes.

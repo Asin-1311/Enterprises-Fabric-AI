@@ -591,3 +591,47 @@ def test_opa_server_agrees_with_the_prefilter_on_every_chunk_for_every_user(tmp_
             decided = {cid for cid, ok in zip(ids, engine.allowed(user, docs)) if ok}
             assert decided == allowed_chunk_ids(s, user), user.user_id
     assert len(users) >= 8 and len(ids) > 100
+
+
+# ----------------------------------------------------------- Keycloak (M13b)
+
+def test_keycloak_tokens_sign_in_to_the_api_and_others_are_rejected(tmp_path, settings) -> None:
+    """Covers: R-12-auth (real realm). A token the `fabric` realm issues to a synthetic user
+    signs in to the API with that user's identity; a token for another audience (the realm's
+    built-in admin-cli) and a tampered token are rejected with 401."""
+    from types import SimpleNamespace
+
+    import httpx
+    from fastapi.testclient import TestClient
+
+    from app.api.main import Services, create_app
+    from app.config import env_reference
+    from app.concurrency import ReadWriteLock
+    from scripts.keycloak_token import KEYCLOAK_URL, get_token
+    from tests.helpers import make_indexer
+
+    _need(KEYCLOAK_URL, "Keycloak", "identity", 8180)
+    if not env_reference("env:KEYCLOAK_DEMO_PASSWORD"):
+        pytest.skip("set KEYCLOAK_DEMO_PASSWORD in .env and run scripts.keycloak_setup")
+    root = _clean_clone(tmp_path)
+    indexer = make_indexer(root, synthetic_fallback=True)
+    indexer.load_reference_data()
+    app_settings = settings.model_copy(update={"auth_mode": "oidc",
+                                               "oidc_issuer": f"{KEYCLOAK_URL}/realms/fabric"})
+    services = Services(app_settings, SimpleNamespace(deps=SimpleNamespace(sessions=indexer.sessions)),  # type: ignore[arg-type]
+                        indexer, ReadWriteLock())
+    staff, admin = get_token("S01"), get_token("A01")
+    other_audience = httpx.post(f"{KEYCLOAK_URL}/realms/fabric/protocol/openid-connect/token", data={
+        "grant_type": "password", "client_id": "admin-cli", "username": "s01",
+        "password": env_reference("env:KEYCLOAK_DEMO_PASSWORD")}, timeout=10).json()["access_token"]
+    head, body, sig = staff.split(".")
+    tampered = ".".join([head, get_token("P01").split(".")[1], sig])  # partner claims, staff signature
+    with TestClient(create_app(services, static_dir=None)) as client:
+        me = client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {staff}"})
+        assert me.status_code == 200 and (me.json()["user_id"], me.json()["role"]) == ("S01", "staff")
+        a01 = client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {admin}"}).json()
+        assert (a01["user_id"], a01["is_admin"]) == ("A01", True)
+        for bad in (other_audience, tampered):
+            assert client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {bad}"}).status_code == 401
+        assert client.post("/api/v1/auth/login", json={"email": "riya.kapoor@example-associates.test",
+                                                       "password": "x" * 12}).status_code == 404

@@ -1,0 +1,197 @@
+{
+  "realm": "fabric",
+  "displayName": "Example & Associates (SYNTHETIC demo realm)",
+  "enabled": true,
+  "sslRequired": "external",
+  "registrationAllowed": false,
+  "resetPasswordAllowed": false,
+  "bruteForceProtected": true,
+  "failureFactor": 10,
+  "waitIncrementSeconds": 60,
+  "maxFailureWaitSeconds": 900,
+  "accessTokenLifespan": 300,
+  "roles": {
+    "realm": [
+      {
+        "name": "staff",
+        "description": "Article assistant / staff level"
+      },
+      {
+        "name": "manager",
+        "description": "Engagement manager level"
+      },
+      {
+        "name": "partner",
+        "description": "Partner level: every engagement"
+      },
+      {
+        "name": "admin",
+        "description": "Admin console; no extra document access"
+      }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "fabric-api",
+      "name": "Enterprise Fabric AI API",
+      "enabled": true,
+      "publicClient": false,
+      "bearerOnly": false,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false
+    },
+    {
+      "clientId": "fabric-ui",
+      "name": "Enterprise Fabric AI (browser)",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "redirectUris": [
+        "http://127.0.0.1:5173/*",
+        "http://localhost:5173/*",
+        "http://127.0.0.1:8000/*",
+        "http://localhost:8000/*"
+      ],
+      "webOrigins": [
+        "http://127.0.0.1:5173",
+        "http://localhost:5173",
+        "http://127.0.0.1:8000",
+        "http://localhost:8000"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "+"
+      },
+      "protocolMappers": [
+        {
+          "name": "audience fabric-api",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.client.audience": "fabric-api",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "introspection.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "fabric-cli",
+      "name": "Tests and demo token script (dev only)",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "protocolMappers": [
+        {
+          "name": "audience fabric-api",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.client.audience": "fabric-api",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "introspection.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ],
+  "users": [
+    {
+      "username": "s01",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "riya.kapoor@example-associates.test",
+      "firstName": "Riya",
+      "lastName": "Kapoor",
+      "realmRoles": [
+        "staff"
+      ]
+    },
+    {
+      "username": "s02",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "kabir.nair@example-associates.test",
+      "firstName": "Kabir",
+      "lastName": "Nair",
+      "realmRoles": [
+        "staff"
+      ]
+    },
+    {
+      "username": "s03",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "meera.iyer@example-associates.test",
+      "firstName": "Meera",
+      "lastName": "Iyer",
+      "realmRoles": [
+        "staff"
+      ]
+    },
+    {
+      "username": "m01",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "arjun.desai@example-associates.test",
+      "firstName": "Arjun",
+      "lastName": "Desai",
+      "realmRoles": [
+        "manager"
+      ]
+    },
+    {
+      "username": "m02",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "neha.kulkarni@example-associates.test",
+      "firstName": "Neha",
+      "lastName": "Kulkarni",
+      "realmRoles": [
+        "manager"
+      ]
+    },
+    {
+      "username": "p01",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "vikram.sethi@example-associates.test",
+      "firstName": "Vikram",
+      "lastName": "Sethi",
+      "realmRoles": [
+        "partner"
+      ]
+    },
+    {
+      "username": "p02",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "anjali.bose@example-associates.test",
+      "firstName": "Anjali",
+      "lastName": "Bose",
+      "realmRoles": [
+        "partner"
+      ]
+    },
+    {
+      "username": "a01",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "kiran.rao@example-associates.test",
+      "firstName": "Kiran",
+      "lastName": "Rao",
+      "realmRoles": [
+        "staff",
+        "admin"
+      ]
+    }
+  ]
+}

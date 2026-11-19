@@ -18,6 +18,10 @@ How it works:
   out everywhere.
 Tokens are stored only as SHA-256 digests. Every action is written to audit_log by user
 id; emails and passwords are never logged.
+
+Full profile (M13b): users sign in at Keycloak and the Bearer token is a JWT, validated in
+app/api/oidc.py. The email/password routes above are then switched off (404): there is
+one way to sign in per profile.
 """
 
 import logging
@@ -26,7 +30,7 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -115,11 +119,65 @@ def user_out(s: Session, user: User) -> UserOut:
                    engagements=engagements)
 
 
+SIGN_IN_ELSEWHERE = "Sign-in is handled by the firm's identity provider."
+NOT_SET_UP = "Your account is not set up in this application. Contact the administrator."
+TOKEN_INVALID = "Your sign-in is not valid. Sign in again."
+
+
+def _oidc(request: Request):
+    """The app's token validator, created on first use from the settings (M13b)."""
+    state = request.app.state
+    if getattr(state, "oidc_validator", None) is None:
+        from app.api.oidc import OidcValidator
+
+        s = state.services.settings
+        state.oidc_validator = OidcValidator(s.oidc_issuer, s.oidc_audience, s.oidc_jwks_url,
+                                             s.oidc_leeway_seconds)
+    return state.oidc_validator
+
+
+def _oidc_user(request: Request, token: str) -> User:
+    """The user a valid Keycloak token names; role and admin flag synced from the token."""
+    from app.api.oidc import IdentityProviderUnavailable, TokenRejected
+
+    try:
+        identity = _oidc(request).validate(token)
+    except TokenRejected as exc:
+        log.warning("Rejected token: %s", exc)
+        raise HTTPException(401, TOKEN_INVALID, headers={"WWW-Authenticate": "Bearer"}) from None
+    except IdentityProviderUnavailable as exc:
+        log.error("Identity provider unreachable: %s", exc)
+        raise HTTPException(503, "Sign-in is temporarily unavailable.") from None
+    with _sessions(request)() as s:
+        user = s.scalars(select(User).where(func.upper(User.user_id) == identity.user_id)).first()
+        if user is None:
+            write_audit_log(s, identity.user_id, "token_user_unknown", identity.subject)
+            raise HTTPException(403, NOT_SET_UP)
+        if (user.role, bool(user.is_admin)) != (identity.role, identity.is_admin):
+            change = (f"role {user.role} -> {identity.role}, admin {bool(user.is_admin)} -> "
+                      f"{identity.is_admin} (from the identity provider)")
+            user.role, user.is_admin = identity.role, identity.is_admin
+            s.commit()
+            write_audit_log(s, "keycloak", "identity_synced", f"{user.user_id}: {change}")
+        s.refresh(user)
+        s.expunge(user)
+    return user
+
+
+def require_session_mode(request: Request) -> None:
+    """The email/password routes exist only where Keycloak is not used (lite)."""
+    if request.app.state.services.settings.uses_oidc:
+        raise HTTPException(404, SIGN_IN_ELSEWHERE)
+
+
 def current_user(request: Request,
                  creds: HTTPAuthorizationCredentials | None = Depends(_bearer)) -> User:
-    """The signed-in user, from the Bearer token. 401 if missing, unknown or expired."""
+    """The signed-in user, from the Bearer token. 401 if missing, unknown or expired.
+    Full profile: a Keycloak JWT (app/api/oidc.py); lite: a session token."""
     if creds is None:
         raise HTTPException(401, "Sign in required.", headers={"WWW-Authenticate": "Bearer"})
+    if request.app.state.services.settings.uses_oidc:
+        return _oidc_user(request, creds.credentials)
     with _sessions(request)() as s:
         row = s.get(AuthSession, token_digest(creds.credentials))
         user = s.get(User, row.user_id) if row and row.expires_at > utc_now() else None
@@ -154,11 +212,17 @@ def _next_user_id(s: Session) -> str:
 
 @router.get("/config", response_model=AuthConfigOut)
 def auth_config(request: Request) -> dict:
-    """What the sign-in screen may offer (public: no secrets, no user data)."""
-    return {"self_registration": request.app.state.services.settings.allow_self_registration}
+    """What the sign-in screen may offer (public: no secrets, no user data). In the full
+    profile it names the identity provider the browser signs in with (M13b/M16)."""
+    settings = request.app.state.services.settings
+    if settings.uses_oidc:
+        return {"self_registration": False, "mode": "oidc", "oidc_issuer": settings.oidc_issuer,
+                "oidc_client_id": settings.oidc_ui_client_id}
+    return {"self_registration": settings.allow_self_registration, "mode": "session"}
 
 
-@router.post("/login", response_model=SessionOut, dependencies=[Depends(guard_auth_route)])
+@router.post("/login", response_model=SessionOut,
+             dependencies=[Depends(require_session_mode), Depends(guard_auth_route)])
 def login(req: LoginRequest, request: Request) -> SessionOut:
     """Check email and password; on success return a session token."""
     settings = request.app.state.services.settings
@@ -177,7 +241,7 @@ def login(req: LoginRequest, request: Request) -> SessionOut:
 
 
 @router.post("/register", response_model=SessionOut, status_code=201,
-             dependencies=[Depends(guard_auth_route)])
+             dependencies=[Depends(require_session_mode), Depends(guard_auth_route)])
 def register(req: RegisterRequest, request: Request) -> SessionOut:
     """Create a staff account with no engagements, and sign it in. Off by default."""
     settings = request.app.state.services.settings
@@ -210,7 +274,7 @@ def me(request: Request, user: User = Depends(current_user)) -> UserOut:
         return user_out(s, user)
 
 
-@router.post("/logout", response_model=SignedOutOut)
+@router.post("/logout", response_model=SignedOutOut, dependencies=[Depends(require_session_mode)])
 def logout(request: Request, creds: HTTPAuthorizationCredentials | None = Depends(_bearer),
            user: User = Depends(current_user)) -> dict:
     """End this session (the token stops working immediately)."""
@@ -222,7 +286,7 @@ def logout(request: Request, creds: HTTPAuthorizationCredentials | None = Depend
 
 
 @router.post("/forgot-password", response_model=MessageOut,
-             dependencies=[Depends(guard_auth_route)])
+             dependencies=[Depends(require_session_mode), Depends(guard_auth_route)])
 def forgot_password(req: ForgotPasswordRequest, request: Request) -> dict:
     """Same reply whether or not the email exists. If it does, the one-time link is
     written to the API console (no email server in this project)."""
@@ -243,7 +307,7 @@ def forgot_password(req: ForgotPasswordRequest, request: Request) -> dict:
 
 
 @router.post("/reset-password", response_model=PasswordResetOut,
-             dependencies=[Depends(guard_auth_route)])
+             dependencies=[Depends(require_session_mode), Depends(guard_auth_route)])
 def reset_password(req: ResetPasswordRequest, request: Request) -> dict:
     """Set a new password with a valid, unused link; sign the user out everywhere."""
     problem = password_problem(req.password)
