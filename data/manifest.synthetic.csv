@@ -1,4 +1,5 @@
 doc_id,path,source_type,title,version,effective_date,supersedes,access_level,engagement_id,synthetic,source_id,owner,classification
+POL-SEC-01,data/corpus/firm_policy/client_data_key_custody_procedure_v1.md,firm_policy,Client Data Encryption Key Custody Procedure,1.0,2026-03-01,,staff,,true,fs-firm_policy,P02,restricted
 POL-METH-01,data/corpus/firm_policy/audit_methodology_manual_v3.md,firm_policy,Audit Methodology Manual,3.0,2024-04-01,,staff,,true,fs-firm_policy,P02,public_internal
 POL-MAT-01,data/corpus/firm_policy/materiality_policy_v1.md,firm_policy,Materiality Policy,1.0,2023-04-01,,manager,,true,fs-firm_policy,P02,confidential
 POL-MAT-02,data/corpus/firm_policy/materiality_policy_v2.md,firm_policy,Materiality Policy,2.0,2025-04-01,POL-MAT-01,manager,,true,fs-firm_policy,P02,confidential
@@ -29,6 +30,7 @@ TPL-AR-01,data/corpus/templates/audit_report_formats.md,templates,Template: Audi
 CAL-FY2526,data/corpus/calendar/compliance_calendar_fy2025_26.md,calendar,Compliance Calendar FY 2025-26,1.0,2025-04-01,,staff,,true,fs-calendar,M02,public_internal
 CAL-FY2627,data/corpus/calendar/compliance_calendar_fy2026_27.md,calendar,Compliance Calendar FY 2026-27,1.0,2026-04-01,,staff,,true,fs-calendar,M02,public_internal
 FAQ-01,data/corpus/faq/article_assistant_helpdesk_faq.md,faq,Article Assistant Helpdesk FAQ,4.0,2025-09-15,,staff,,true,fs-faq,M02,public_internal
+ENG-NWT-ALLEG,data/corpus/engagement/northwind_textiles/anonymous_allegation_note_fy2025_26.md,engagement,Northwind Textiles: Note on an Anonymous Allegation FY 2025-26,1.0,2026-02-03,,manager,ENG-NWT-FY26,true,fs-engagement,P01,restricted
 ENG-NWT-PLAN,data/corpus/engagement/northwind_textiles/planning_memo_fy2025_26.md,engagement,Northwind Textiles: Audit Planning Memo FY 2025-26,1.0,2026-01-12,,staff,ENG-NWT-FY26,true,fs-engagement,P01,confidential
 ENG-NWT-MAT,data/corpus/engagement/northwind_textiles/materiality_working_fy2025_26.md,engagement,Northwind Textiles: Materiality Working FY 2025-26,1.0,2026-01-12,,manager,ENG-NWT-FY26,true,fs-engagement,P01,confidential
 ENG-NWT-RISK,data/corpus/engagement/northwind_textiles/risk_assessment_fy2025_26.md,engagement,Northwind Textiles: Risk Assessment Summary FY 2025-26,1.0,2026-01-20,,staff,ENG-NWT-FY26,true,fs-engagement,P01,confidential

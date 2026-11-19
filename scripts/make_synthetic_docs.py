@@ -107,7 +107,10 @@ def manifest_rows(docs: list[SynthDoc]) -> list[dict[str, str]]:
         }
         for d in docs
     ]
-    return [r if "source_id" in r else r | governance(r) for r in rows]
+    overrides = {d.doc_id: d.classification for d in docs if d.classification}
+    return [r if "source_id" in r else
+            r | governance(r) | ({"classification": overrides[r["doc_id"]]} if r["doc_id"] in overrides else {})
+            for r in rows]
 
 
 def author_rows(generated: list[dict[str, str]]) -> list[dict[str, str]]:

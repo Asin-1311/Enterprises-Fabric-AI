@@ -116,7 +116,7 @@ def test_prompt_contains_only_cited_chunks_in_full() -> None:
     from types import SimpleNamespace
 
     _, claims = extract_claims(ANSWER)
-    chunks = {cid: SimpleNamespace(text=f"FULL TEXT OF {cid}", title="t")
+    chunks = {cid: SimpleNamespace(text=f"FULL TEXT OF {cid}", title="t", classification="public_internal")
               for cid in ("POL-2:0003", "STD-6:0012", "POL-2:0007", "OTHER:0001")}
     prompt = build_prompt("q", claims, chunks)
     assert "FULL TEXT OF STD-6:0012" in prompt and "OTHER:0001" not in prompt

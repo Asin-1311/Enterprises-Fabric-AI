@@ -29,8 +29,8 @@ def governance(row: dict[str, str]) -> dict[str, str]:
     - source_id: the corpus folder's registered source.
     - owner: the engagement partner for engagement files, else the role above.
     - classification: engagement files and anything above staff level are confidential;
-      the rest is internal. Nothing is "restricted" yet: that, and sending restricted text
-      only to the private model, is decided in M13.
+      the rest is internal. A document marked restricted in its definition (M13) keeps
+      that classification; its text is sent only to the private model.
     """
     source_type = row["source_type"]
     partner = {e[0]: e[4] for e in ENGAGEMENTS}

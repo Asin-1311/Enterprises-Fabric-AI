@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 from app.agents.llm import LLMCaller, LLMResult
 from app.agents.synthesizer import CITATION, DocInfo, document_attributes
 from app.retrieval.hybrid import RetrievedChunk
-from app.security.injection import UNTRUSTED_DATA_RULE, wrap_document
+from app.security.injection import UNTRUSTED_DATA_RULE, restricted_attributes, wrap_document
 
 # Sentence boundary: . ! or ? then a space, not after a common abbreviation, and not when
 # the next token is a citation (citations stay with their sentence).
@@ -153,7 +153,7 @@ def build_prompt(question: str, claims: list[Claim], chunks: dict[str, Retrieved
     for cid in cited:
         c = chunks[cid]
         attrs = (document_attributes(cid, c, docs[c.doc_id]) if docs and c.doc_id in docs
-                 else {"cite": cid, "title": c.title})
+                 else {"cite": cid, "title": c.title, **restricted_attributes(c.classification)})
         blocks.append(wrap_document(c.text, **attrs))
     body = "\n\n".join(blocks) or "(none)"
     return f"Question: {question}\n\nClaims:\n{listed}\n\nCited documents:\n{body}"

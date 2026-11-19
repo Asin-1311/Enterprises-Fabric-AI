@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from app.agents.llm import LLMCaller, LLMResult
 from app.retrieval.compress import CompressedChunk
 from app.retrieval.hybrid import RetrievedChunk
-from app.security.injection import UNTRUSTED_DATA_RULE, wrap_document
+from app.security.injection import UNTRUSTED_DATA_RULE, restricted_attributes, wrap_document
 
 NOT_FOUND_TOKEN = "NOT_FOUND"
 NOT_AVAILABLE_MESSAGE = (
@@ -89,7 +89,8 @@ def document_attributes(chunk_id: str, c: RetrievedChunk, d: DocInfo) -> dict[st
     return dict(cite=chunk_id, title=d.title, version=d.version or "", source_type=d.source_type,
                 section=f"{c.section or ''} {c.section_title or ''}".strip(),
                 pages=f"{c.page_start}-{c.page_end}" if c.page_start else "",
-                effective_date=d.effective_date or "", status=status)
+                effective_date=d.effective_date or "", status=status,
+                **restricted_attributes(c.classification))
 
 
 def build_prompt(question: str, evidence: list[CompressedChunk],

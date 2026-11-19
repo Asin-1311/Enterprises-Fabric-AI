@@ -2091,3 +2091,97 @@ if any is skipped.
   - integration: 12 passed (new: Debezium CDC);
   - frontend: 21 passed;
   - `check_compliance.py --run --run-integration`: passes.
+
+
+## M13a: Policy and data handling (2026-11-19)
+
+M13 is split into M13a (policy and data handling) and M13b (identity: Keycloak and JWT),
+as the author agreed. Branch `m13a-policy-data`, made from `phase2` after M12d was merged.
+
+### What was built
+- **OPA, the second access check (spec §12).**
+  - `policy/document_access.rego` holds the same rule as the index pre-filter: role level
+    (staff < manager < partner), then the engagement team (partners see every engagement).
+    Anything unknown is denied.
+  - Every candidate chunk is checked in one batch call per search, after retrieval and
+    before re-ranking (`app/retrieval/hybrid.py`). In full it is checked by an OPA 1.4.2
+    container; in lite, by the same rule in code (`PolicyEngine` port).
+  - If the pre-filter let a chunk through and the policy denies it, that disagreement is
+    logged as a security error, counted and the chunk is dropped. If OPA cannot answer,
+    the search fails closed.
+  - **Tests:** `opa test` with 7 policy tests. OPA (on the real server) and the policy in
+    code each agree with the pre-filter on every chunk of the synthetic corpus for every
+    synthetic user.
+- **Trace retention:** `app/security/retention.py` deletes traces and retrieval records
+  older than `TRACE_RETENTION_DAYS` (default 90).
+  - It runs every night at 01:00 (`flows/jobs.py`).
+  - Questions, answers and the audit log are never purged. Each purge writes one audit row.
+- **Restricted documents go only to the private model (spec §12, "model data handling"):**
+  - Two synthetic documents are classified `restricted`: a key-custody procedure
+    (`POL-SEC-01`) and an anonymous-allegation note on Northwind (`ENG-NWT-ALLEG`).
+  - Every place that gives document text to a model wraps it in a `<document>` block, and
+    a restricted chunk's block carries `classification="restricted"`.
+  - `ModelRouter` (`app/agents/model_router.py`) looks at every request before it is sent.
+    A request with a restricted block goes to the private model (Ollama, `PRIVATE_MODEL`).
+    If there is none, nothing is sent and the user is told why (status
+    `restricted_unavailable`).
+  - Routing by content means no agent step has to remember to ask. Document text cannot
+    forge or hide the marker, because `<document` and attribute values are escaped (tested).
+  - This covers compression, synthesis, verification, the baseline and the evaluation
+    judge, the five places that send document text to a model.
+
+### What is NOT done (reported, not hidden)
+- **Provider data-retention terms:** the spec asks the report to state which terms apply
+  to the external model provider. The author has not yet confirmed which account is used
+  (direct Anthropic API or OpenRouter) or whether it has zero data retention, so no such
+  claim is made. R-12-model stays Partial.
+- **No live private model:** Ollama is not installed, and the 7.3 GB laptop cannot run a
+  local model beside the full Docker stack. The Ollama adapter is tested against a mock
+  server.
+  - A live check needs Ollama, a small model (for example `qwen2.5:1.5b`, about 1 GB) and
+    `PRIVATE_MODEL` in `.env`, with Docker stopped (lite profile).
+  - Until then, questions that need restricted material get the fail-closed message.
+
+### The leak test, and proof that it can fail
+`tests/test_model_routing.py` runs the whole agent pipeline over the synthetic corpus for
+all 63 evaluation questions plus 4 aimed at the restricted documents. It records every
+request to the external model and searches it for every line of every restricted chunk:
+none appear. The restricted chunks were read, by the private model only. To check that
+the test really detects a leak, routing was switched off for one run: the test failed and
+named the leaked chunks (`POL-SEC-01`, `ENG-NWT-ALLEG`).
+
+### Smaller changes
+- The corpus has 42 synthetic documents (was 40). Three tests that counted 40 now count
+  the synthetic manifest instead. The enrichment test now pins down exactly which two
+  documents are restricted.
+- **The real lite index does not have the two new documents yet.** The folder watcher
+  adds them the next time the API runs, or run `python -m app.ingest.indexer`.
+- **Docker Desktop stopped during this milestone** (cause not visible: closed, or out of
+  memory). It was started again; all eight services came back healthy, and the Debezium
+  connector resumed by itself.
+
+### Why it matters
+- **Two independent access checks:** one inside each index, one by a separate policy
+  engine. They are written separately and must agree on every chunk for every user.
+- **No accidental exposure of restricted text:** the external model never sees it,
+  whatever the question, and the system refuses rather than guesses when it cannot comply.
+
+### Likely viva questions
+- *Why check access twice?* The pre-filter makes forbidden chunks invisible to scoring;
+  OPA is an independent second opinion, written separately in a policy language, so a bug
+  in one is caught by the other. A disagreement is a security alert, not a silent fix.
+- *Why decide the model from the request's content?* Because then a new agent step
+  cannot forget to ask: whatever text it sends is checked on the way out.
+- *What happens with no private model?* The system fails closed: no answer and a clear
+  message, and nothing restricted is sent anywhere.
+
+### Status
+- **Met:** R-12-opa, R-12-retention.
+- **Not met → Partial:** R-12-model (provider terms not confirmed; no live private model).
+- **Advanced:** R-6-stack (OPA).
+- **COMPLIANCE.md:** 43 requirements; 16 Met, 19 Partial, 8 Not met.
+- **Tests (2026-11-19):**
+  - default suite: 466 passed (16 new);
+  - integration: 14 passed (new: `opa test`, OPA equivalence);
+  - frontend: 21 passed;
+  - `check_compliance.py --run --run-integration`: passes.

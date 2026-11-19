@@ -176,6 +176,13 @@ def run(questions: list[dict], use_judge: bool = True, resume: Path | None = Non
 
     searcher.search = recording_search  # type: ignore[method-assign]
 
+    def restricted_of(ids: list[str]) -> frozenset[str]:
+        """Cited chunks classified restricted: the router keeps them from the external judge."""
+        with sessions() as s:
+            return frozenset(s.scalars(select(Chunk.chunk_id).join(
+                Document, Document.doc_id == Chunk.doc_id).where(
+                Chunk.chunk_id.in_(ids), Document.classification == "restricted")))
+
     def chunk_texts(ids: list[str]) -> dict[str, str]:
         """Full chunk text, prefixed with the document facts the synthesiser saw (title,
         version, effective date, supersede links), so version/date claims can be judged."""
@@ -253,7 +260,8 @@ def run(questions: list[dict], use_judge: bool = True, resume: Path | None = Non
                 if use_judge and not row["error"]:
                     try:
                         j, jres = judge_answer(question=q, answer_text=text,
-                                               cited_texts=chunk_texts(cited), llm=llm)
+                                               cited_texts=chunk_texts(cited), llm=llm,
+                                               restricted=restricted_of(cited))
                         row["judge_cost_usd"] = estimate_usd(jres.model, jres.tokens_in, jres.tokens_out)
                         row.update(correctness=j.correctness, score=j.score, faithfulness=j.faithfulness,
                                    factual_claims=j.factual_claims, supported_claims=j.supported_claims,

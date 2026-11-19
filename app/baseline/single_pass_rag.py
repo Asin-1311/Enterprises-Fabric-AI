@@ -18,7 +18,7 @@ from app.agents.llm import LLMCaller, LLMResult
 from app.agents.synthesizer import CITATION
 from app.retrieval.acl import UserContext
 from app.retrieval.hybrid import HybridSearcher, RetrievedChunk
-from app.security.injection import UNTRUSTED_DATA_RULE, wrap_document
+from app.security.injection import UNTRUSTED_DATA_RULE, restricted_attributes, wrap_document
 
 TOP_K = 5
 SYSTEM = (
@@ -59,7 +59,8 @@ class SinglePassRAG:
 
         hits = self.searcher.search(question, user, mode="dense", limit=self.top_k)
         blocks = [wrap_document(h.text, cite=h.chunk_id, title=h.title,
-                                effective_date=h.effective_date or "") for h in hits]
+                                effective_date=h.effective_date or "",
+                                **restricted_attributes(h.classification)) for h in hits]
         user_msg = f"Question: {question}\n\nContext:\n" + ("\n\n".join(blocks) or "(none)")
         result = self.llm.call(purpose="baseline", role="synth", system=SYSTEM, user=user_msg,
                                max_tokens=2000, on_text=on_chunk)

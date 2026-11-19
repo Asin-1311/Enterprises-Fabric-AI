@@ -43,4 +43,5 @@ def compress_evidence(question: str, ranked: list[Ranked], llm: LLMCaller,
     usable = [r for i, r in enumerate(ranked) if i == 0 or r.rerank_score >= threshold]
     if not usable:
         return [], None
-    return compress(question, [(r.chunk.chunk_id, r.chunk.text) for r in usable], llm)
+    restricted = frozenset(r.chunk.chunk_id for r in usable if r.chunk.classification == "restricted")
+    return compress(question, [(r.chunk.chunk_id, r.chunk.text) for r in usable], llm, restricted)

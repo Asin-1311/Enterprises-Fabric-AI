@@ -9,7 +9,7 @@ from pathlib import Path
 from qdrant_client import QdrantClient
 
 from app.config import Settings
-from app.ports import Cache, EventBus, KeywordIndex, MetadataStore, VectorIndex
+from app.ports import Cache, EventBus, KeywordIndex, MetadataStore, PolicyEngine, VectorIndex
 
 
 def _required(value: str | None, name: str) -> str:
@@ -55,6 +55,18 @@ def open_keyword_index(settings: Settings) -> KeywordIndex:
     from app.adapters.lite.keyword import RankBm25Index
 
     return RankBm25Index()
+
+
+def open_policy_engine(settings: Settings) -> PolicyEngine:
+    """OPA (full, or POLICY_ENGINE=opa) or the same rules in code (lite) (M13)."""
+    engine = settings.policy_engine
+    if engine == "opa" or (engine == "auto" and settings.profile == "full"):
+        from app.adapters.full.policy import OpaPolicyEngine
+
+        return OpaPolicyEngine(settings.opa_url)
+    from app.adapters.lite.policy import InCodePolicy
+
+    return InCodePolicy()
 
 
 def open_cache(settings: Settings) -> Cache:

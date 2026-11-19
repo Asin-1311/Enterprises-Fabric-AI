@@ -8,8 +8,11 @@ Order of operations for one request (CLAUDE.md section 7.3):
 3. Reciprocal rank fusion of all ranked lists (k = 60).
 4. Multiply by the superseded weight (and, for time-sensitive questions, the recency
    boost).
-5. Defence in depth: drop any result that fails `can_see()` (should never happen; it is
-   logged as an error if it does).
+5. Policy check (M13): every candidate is evaluated by the policy engine (OPA in full,
+   the same rules in code in lite) in ONE batch call, after retrieval and before
+   re-ranking. A chunk the pre-filter let through but the policy denies is a disagreement:
+   it is logged as a security error, counted and dropped. If the policy engine cannot
+   answer, the search fails closed (PolicyUnavailable).
 
 Modes (for the retrieval ablation in eval/run_retrieval_eval.py):
     dense       dense only, no adjustments
@@ -29,8 +32,8 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import Settings
 from app.db.models import Chunk, Document
-from app.ports import AccessScope, KeywordIndex, VectorIndex
-from app.retrieval.acl import UserContext, allowed_chunk_ids, can_see
+from app.ports import AccessScope, KeywordIndex, PolicyEngine, VectorIndex
+from app.retrieval.acl import UserContext, allowed_chunk_ids
 from app.retrieval.dense import BgeEmbedder, Embedder
 from app.retrieval.fusion import reciprocal_rank_fusion
 from app.retrieval.recency import multipliers
@@ -63,6 +66,8 @@ class RetrievedChunk:
     bm25_rank: int | None
     # Every multiplier applied to rrf_score, by name (score = rrf_score x product).
     multipliers: dict[str, float] = field(default_factory=dict)
+    # M13: "restricted" text is read only by the private model (app/agents/model_router.py).
+    classification: str = "public_internal"
 
 
 @dataclass(frozen=True)
@@ -79,6 +84,7 @@ class _Meta:
     page_start: int | None
     page_end: int | None
     text: str
+    classification: str = "public_internal"
 
 
 def _record_ranked(record: list[dict] | None, query: str, method: str,
@@ -96,8 +102,12 @@ class HybridSearcher:
     def __init__(self, *, session_factory: sessionmaker[Session], store: VectorIndex,
                  embedder: Embedder, bm25: KeywordIndex, rrf_k: int = 60, top_k: int = 20,
                  superseded_weight: float = 0.5, recency_weight: float = 0.2,
-                 half_life_days: float = 365.0) -> None:
+                 half_life_days: float = 365.0, policy: PolicyEngine | None = None) -> None:
+        from app.adapters.lite.policy import InCodePolicy
+
         self.sessions, self.store, self.embedder, self.bm25 = session_factory, store, embedder, bm25
+        self.policy: PolicyEngine = policy or InCodePolicy()
+        self.policy_disagreements = 0  # pre-filter allowed, policy denied (should stay 0)
         self.rrf_k, self.top_k = rrf_k, top_k
         self.superseded_weight, self.recency_weight = superseded_weight, recency_weight
         self.half_life_days = half_life_days
@@ -154,15 +164,29 @@ class HybridSearcher:
         fused = reciprocal_rank_fusion(rankings, k=self.rrf_k)
         meta = self._metadata([cid for cid, _ in fused])
 
-        # 4-5. Adjust, and re-check access on every result.
-        results: list[RetrievedChunk] = []
+        # 4. Policy: one batch decision for every candidate (raises PolicyUnavailable).
+        candidates = []
         for cid, rrf_score in fused:
             m = meta.get(cid)
             if m is None:  # index drift: vector without a SQLite row
                 log.warning("Chunk %s is in an index but not in SQLite; skipped", cid)
                 continue
-            if cid not in allowed or not can_see(user, m.access_level, m.engagement_id):
+            if cid not in allowed:  # an index returned a chunk its filter should exclude
                 log.error("ACL violation blocked: %s returned for %s", cid, user.user_id)
+                continue
+            candidates.append((cid, rrf_score, m))
+        decisions = self.policy.allowed(user, [
+            {"doc_id": m.doc_id, "access_level": m.access_level, "engagement_id": m.engagement_id,
+             "source_type": m.source_type, "classification": m.classification}
+            for _, _, m in candidates])
+
+        # 5. Adjust the permitted candidates.
+        results: list[RetrievedChunk] = []
+        for (cid, rrf_score, m), permitted in zip(candidates, decisions, strict=True):
+            if not permitted:
+                self.policy_disagreements += 1
+                log.error("SECURITY: pre-filter and %s policy disagree on %s for %s; dropped",
+                          self.policy.name, cid, user.user_id)
                 continue
             applied: dict[str, float] = {}
             if mode == "hybrid":
@@ -180,7 +204,7 @@ class HybridSearcher:
                 page_end=m.page_end, effective_date=m.effective_date, superseded=m.superseded,
                 text=m.text, score=rrf_score * factor, rrf_score=rrf_score,
                 dense_rank=dense_rank.get(cid), bm25_rank=bm25_rank.get(cid),
-                multipliers=applied))
+                multipliers=applied, classification=m.classification))
         results.sort(key=lambda r: (-r.score, r.chunk_id))
         results = results[:limit]
         if record is not None:
@@ -205,7 +229,8 @@ class HybridSearcher:
                 access_level=d.access_level, engagement_id=d.engagement_id,
                 effective_date=d.effective_date, superseded=d.doc_id in superseded,
                 section=c.section, section_title=c.section_title, page_start=c.page_start,
-                page_end=c.page_end, text=c.text)
+                page_end=c.page_end, text=c.text,
+                classification=d.classification or "public_internal")
             for c, d in rows
         }
 
@@ -214,7 +239,12 @@ def build_searcher(settings: Settings, embedder: Embedder | None = None,
                    qdrant_client: QdrantClient | None = None) -> HybridSearcher:
     """Searcher over the real indexes of the active profile (lite: SQLite file,
     data/qdrant, in-memory BM25; full: PostgreSQL, Qdrant server, OpenSearch)."""
-    from app.adapters import open_keyword_index, open_metadata_store, open_vector_index
+    from app.adapters import (
+        open_keyword_index,
+        open_metadata_store,
+        open_policy_engine,
+        open_vector_index,
+    )
 
     metadata = open_metadata_store(settings)
     metadata.initialise()  # idempotent: creates or upgrades the schema
@@ -226,4 +256,4 @@ def build_searcher(settings: Settings, embedder: Embedder | None = None,
         store=open_vector_index(settings, embedder.dim, embedded_client=qdrant_client),
         embedder=embedder, bm25=keyword, rrf_k=settings.rrf_k, top_k=settings.retrieval_top_k,
         superseded_weight=settings.superseded_weight, recency_weight=settings.recency_weight,
-        half_life_days=settings.recency_half_life_days)
+        half_life_days=settings.recency_half_life_days, policy=open_policy_engine(settings))

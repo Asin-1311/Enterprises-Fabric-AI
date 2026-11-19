@@ -27,7 +27,13 @@ export interface Citation {
   preview: string;
 }
 
-export type AnswerStatus = "answered" | "abstained" | "not_found" | "denied" | "no_retrieval";
+export type AnswerStatus =
+  | "answered"
+  | "abstained"
+  | "not_found"
+  | "denied"
+  | "no_retrieval"
+  | "restricted_unavailable"; // M13a: restricted material and no private model
 
 export interface FinalPayload {
   query_id: number;

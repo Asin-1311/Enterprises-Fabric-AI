@@ -36,6 +36,12 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.agents.llm import LLM, LLMCaller, LLMResult
+from app.agents.model_router import (
+    RESTRICTED_UNAVAILABLE_MESSAGE,
+    ModelRouter,
+    PrivateModelUnavailable,
+)
+from app.agents.private_llm import OllamaLLM, PrivateModelError
 from app.agents.query import ClientMatcher, QueryAnalysis, understand
 from app.agents.reranker import Ranked, compress_evidence, rerank
 from app.agents.retriever import RetrievalOutcome, merge, reformulate, retrieve
@@ -420,10 +426,15 @@ class AuditAssistant:
             s.add(q)
             s.commit()
             query_id = q.id
-        state: GraphState = self.graph.invoke({
-            "question": question, "user": user,
-            "tracer": Tracer(self.deps.sessions, query_id, versions),
-            "on_event": on_event, "on_token": on_token})
+        try:
+            state: GraphState = self.graph.invoke({
+                "question": question, "user": user,
+                "tracer": Tracer(self.deps.sessions, query_id, versions),
+                "on_event": on_event, "on_token": on_token})
+        except (PrivateModelUnavailable, PrivateModelError) as exc:
+            # Restricted evidence and no private model to read it: fail closed (M13a).
+            log.warning("Question %s needs restricted material: %s", query_id, exc)
+            state = {"status": "restricted_unavailable", "answer": RESTRICTED_UNAVAILABLE_MESSAGE}
 
         synthesis = state.get("synthesis")
         v: Verification | None = state.get("verification")
@@ -445,7 +456,8 @@ class AuditAssistant:
             s.flush()
             s.add_all(Citation(answer_id=answer.id, chunk_id=c.chunk_id, span_start=c.span_start,
                                span_end=c.span_end) for c in citations)
-            s.get(Query, query_id).intent = state["analysis"].intent
+            if state.get("analysis") is not None:
+                s.get(Query, query_id).intent = state["analysis"].intent
             s.commit()
             answer_id = answer.id
         return AnswerResult(
@@ -462,8 +474,12 @@ def build_assistant(settings: Settings) -> AuditAssistant:
     searcher = build_searcher(settings)
     with searcher.sessions() as s:
         clients = ClientMatcher.from_db(s)
+    # Every request goes through the model router: restricted text reaches only the
+    # private model (PRIVATE_MODEL on Ollama), or nothing if none is configured (M13a).
+    private = OllamaLLM(settings.private_model, settings.ollama_url) if settings.private_model else None
+    llm = ModelRouter(LLM(make_client(settings), settings), private)
     return AuditAssistant(AgentDeps(
-        settings=settings, llm=LLM(make_client(settings), settings), searcher=searcher,
+        settings=settings, llm=llm, searcher=searcher,
         reranker=CrossEncoderReranker(settings.reranker_model), sessions=searcher.sessions,
         clients=clients))
 
