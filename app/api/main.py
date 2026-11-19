@@ -151,6 +151,12 @@ def build_services(settings: Settings) -> Services:
                                          settings.watcher_debounce_seconds, bus=bus)
         observer = start_observer(handler)
         stoppers.append(lambda: (observer.stop(), observer.join(timeout=5)))
+    if settings.api_run_connectors:  # M12c: poll git, s3, confluence, jira, sharepoint sources
+        from app.connectors.runner import ConnectorRunner
+        from app.connectors.runner import start_in_background as start_runner
+
+        runner_thread, stop_runner = start_runner(ConnectorRunner(indexer.sessions, bus, settings))
+        stoppers.append(lambda: (stop_runner.set(), runner_thread.join(timeout=10)))
 
     def stop() -> None:
         for stopper in reversed(stoppers):

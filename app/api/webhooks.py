@@ -18,13 +18,13 @@ signature over the exact request body, using the source's shared secret.
 
 import hashlib
 import hmac
-import os
 from typing import Literal
 
 from fastapi import APIRouter, Header, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 from sqlalchemy import select
 
+from app.config import env_reference
 from app.db.models import Document, Source
 from app.db.session import write_audit_log
 from app.ingest.events import DocumentChanged, publish
@@ -76,8 +76,8 @@ def signature(secret: str, body: bytes) -> str:
 
 
 def _secret(source: Source) -> str | None:
-    ref = str((source.connector_config or {}).get("secret", ""))
-    return os.environ.get(ref.removeprefix("env:")) if ref.startswith("env:") else None
+    # From the environment or .env (M12c fix: before, only an exported variable was seen).
+    return env_reference((source.connector_config or {}).get("secret"))
 
 
 @router.post("/documents", response_model=WebhookAccepted, status_code=202)

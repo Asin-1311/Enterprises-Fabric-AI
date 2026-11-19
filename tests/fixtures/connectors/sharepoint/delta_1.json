@@ -1,0 +1,39 @@
+{
+  "value": [
+    {
+      "id": "01FOLDER",
+      "name": "Policies",
+      "folder": {
+        "childCount": 2
+      },
+      "eTag": "\"{F},1\"",
+      "parentReference": {
+        "path": "/drive/root:"
+      }
+    },
+    {
+      "id": "01AAA",
+      "name": "Independence-declaration-process.md",
+      "eTag": "\"{A},4\"",
+      "cTag": "\"c:{A},2\"",
+      "lastModifiedDateTime": "2026-08-01T09:00:00Z",
+      "file": {
+        "mimeType": "text/markdown"
+      },
+      "parentReference": {
+        "path": "/drive/root:/Policies"
+      }
+    },
+    {
+      "id": "01DOCX",
+      "name": "Office-floor-plan.docx",
+      "eTag": "\"{D},1\"",
+      "cTag": "\"c:{D},1\"",
+      "lastModifiedDateTime": "2026-08-01T09:00:00Z",
+      "file": {
+        "mimeType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+      }
+    }
+  ],
+  "@odata.nextLink": "{base}/v1.0/sites/example.sharepoint.com,1111,2222/drive/root/delta?token=p2"
+}

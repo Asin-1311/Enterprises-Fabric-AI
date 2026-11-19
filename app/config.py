@@ -6,6 +6,7 @@ model IDs have no defaults, so a missing `.env` fails loudly instead of
 silently using the wrong model.
 """
 
+import os
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
@@ -83,6 +84,13 @@ class Settings(BaseSettings):
     api_run_worker: bool = True
     # Push connectors (the webhook) store received content here for the worker.
     landing_dir: Path = PROJECT_ROOT / "data" / "landing"
+    # Polling connectors (M12c: git, s3, confluence, jira, sharepoint): how often each active
+    # source is checked, and whether the API process runs the poller (lite). In the full
+    # profile it usually runs as its own process: python -m app.connectors.runner
+    connector_poll_seconds: float = 30.0
+    api_run_connectors: bool = True
+    # Working copies kept by connectors (the git connector's local mirror); git-ignored.
+    connectors_dir: Path = PROJECT_ROOT / "data" / "connectors"
 
     # --- Chunking -----------------------------------------------------------
     chunk_max_tokens: int = 400
@@ -144,3 +152,21 @@ class Settings(BaseSettings):
 def get_settings() -> Settings:
     """Return the cached settings object (read `.env` once per process)."""
     return Settings()
+
+
+@lru_cache
+def _dotenv_values() -> dict[str, str | None]:
+    from dotenv import dotenv_values
+
+    path = PROJECT_ROOT / ".env"
+    return dict(dotenv_values(path)) if path.is_file() else {}
+
+
+def env_reference(ref: object) -> str | None:
+    """The value behind an "env:NAME" reference (how connector and webhook settings point at
+    secrets): the process environment first, then the `.env` file. None if `ref` is not a
+    reference or the name is not set. Read once per process, like the settings."""
+    if not (isinstance(ref, str) and ref.startswith("env:")):
+        return None
+    name = ref.removeprefix("env:")
+    return os.environ.get(name) or _dotenv_values().get(name) or None

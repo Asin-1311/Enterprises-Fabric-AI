@@ -1,0 +1,72 @@
+{
+  "issues": [
+    {
+      "id": "20001",
+      "key": "AUDQ-1",
+      "fields": {
+        "summary": "Which template do we use for a bank branch audit file index?",
+        "updated": "2026-10-20T11:05:00.000+0530",
+        "labels": [],
+        "description": {
+          "type": "doc",
+          "version": 1,
+          "content": [
+            {
+              "type": "paragraph",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "SYNTHETIC — created for an internship demonstration. Not real firm or client data."
+                }
+              ]
+            },
+            {
+              "type": "heading",
+              "attrs": {
+                "level": 2
+              },
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Question"
+                }
+              ]
+            },
+            {
+              "type": "paragraph",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "A senior asked which file index template applies to bank branch audit files."
+                }
+              ]
+            },
+            {
+              "type": "heading",
+              "attrs": {
+                "level": 2
+              },
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Answer from the technical desk"
+                }
+              ]
+            },
+            {
+              "type": "paragraph",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Use the firm's bank branch file index template, version 3, from the templates library; do not adapt the general template."
+                }
+              ]
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "nextPageToken": "p2",
+  "isLast": false
+}

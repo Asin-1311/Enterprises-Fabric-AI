@@ -14,8 +14,10 @@ The agents, the indexer and the API use only these interfaces, so a backend can 
 swapped without rewriting them (spec section 5). The interfaces are `typing.Protocol`s:
 an adapter "is" a port if it has the methods, without inheriting from anything.
 
-Ports for rate limiting, policy, identity and connectors are added by the milestones
-that use them (M12, M13, M16).
+| Connector     | one adapter per kind of source system (app/connectors/, M12c)        |
+
+Ports for rate limiting, policy and identity are added by the milestones that use them
+(M13, M16).
 """
 
 from collections.abc import Sequence
@@ -73,6 +75,11 @@ class VectorIndex(Protocol):
         ...
 
     def set_document_payload(self, doc_id: str, payload: dict) -> None: ...
+
+    def doc_ids_with(self, field: str, value: bool | str) -> set[str]:
+        """Documents with at least one point whose payload `field` equals `value` (used to
+        update only the documents whose `superseded` flag is wrong; M12c)."""
+        ...
 
     def search_scoped(self, vector: Sequence[float], scope: AccessScope,
                       limit: int) -> list[tuple[str, float]]:
@@ -147,3 +154,17 @@ class EventBus(Protocol):
     def subscribe(self, topic: str, group: str) -> EventSubscription: ...
 
     def close(self) -> None: ...
+
+
+@runtime_checkable
+class Connector(Protocol):
+    """One source system (a Git repository, an S3 bucket, a Confluence space, ...): finds
+    what changed since the last poll and describes each change as a `DocumentChanged`
+    event (app/ingest/events.py) for the ingestion worker (M12c)."""
+
+    source_id: str
+
+    def poll(self, state: dict[str, Any]) -> tuple[list[Any], dict[str, Any]]:
+        """(events for every change since `state`, the new state to save after the
+        events are published). `state` is what the previous poll returned ({} at first)."""
+        ...
