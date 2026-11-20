@@ -187,6 +187,11 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     worker = IngestWorker(build_indexer(settings), open_event_bus(settings),
                           max_attempts=settings.worker_max_attempts)
+    if settings.worker_metrics_port:  # M17a: ingestion lag and events for Prometheus
+        from prometheus_client import start_http_server
+
+        start_http_server(settings.worker_metrics_port)
+        log.info("Worker metrics on port %s (/metrics).", settings.worker_metrics_port)
     stop = threading.Event()
     log.info("Ingestion worker started (profile %s, topic %s).", settings.profile, TOPIC)
     try:

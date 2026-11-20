@@ -3115,3 +3115,126 @@ Branch `m16c-admin-console`, made from `phase2` after M16b was merged.
   - The model-to-price mapping moved to `eval/costs.py` (`price_key`), shared by prompt
     replay and the performance figures.
   - The OpenAPI snapshot gained the new admin endpoints.
+
+
+## M17a: Observability: metrics, traces, dashboards, alerts and Langfuse (2026-11-20)
+
+Branch `m17a-observability`, made from `phase2` after M16c was merged.
+
+### What was built
+- **Metrics for Prometheus (`app/observability/metrics.py`).**
+  - **Where they are served:** `GET /metrics` on the API, kept out of the OpenAPI
+    schema; the Helm chart (M17b) will not route it outside the cluster. The ingestion
+    worker, a separate process in the full profile, serves its own on port 9464.
+  - **What they count:**
+
+    | Area | Metrics |
+    |---|---|
+    | Answers | by status; answer time; time to the first draft token |
+    | Agents | latency per agent |
+    | Models | tokens and estimated cost, per agent and model |
+    | Quality | verification passed or failed; retrieval hit or miss |
+    | Load | degraded answers; cache hits and misses |
+    | Ingestion | lag per source, and events per source and outcome |
+    | Security and errors | pre-filter/OPA disagreements; API responses by status class |
+
+  - **Labels hold bounded values only** (status, agent, model, source id): never a user,
+    a question or a document. A test checks the scrape for user ids, question words,
+    document ids and emails.
+- **Traces with OpenTelemetry (`app/observability/otel.py`).**
+  - **One trace per question:** a root span `query`, a child span for each agent step and,
+    under a step, one span for each model call with model, effort, tokens, and the prompt
+    and policy versions. FastAPI's own instrumentation adds a span per HTTP request.
+  - **Threads:** LangGraph runs the parallel retrievals in other threads, so each span
+    names its parent explicitly instead of relying on the thread's context.
+  - **Content:** model-call spans carry the step's MASKED input and output (as in the
+    `traces` table), cut to 4,000 characters, never for a call to the private model.
+  - **Export:** OTLP/HTTP, only when `OTEL_EXPORTER_OTLP_ENDPOINT` is set.
+- **Langfuse is fed by the same traces.** Langfuse accepts OpenTelemetry directly, so the
+  API sends its spans to Langfuse's OTLP endpoint (Basic auth with the project keys, read
+  from `.env` through `env:` references). No second SDK. Langfuse shows each question as a
+  trace and each model call as a "generation" with model, tokens, masked input and output,
+  and the prompt version.
+- **Dashboard (`deploy/grafana/dashboards/enterprise-fabric.json`).** 13 panels, generated
+  by `scripts/make_grafana_dashboard.py` so every query can be read in one place:
+  - question volume;
+  - answer time and time to first draft token against their targets;
+  - latency per agent (p50 and p95);
+  - tokens;
+  - estimated cost per answer;
+  - retrieval hit rate, verification failure rate, degradation rate and cache hit rate;
+  - ingestion lag per source;
+  - access-control disagreements;
+  - the API error rate.
+- **Alerts (`deploy/prometheus/alerts.yaml`).** The six alerts of CLAUDE.md section 14:
+  - p95 answer time above 8 s;
+  - p95 first draft token above 1.5 s;
+  - verification failure above 20%;
+  - ingestion lag above 15 minutes;
+  - any pre-filter/OPA disagreement (critical, fires at once);
+  - server errors above 5%.
+
+  `alerts_test.yaml` unit-tests each alert with `promtool`: it fires on a synthetic series
+  that breaks the threshold and stays silent on one that does not.
+- **The compose profile `observability`:**
+  - Prometheus v3.15.1 and Grafana 13.0.13 (dashboard and data source provisioned);
+  - Langfuse 3.225.15 (web and worker) with ClickHouse 25.8. To save memory it reuses the
+    existing PostgreSQL (its own `langfuse` database), Redis and MinIO (its own bucket).
+  - `scripts/observability_setup.py` generates the profile's secrets into `.env` (only the
+    missing ones, names printed, values never) and creates the database and bucket.
+- **Admin console:** with `PROMETHEUS_URL` set, the performance figures come from
+  Prometheus (PromQL `increase()` over the window, so restarts are handled). Otherwise
+  they come from the stored traces, and the response says which source was used.
+
+### What running it on the laptop showed
+- **Langfuse's memory.** Its web server ran out of JavaScript heap at Node's default
+  (about 320 MB) and again at 576 MB. With a 1 GB heap (1.25 GB limit) it starts and stays
+  up, using about 1 GB.
+  - The whole observability profile then uses about 2.7 GB, so it runs **instead of**
+    `full`, not beside it, on the 3.5 GB Docker VM. The integration tests that need it skip
+    clearly otherwise.
+- **Langfuse rejected our model-call spans at first**, with a generic "Invalid input" in
+  its worker log. Sending the span in three variants isolated the cause: the attribute
+  `langfuse.observation.prompt.version` refers to a prompt kept in Langfuse's own prompt
+  management, which ours are not. The prompt version now travels as
+  `efa.prompt_version_id` and appears in the generation's metadata.
+- **Compose checks every service's required variables, even outside the active
+  profile.** With `${VAR:?}` on the new secrets, `--profile full` stopped working for
+  anyone without them (including CI). They are now optional, and a test runs `docker
+  compose --profile full config` with only the core secrets.
+
+### Why it matters
+- **The system is watchable:** latency per agent, cost, verification quality, load,
+  ingestion freshness and security disagreements are all measured, graphed and alerted.
+- **Each answer can be traced to its prompt version,** both in the local `traces` table
+  and in Langfuse.
+
+### Likely viva questions
+- *Why not the Langfuse SDK?* Langfuse accepts OpenTelemetry. One tracing pipeline
+  feeds it, and the same spans could go to any other OTLP backend; two SDKs would record
+  the same calls twice.
+- *Can the metrics leak confidential data?* Labels are bounded (status, agent, model,
+  source id) and a test checks the scrape. Span content is masked, cut short, and never
+  sent for restricted (private-model) calls.
+- *How do you know an alert works?* Each one is unit-tested with promtool on synthetic
+  series that cross and do not cross its threshold.
+- *Is the cost real?* No: it is an estimate (tokens × list prices) and labelled so
+  everywhere. The provider's bill is the real figure.
+
+### Status
+- **Not met → Partial:** R-14 (observability done; containers, Helm and CI/CD are
+  M17b/c).
+- **Advanced:** R-6-stack (OTel, Prometheus, Grafana, Langfuse run in `full` with
+  integration tests; Docker images, Kubernetes and Helm remain).
+- **COMPLIANCE.md:** 43 requirements; 31 Met, 10 Partial, 2 Not met.
+- **Tests (2026-11-20):**
+  - default suite: 569 passed (11 new; counts from pytest's JUnit report);
+  - integration with the observability profile up: all 5 observability tests passed
+    (promtool rules and alert tests, compose without the secrets, Prometheus scraping a
+    live API, Grafana's dashboard, Langfuse receiving a generation);
+  - integration with `full` up: 22 passed, 3 skipped (those observability tests that need
+    their stack, which cannot run beside `full`). One Keycloak test timed out once, 10 s,
+    right after the stack restarted; it passed on its own run;
+  - frontend: 47 passed;
+  - `check_compliance.py --run --run-integration`: passes.
+- **On the way:** the OpenAPI snapshot gained the performance figures' `source` field.

@@ -33,6 +33,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import Settings
 from app.db.models import Chunk, Document
+from app.observability import metrics
 from app.ports import AccessScope, KeywordIndex, PolicyEngine, VectorIndex
 from app.retrieval.acl import UserContext, allowed_chunk_ids
 from app.retrieval.dense import BgeEmbedder, Embedder
@@ -220,6 +221,7 @@ class HybridSearcher:
         for (cid, rrf_score, m), permitted in zip(candidates, decisions, strict=True):
             if not permitted:
                 self.policy_disagreements += 1
+                metrics.ACL_DISAGREEMENTS.inc()  # alerted on: must stay 0 (M17a)
                 log.error("SECURITY: pre-filter and %s policy disagree on %s for %s; dropped",
                           self.policy.name, cid, user.user_id)
                 continue

@@ -50,9 +50,10 @@ from typing import Any
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query as Q, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func, select
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from sse_starlette.sse import EventSourceResponse
 
 from app.agents.graph import AnswerResult, AuditAssistant
@@ -99,6 +100,7 @@ from app.db.models import (
 from app.db.session import write_audit_log
 from app.quality_runs import QUALITY_TYPES, quality_runs
 from app.ingest.indexer import Indexer, ManifestError
+from app.observability import metrics, otel
 from app.ports import EventBus
 from app.retrieval.acl import load_user
 from app.retrieval.dense import QdrantInUseError
@@ -298,7 +300,9 @@ def _from_cache(svc: Services, question: str, user_id: str) -> tuple[str | None,
         with svc.sessions() as s:
             user = load_user(s, user_id)
         key = svc.response_cache.key(question, user)
-        return key, svc.response_cache.serve(key, question, user)
+        hit = svc.response_cache.serve(key, question, user)
+        metrics.CACHE.labels("hit" if hit is not None else "miss").inc()
+        return key, hit
     except Exception:  # noqa: BLE001 - the cache is an optimisation, never a failure
         log.exception("Response cache lookup failed; answering without it")
         return None, None
@@ -333,7 +337,13 @@ async def query(req: QueryRequest, request: Request,
     loop = asyncio.get_running_loop()
     queue: asyncio.Queue[tuple[str, Any]] = asyncio.Queue()
 
+    asked = time.perf_counter()
+    first_draft = threading.Event()
+
     def emit(kind: str, data: Any) -> None:
+        if kind == "draft_token" and not first_draft.is_set():  # time to first token (M17a)
+            first_draft.set()
+            metrics.FIRST_DRAFT_SECONDS.observe(time.perf_counter() - asked)
         loop.call_soon_threadsafe(queue.put_nowait, (kind, data))
 
     def work() -> None:
@@ -623,6 +633,16 @@ def health() -> dict:
 FRONTEND_DIST = PROJECT_ROOT / "frontend" / "dist"
 
 
+def _start_tracing(app: FastAPI, settings: Settings) -> None:
+    """OpenTelemetry for the API (M17a): a span per HTTP request (FastAPI instrumentation)
+    plus the per-question spans of the agents; exported only when an endpoint is set."""
+    if otel.setup_tracing(settings) is None:
+        return
+    from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+
+    FastAPIInstrumentor.instrument_app(app, excluded_urls="metrics,api/v1/health")
+
+
 def create_app(services: Services | None = None, static_dir: Path | None = FRONTEND_DIST) -> FastAPI:
     """App factory. Tests pass fake `services`; otherwise real ones are built at start-up.
 
@@ -656,6 +676,23 @@ def create_app(services: Services | None = None, static_dir: Path | None = FRONT
     app = FastAPI(title="Enterprise Fabric AI API", version="0.7.0", lifespan=lifespan,
                   description="Synthetic demo. Sign in with POST /api/v1/auth/login, then send "
                               "`Authorization: Bearer <token>`.")
+    @app.middleware("http")
+    async def count_responses(request: Request, call_next):
+        """API responses by status class (the error-rate alert, M17a)."""
+        response = await call_next(request)
+        if request.url.path.startswith("/api/"):
+            metrics.HTTP_REQUESTS.labels(f"{response.status_code // 100}xx").inc()
+        return response
+
+    @app.get("/metrics", include_in_schema=False)
+    def prometheus_metrics() -> Response:
+        """Prometheus scrape endpoint (internal network only: not routed outside the
+        cluster by the Helm chart). Labels never carry users, questions or documents."""
+        return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
+
+    if services is None or getattr(services.settings, "otel_exporter_otlp_endpoint", None):
+        _start_tracing(app, services.settings if services else get_settings())
+
     app.include_router(auth_router)
     app.include_router(router)
     app.include_router(admin_router)

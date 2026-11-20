@@ -1,4 +1,8 @@
-"""Write one `traces` row per agent step, masked (CLAUDE.md sections 7 and 12)."""
+"""Write one `traces` row per agent step, masked (CLAUDE.md sections 7 and 12).
+
+Since M17a each step also feeds the Prometheus metrics (step time, tokens, estimated cost)
+and, when tracing is on, becomes an OpenTelemetry span under the question's root span
+(app/observability/otel.py)."""
 
 from collections.abc import Sequence
 from typing import Any
@@ -9,6 +13,7 @@ from app.agents.budgets import BudgetTracker, StepBudget
 from app.agents.llm import LLMResult
 from app.agents.versions import ActiveVersions
 from app.db.models import Trace
+from app.observability import metrics
 from app.security.masking import mask_json
 
 
@@ -24,6 +29,9 @@ class Tracer:
         # verified answer it reached.
         self.budget = BudgetTracker(budget or StepBudget())
         self.snapshot: dict[str, Any] = {}
+        # M17a: the question's root span (None when tracing is off) and what spans may carry.
+        self.span = None
+        self.include_content, self.content_max_chars = False, 4000
 
     def log(self, agent: str, input: Any, output: Any, llm: Sequence[LLMResult] = (),
             latency_ms: float | None = None) -> None:
@@ -46,3 +54,14 @@ class Tracer:
         with self.sessions() as s:
             s.add(row)
             s.commit()
+        if row.latency_ms is not None:
+            metrics.AGENT_SECONDS.labels(agent).observe(row.latency_ms / 1000)
+        for r in llm:
+            metrics.record_llm(agent, r.model, r.tokens_in, r.tokens_out)
+        if self.span is not None:
+            self.span.step(agent, latency_ms=row.latency_ms, llm=llm,
+                           versions={"prompt_version_id": row.prompt_version_id,
+                                     "policy_version_id": row.policy_version_id},
+                           step_input=row.input, step_output=row.output,
+                           include_content=self.include_content,
+                           content_max_chars=self.content_max_chars)

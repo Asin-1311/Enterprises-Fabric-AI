@@ -17,6 +17,7 @@ and engagement team, enforced in retrieval).
 Every change is written to audit_log. (POST /documents/reindex is in main.py.)
 """
 
+import logging
 import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -57,6 +58,7 @@ from app.db.session import write_audit_log
 from app.learning import prompt_registry
 
 router = APIRouter(prefix="/api/v1", tags=["admin"])
+log = logging.getLogger("uvicorn.error")
 
 ADMIN_ONLY = "This action is restricted to administrators."
 
@@ -405,7 +407,8 @@ def agents_performance(request: Request, from_: datetime | None = Q(None, alias=
                        admin: User = Depends(require_admin)) -> dict:
     """Latency per agent (p50/p95), tokens, verification failure, degradation and cache-hit
     rates, and an ESTIMATED cost per answer, for questions asked in [from, to) (default:
-    the last 7 days). Computed from the stored traces (app/observability/performance.py)."""
+    the last 7 days). From Prometheus when PROMETHEUS_URL is set, else from the stored
+    traces (app/observability/performance.py); `source` says which."""
     from app.observability.performance import agent_performance
 
     end = _naive_utc(to) or _now()
@@ -413,5 +416,13 @@ def agents_performance(request: Request, from_: datetime | None = Q(None, alias=
     if start >= end:
         raise HTTPException(422, "'from' must be before 'to'.")
     settings = request.app.state.services.settings
+    if settings.prometheus_url:  # M17a: the metrics backend, as on the dashboards
+        from app.observability.performance import prometheus_performance
+
+        try:
+            return prometheus_performance(settings.prometheus_url, start, end)
+        except Exception:  # noqa: BLE001 - fall back to the stored traces, and say so in the log
+            log.warning("Prometheus at %s unreachable; performance from the stored traces",
+                        settings.prometheus_url)
     with request.app.state.services.sessions() as s:
         return agent_performance(s, start, end, settings.confidence_threshold)

@@ -33,5 +33,13 @@ anthropic==2.6.0
 httpx==0.28.1          # already required by anthropic; also used by FastAPI's TestClient
 pyjwt[crypto]==2.15.1   # OIDC/JWT validation of Keycloak tokens (M13b); brings cryptography
 
+# Observability (M17a): traces to an OTLP endpoint (Langfuse in the observability profile),
+# metrics for Prometheus on /metrics. The HTTP exporter is the http part of the approved
+# opentelemetry-exporter-otlp (the gRPC part is not needed).
+opentelemetry-sdk==1.45.2
+opentelemetry-exporter-otlp-proto-http==1.45.2
+opentelemetry-instrumentation-fastapi==0.66b2
+prometheus-client==0.26.0
+
 # Tests
 pytest==9.2.0
