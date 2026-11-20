@@ -7,6 +7,7 @@
 
 import { SSEParser } from "./lib/sse";
 import { clearToken, currentToken } from "./lib/session";
+import type { SignalKind } from "./lib/signals";
 import type { FinalPayload, HistoryItem, QueryEvent, SessionInfo, User } from "./types";
 
 const API = "/api/v1";
@@ -96,7 +97,9 @@ export const getHistory = () => callJson<HistoryItem[]>("/history", {}, "History
 export const getHistoryAnswer = (queryId: number) =>
   callJson<FinalPayload>(`/history/${queryId}`, {}, "This answer could not be opened.");
 
-/** POST a question and call `onEvent` for every streamed event (progress, token, final). */
+/** POST a question and call `onEvent` for every streamed event: progress steps, the draft
+ * as it is written (draft_token), one claim_verdict per checked claim, the verified answer
+ * (token), then final. */
 export async function streamQuery(
   text: string,
   onEvent: (event: QueryEvent) => void,
@@ -113,7 +116,7 @@ export async function streamQuery(
   const parser = new SSEParser();
   const emit = (messages: { event: string; data: string }[]) => {
     for (const m of messages) {
-      if (["progress", "token", "final", "error"].includes(m.event)) {
+      if (["progress", "draft_token", "claim_verdict", "token", "final", "error"].includes(m.event)) {
         onEvent({ event: m.event, data: JSON.parse(m.data) } as QueryEvent);
       }
     }
@@ -132,4 +135,14 @@ export async function sendFeedback(
   correction: string | null,
 ): Promise<void> {
   await callJson("/feedback", post({ answer_id: answerId, rating, correction }), "Feedback not saved.");
+}
+
+/** An implicit signal about one of the user's answers (copy, citation click, follow-up,
+ * rephrase). It only informs learning, so a failure is ignored. */
+export async function sendSignal(answerId: number, kind: SignalKind): Promise<void> {
+  try {
+    await call("/feedback/signals", post({ answer_id: answerId, kind }));
+  } catch {
+    // never disturb the user over a signal
+  }
 }

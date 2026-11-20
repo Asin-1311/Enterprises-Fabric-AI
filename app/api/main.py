@@ -189,11 +189,33 @@ def _services(request: Request) -> Services:
     return request.app.state.services
 
 
-def _preview(text: str) -> str:
-    """Chunk text without its heading-path line, shortened for display."""
+def cited_text(text: str, start: int | None, end: int | None) -> str | None:
+    """The supporting passage of a citation (M11 span), spaces normalised, or None."""
+    if start is None or end is None or not 0 <= start < end <= len(text):
+        return None
+    return " ".join(text[start:end].split()) or None
+
+
+def preview(text: str, cited: str | None = None) -> str:
+    """Chunk text without its heading-path line, shortened for display. When the cited
+    passage lies beyond the first PREVIEW_CHARS characters, the preview is a window that
+    contains it (M16b: the UI highlights the passage inside the preview)."""
     body = text.split("\n", 1)[1] if "\n" in text else text
     body = " ".join(body.split())
-    return body if len(body) <= PREVIEW_CHARS else body[:PREVIEW_CHARS].rsplit(" ", 1)[0] + " …"
+    if len(body) <= PREVIEW_CHARS:
+        return body
+    at = body.find(cited) if cited else -1
+    if at < 0 or at + len(cited or "") <= PREVIEW_CHARS:
+        return body[:PREVIEW_CHARS].rsplit(" ", 1)[0] + " …"
+    start = max(0, at - PREVIEW_CHARS // 5)
+    if start:  # begin at a word, never inside the passage
+        space = body.find(" ", start)
+        start = space + 1 if -1 < space < at else at
+    end = max(at + len(cited), start + PREVIEW_CHARS)
+    if end < len(body):  # end at a word, never inside the passage
+        space = body.find(" ", end)
+        end = space if space != -1 else len(body)
+    return ("… " if start else "") + body[start:end] + (" …" if end < len(body) else "")
 
 
 def _citations(svc: Services, cited: list[tuple[str, int | None, int | None]]) -> list[CitationOut]:
@@ -218,7 +240,9 @@ def _citations(svc: Services, cited: list[tuple[str, int | None, int | None]]) -
             out.append(CitationOut(
                 chunk_id=cid, doc_id=d.doc_id, title=d.title, section=c.section,
                 section_title=c.section_title, page_start=c.page_start, page_end=c.page_end,
-                superseded=d.doc_id in superseded, preview=_preview(c.text),
+                superseded=d.doc_id in superseded,
+                preview=preview(c.text, cited_text(c.text, span_start, span_end)),
+                cited_text=cited_text(c.text, span_start, span_end),
                 span_start=span_start, span_end=span_end))
     return out
 

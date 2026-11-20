@@ -86,6 +86,9 @@ class CitationOut(BaseModel):
     # None when they could not be located.
     span_start: int | None = None
     span_end: int | None = None
+    # M16b: that passage itself (spaces normalised), which the preview contains, so the UI
+    # can highlight it; None when the span is unknown.
+    cited_text: str | None = None
 
 
 class FinalPayload(BaseModel):

@@ -8,13 +8,18 @@ Fails (exit code 1) when:
 - the summary line does not match the rows;
 - a row marked Met does not name its acceptance test as `tests/<file>.py::<test>`, the
   test does not exist, or its docstring does not say `Covers: <ID>`;
+- for the UI (M16b), the acceptance test may be a Vitest test, named
+  `frontend/src/<file>.test.tsx::<test title>`; its body must have a `// Covers: <ID>` line;
 - the Met test is marked to be skipped (statically);
-- with --run: a Met test fails or is skipped when pytest runs it.
+- with --run: a Met test fails or is skipped when pytest (or Vitest) runs it.
 """
 
 import argparse
 import ast
+import json
 import re
+import shutil
+import tempfile
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -25,6 +30,7 @@ from app.config import PROJECT_ROOT
 COMPLIANCE = PROJECT_ROOT / "docs" / "report" / "COMPLIANCE.md"
 STATUSES = ("Met", "Partial", "Not met", "Deviation")
 _TEST_ID = re.compile(r"`?(tests/[\w/]+\.py)::(\w+)`?")
+_VITEST_ID = re.compile(r"`?(frontend/src/[\w/.-]+\.test\.tsx?)::([^`|]+?)`?")
 _SUMMARY = re.compile(r"\*\*Summary: (\d+) requirements: (\d+) Met, (\d+) Partial, "
                       r"(\d+) Not met, (\d+) Deviation\.\*\*")
 
@@ -66,8 +72,36 @@ def _is_skip_marker(node: ast.expr) -> bool:
     return "mark.skip" in text  # skip and skipif
 
 
+def _vitest_block(source: str, title: str) -> str | None:
+    """The source of the Vitest test called `title`, up to the next top-level test."""
+    start = source.find(f'test("{title}"')
+    if start < 0:
+        return None
+    following = re.search(r"^test(\.\w+)?\(", source[start + 1:], re.M)
+    return source[start:start + 1 + following.start()] if following else source[start:]
+
+
+def check_vitest(root: Path, test_ref: str, req_id: str) -> list[str]:
+    """Problems with a Vitest acceptance test (empty if fine)."""
+    m = _VITEST_ID.fullmatch(test_ref.strip())
+    path, title = root / m.group(1), m.group(2).strip()
+    if not path.is_file():
+        return [f"{req_id}: test file {m.group(1)} not found"]
+    source = path.read_text(encoding="utf-8")
+    if any(f'test.{k}("{title}"' in source for k in ("skip", "todo")):
+        return [f"{req_id}: {test_ref} is marked to be skipped"]
+    block = _vitest_block(source, title)
+    if block is None:
+        return [f"{req_id}: test '{title}' not found in {m.group(1)}"]
+    if not _covers(block, req_id):
+        return [f"{req_id}: {test_ref} does not say '// Covers: {req_id}'"]
+    return []
+
+
 def check_test(root: Path, test_ref: str, req_id: str) -> list[str]:
     """Problems with the named acceptance test of a Met row (empty if fine)."""
+    if _VITEST_ID.fullmatch(test_ref.strip()):
+        return check_vitest(root, test_ref, req_id)
     m = _TEST_ID.fullmatch(test_ref.strip())
     if not m:
         return [f"{req_id}: Met, but the acceptance test is not given as tests/<file>.py::<test>"]
@@ -130,14 +164,37 @@ def _run(refs: list[str], marker: str, kind: str) -> list[str]:
     return problems
 
 
+def _run_vitest(refs: list[str]) -> list[str]:
+    """Run the Vitest files of these refs (JSON report); each named test must pass."""
+    npx = shutil.which("npx")
+    if npx is None:
+        return ["a Met test is a Vitest test, but npx (Node.js) is not installed"]
+    named = [_VITEST_ID.fullmatch(r) for r in refs]
+    files = sorted({m.group(1).removeprefix("frontend/") for m in named})
+    with tempfile.TemporaryDirectory() as tmp:
+        report = Path(tmp) / "vitest.json"
+        subprocess.run([npx, "vitest", "run", *files, "--reporter=json", f"--outputFile={report}"],
+                       cwd=PROJECT_ROOT / "frontend", capture_output=True, text=True)
+        if not report.is_file():
+            return ["Vitest did not run (no report written)"]
+        results = json.loads(report.read_text(encoding="utf-8"))
+    status = {a["title"]: a["status"] for f in results.get("testResults", [])
+              for a in f.get("assertionResults", [])}
+    return [f"a Met Vitest acceptance test did not pass ({status.get(m.group(2).strip(), 'not run')}): "
+            f"{m.group(0)}" for m in named if status.get(m.group(2).strip()) != "passed"]
+
+
 def run_met_tests(text: str, include_integration: bool = False) -> list[str]:
     """Run every Met row's acceptance test with pytest; fail on failures or skips.
     Integration acceptance tests run only with `include_integration` (they need the
     servers); otherwise they are listed, so a Met row never passes unseen."""
     refs = [r.acceptance_test.strip("`") for r in read_rows(text) if r.status == "Met"]
+    vitest = [r for r in refs if _VITEST_ID.fullmatch(r)]
+    refs = [r for r in refs if r not in vitest]
     lite = [r for r in refs if not is_integration(r)]
     integration = [r for r in refs if is_integration(r)]
     problems = _run(lite, "not integration", "lite") if lite else []
+    problems += _run_vitest(vitest) if vitest else []
     if integration and include_integration:
         problems += _run(integration, "integration", "integration")
     elif integration:

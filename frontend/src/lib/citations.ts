@@ -6,7 +6,7 @@
 // to Markdown links with a "#cite-<id>" target, which the answer renderer shows as small
 // clickable chips that open the source panel.
 
-const CITATION = /\[([A-Za-z0-9][A-Za-z0-9_.-]*:(?:\d{4}|[A-Za-z0-9][A-Za-z0-9.-]*:\d+))\]/g;
+export const CITATION = /\[([A-Za-z0-9][A-Za-z0-9_.-]*:(?:\d{4}|[A-Za-z0-9][A-Za-z0-9.-]*:\d+))\]/g;
 
 export interface NumberedText {
   markdown: string;
@@ -33,4 +33,9 @@ export function citationIdFromHref(href: string | undefined): string | null {
 export function pageLabel(start: number | null, end: number | null): string {
   if (!start) return "";
   return end && end !== start ? `pp. ${start}–${end}` : `p. ${start}`;
+}
+
+/** The text without its [chunk-id] citation markers (for the draft view and copying). */
+export function stripCitations(text: string): string {
+  return text.replace(new RegExp(String.raw`\s?` + CITATION.source, "g"), "");
 }
