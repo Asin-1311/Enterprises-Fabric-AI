@@ -193,6 +193,13 @@ class Settings(BaseSettings):
     auth_rate_per_minute: float = 5.0
     auth_lockout_failures: int = 10
     auth_lockout_minutes: float = 15.0
+    # /query: questions per minute per user (M16a; CLAUDE.md section 10).
+    query_rate_per_minute: float = 10.0
+    # Response cache (M16a): a verified answer is reused only for the same normalised
+    # question, the same access fingerprint (role + engagements), the same index version
+    # and the same active prompt and routing-policy versions, on the same day.
+    response_cache_enabled: bool = True
+    response_cache_ttl_seconds: float = 3600.0
     # M13b: who signs users in. "session" = the email/password sign-in above (lite only);
     # "oidc" = Keycloak-issued JWTs (full). "auto" picks by PROFILE.
     auth_mode: Literal["auto", "session", "oidc"] = "auto"

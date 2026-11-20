@@ -656,3 +656,58 @@ def test_redis_latency_window_is_shared_between_workers(settings) -> None:
         assert a.p95() == b.p95() == 9.0 and a.client.llen(key) == 3
     finally:
         a.client.delete(key)
+
+
+# ------------------------------------------------- rate limits and response cache (M16a)
+
+def test_redis_rate_limit_and_lockout_are_shared_between_workers(settings) -> None:
+    """Covers: R-5-serve (full profile): two API workers share one token bucket per user
+    and one sign-in lockout per IP, so reaching another worker gains nothing."""
+    from app.adapters.full.ratelimit import RedisFailureLockout, RedisRateLimiter
+
+    url = _need(settings.redis_url, "REDIS_URL", "core", 6379)
+    name, now = f"test-{uuid.uuid4().hex[:8]}", [1000.0]
+    a = RedisRateLimiter(url, per_minute=2, name=name, clock=lambda: now[0])
+    b = RedisRateLimiter(url, per_minute=2, name=name, clock=lambda: now[0])
+    assert a.take("user:S01") == 0 and b.take("user:S01") == 0
+    wait = a.take("user:S01")
+    assert wait == pytest.approx(30.0)  # 2 a minute: one token every 30 s
+    assert b.take("user:S02") == 0      # per user
+    now[0] += 30
+    assert b.take("user:S01") == 0      # refilled, seen by the other worker
+
+    la = RedisFailureLockout(url, max_failures=3, window_minutes=15, name=name, clock=lambda: now[0])
+    lb = RedisFailureLockout(url, max_failures=3, window_minutes=15, name=name, clock=lambda: now[0])
+    for worker in (la, lb, la):
+        worker.record_failure("ip:10.0.0.9")
+    assert lb.locked_for("ip:10.0.0.9") == pytest.approx(900.0)
+    now[0] += 901
+    assert la.locked_for("ip:10.0.0.9") == 0
+    keys = list(a.client.scan_iter(f"efa:*:{name}:*"))
+    if keys:
+        a.client.delete(*keys)
+
+
+def test_response_cache_keys_on_redis_never_cross_access_fingerprints(settings, pg_store) -> None:
+    """Covers: R-5-serve (full profile): an entry stored for one fingerprint is not visible
+    under another user's key, and an index write (PostgreSQL index_state) moves every key."""
+    from app.adapters.full.cache import RedisCache
+    from app.api.cache import ResponseCache
+    from app.ingest import index_version
+    from app.retrieval.acl import UserContext
+
+    cache = RedisCache(_need(settings.redis_url, "REDIS_URL", "core", 6379))
+    rc = ResponseCache(cache, pg_store.sessions, 60)
+    q = f"Within how many days must the file be assembled? {uuid.uuid4().hex[:6]}"
+    s1 = UserContext("S01", "staff", frozenset({"ENG-NWT-FY26"}))
+    s2 = UserContext("S02", "staff", frozenset({"ENG-NWT-FY26", "ENG-MBL-FY26"}))
+    twin = UserContext("S99", "staff", frozenset({"ENG-NWT-FY26"}))
+    key = rc.key(q, s1)
+    cache.set(key, b'{"marker": 1}', 60)
+    try:
+        assert rc.key(q, twin) == key and rc.key(q, s2) != key
+        assert cache.get(rc.key(q, s2)) is None
+        index_version.bump(pg_store.sessions)
+        assert rc.key(q, s1) != key
+    finally:
+        cache.delete(key)

@@ -321,6 +321,17 @@ class FeedbackSignal(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
 
+class IndexState(Base):
+    """One row: the index version, raised after every write to the indexes (M16a). The
+    response cache puts it in its key, so any index change makes older answers unusable."""
+
+    __tablename__ = "index_state"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    version: Mapped[int] = mapped_column(Integer, default=0)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
 class AuditLog(Base):
     """Append-only record of administrative actions (reindex, manifest changes)."""
 

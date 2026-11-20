@@ -63,6 +63,7 @@ from app.ingest.enrich import (
     manifest_metadata,
     manifest_source_id,
 )
+from app.ingest.index_version import VersionedLock
 from app.ingest.manifest import (
     SOURCE_TYPES,
     ManifestRow,
@@ -169,7 +170,18 @@ class Indexer:
         # Running totals of chunk-level work (kept, reused, embedded, deleted).
         self.chunk_stats: Counter = Counter()
         # The watcher calls us from its own thread; one change is processed at a time.
+        # Ending a write block raises the index version (M16a, the response cache).
         self.lock = threading.RLock()
+
+    @property
+    def lock(self) -> VersionedLock:
+        """The write lock. Whatever lock is assigned (the API assigns its readers-writer
+        lock's write side) is wrapped so that each write raises the index version."""
+        return self._lock
+
+    @lock.setter
+    def lock(self, inner) -> None:
+        self._lock = VersionedLock(inner, self.sessions)
 
     def active_manifest(self) -> tuple[Path, bool]:
         """(manifest to index from, True if it is the synthetic-only fallback)."""

@@ -2821,3 +2821,85 @@ tiny random model, to show the pipeline and the gate work. No improvement is cla
     case.
   - The router's tie-breaker is now its own function (`tiebreak`), so replay can call it
     directly; routing behaviour is unchanged.
+
+
+## M16a: Rate limiting and the access-safe response cache (2026-11-20)
+
+Branch `m16a-ratelimit-cache`, made from `phase2` after M15c was merged.
+
+### What was built
+- **Rate limits behind ports.**
+  - Two new ports: `RateLimiter` (a token bucket per key) and `FailureLockout`.
+  - The lite adapters are the M9 in-memory classes, unchanged.
+  - The full adapters keep the same rules in Redis (`app/adapters/full/ratelimit.py`). The
+    bucket is one Lua script, so "refill, then take" is atomic even when two API workers
+    serve the same user at once. The lockout keeps failure times in a sorted set.
+  - **`/query`:** 10 questions a minute per user (`QUERY_RATE_PER_MINUTE`), then HTTP 429
+    with `Retry-After`.
+  - **Sign-in routes:** use the same ports, with the M9 limits unchanged.
+- **The index version (`app/ingest/index_version.py`, migration 0007).**
+  - A one-row table `index_state` holds a counter in the metadata store, so the worker and
+    every API process see the same number.
+  - The indexer's write lock is wrapped (`VersionedLock`): when the outermost write block
+    ends, the counter goes up. Every index write runs inside that lock: sync, re-index,
+    watcher, worker batches and repair.
+- **The response cache (`app/api/cache.py`).** An answer is reused only when all of these
+  match:
+  - the normalised question;
+  - the access fingerprint (role plus sorted engagement ids);
+  - the index version;
+  - the active routing-policy and prompt versions;
+  - the day.
+- **How the cache is stored and served:**
+  - The key is a SHA-256 hash, so neither the question nor the user can be read from Redis.
+  - **What is cached:** only answered, fully verified answers that cite no restricted text.
+    Denials, "not found", abstentions and reduced-checking answers always run again.
+  - **A hit is the asker's own answer:** it writes their query, answer and citation rows
+    and a `response_cache` trace naming the original answer. History, feedback, the audit
+    trail and the "own history only" rule therefore work exactly as before.
+  - **Before serving,** every cited document is checked again against the asker's access.
+    A mismatch is logged as a security error and the entry is dropped.
+  - **If the cache fails** (e.g. Redis is down), the question is answered without it.
+- **The stream:** a hit sends a `cache_hit` progress step, then the answer and `final` as
+  usual.
+
+### Why the fingerprint is safe
+The access policy (`policy/document_access.rego`, and the same rules in code) decides on
+two facts about a user: the role and the engagement ids. Two users with the same
+fingerprint can therefore see exactly the same documents, and an answer built for one is
+an answer the other could have received. Users with any difference never share an entry.
+The tests check both boundaries:
+- **Engagement:** a staff member on another engagement is denied, not served from the
+  cache.
+- **Role:** staff never receive a manager's cached answer, and their own answer does not
+  cite the manager-level policy.
+
+### Why it matters
+- **Fairness and protection:** one user cannot flood the system, in either profile.
+- **Repeated questions are cheap:** a second asker with the same access gets the answer
+  without any model call, and it can never be wrong for them.
+
+### Likely viva questions
+- *Why not cache per user?* Many staff ask the same thing, and per-user caching would
+  rarely hit. Per fingerprint is as safe, because the fingerprint is exactly what access
+  depends on.
+- *What if a document changes after an answer was cached?* The change goes through an
+  index write, which raises the index version. Every key then changes and the old entry
+  is never read again; it expires on its own.
+- *What if someone gets the key wrong in future code?* Serving re-checks every cited
+  document against the asker's access, so a wrong key cannot leak a document; it only
+  misses.
+- *Why is a degraded answer not cached?* It was not verified. Caching it would spread an
+  unchecked answer beyond the moment of load that caused it.
+
+### Status
+- **Partial → Met:** R-5-serve.
+- **COMPLIANCE.md:** 43 requirements; 28 Met, 11 Partial, 4 Not met.
+- **Tests (2026-11-20):**
+  - default suite: 547 passed (7 new; counts from pytest's JUnit report);
+  - integration: 18 passed (2 new: Redis limits shared between workers; cache keys on
+    Redis with PostgreSQL `index_state`);
+  - frontend: 21 passed;
+  - `check_compliance.py --run --run-integration`: passes.
+- **On the way:** the OpenAPI snapshot is unchanged (the limit is a dependency, and 429
+  is not declared as a success response).

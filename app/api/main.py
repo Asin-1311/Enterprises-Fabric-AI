@@ -58,6 +58,8 @@ from sse_starlette.sse import EventSourceResponse
 from app.agents.graph import AnswerResult, AuditAssistant
 from app.agents.versions import ensure_active_versions
 from app.api.auth import current_user, seed_demo_passwords, user_out
+from app.api.cache import ResponseCache
+from app.api.ratelimit import retry_after_header
 from app.api.admin import require_admin
 from app.api.admin import router as admin_router
 from app.api.auth import router as auth_router
@@ -98,6 +100,7 @@ from app.db.session import write_audit_log
 from app.quality_runs import QUALITY_TYPES, quality_runs
 from app.ingest.indexer import Indexer, ManifestError
 from app.ports import EventBus
+from app.retrieval.acl import load_user
 from app.retrieval.dense import QdrantInUseError
 from app.security.masking import mask_text
 
@@ -125,6 +128,7 @@ class Services:
     lock: ReadWriteLock
     stop: Callable[[], None] = lambda: None
     bus: EventBus | None = None  # change events (M12a): the watcher and webhook publish here
+    response_cache: ResponseCache | None = None  # M16a; None = every question runs afresh
 
     @property
     def sessions(self):
@@ -148,6 +152,12 @@ def build_services(settings: Settings) -> Services:
     lock = ReadWriteLock()
     indexer.lock = lock.writer  # index writes run alone; questions share the read side
     bus = open_event_bus(settings)
+    response_cache = None
+    if settings.response_cache_enabled:
+        from app.adapters import open_cache
+
+        response_cache = ResponseCache(open_cache(settings), searcher.sessions,
+                                       settings.response_cache_ttl_seconds)
     stoppers: list[Callable[[], None]] = []
     if settings.api_run_worker:
         worker = IngestWorker(indexer, bus, max_attempts=settings.worker_max_attempts)
@@ -170,7 +180,7 @@ def build_services(settings: Settings) -> Services:
             stopper()
         bus.close()
 
-    return Services(settings, assistant, indexer, lock, stop, bus)
+    return Services(settings, assistant, indexer, lock, stop, bus, response_cache)
 
 
 # --------------------------------------------------------------------------- helpers
@@ -237,6 +247,50 @@ def _load_json(text: str | None) -> object:
         return text
 
 
+TOO_MANY_QUESTIONS = "Too many questions in a short time. Please wait a moment and try again."
+
+
+def guard_query(request: Request, user: User = Depends(current_user)) -> User:
+    """/query rate limit: QUERY_RATE_PER_MINUTE per user, in memory (lite) or Redis (full,
+    shared by every API worker). Over the limit: HTTP 429 with Retry-After (M16a)."""
+    state = request.app.state
+    if getattr(state, "query_limiter", None) is None:
+        from app.adapters import open_rate_limiter
+
+        s = state.services.settings
+        state.query_limiter = open_rate_limiter(s, "query", s.query_rate_per_minute)
+    wait = state.query_limiter.take(f"user:{user.user_id}")
+    if wait:
+        raise HTTPException(429, TOO_MANY_QUESTIONS, headers=retry_after_header(wait))
+    return user
+
+
+def _from_cache(svc: Services, question: str, user_id: str) -> tuple[str | None, AnswerResult | None]:
+    """(cache key, the cached answer served as this user's own, or None). A cache that
+    fails (e.g. Redis down) is logged and skipped: the question is answered afresh."""
+    if svc.response_cache is None:
+        return None, None
+    try:
+        with svc.sessions() as s:
+            user = load_user(s, user_id)
+        key = svc.response_cache.key(question, user)
+        return key, svc.response_cache.serve(key, question, user)
+    except Exception:  # noqa: BLE001 - the cache is an optimisation, never a failure
+        log.exception("Response cache lookup failed; answering without it")
+        return None, None
+
+
+def _to_cache(svc: Services, key: str | None, result: AnswerResult) -> None:
+    if svc.response_cache is None or key is None:
+        return
+    try:
+        with svc.sessions() as s:
+            q = s.get(Query, result.query_id)
+        svc.response_cache.store(key, result, q.intent if q else None)
+    except Exception:  # noqa: BLE001
+        log.exception("Response cache store failed; the answer was still returned")
+
+
 # ---------------------------------------------------------------------------- routes
 
 router = APIRouter(prefix="/api/v1")
@@ -249,7 +303,7 @@ router = APIRouter(prefix="/api/v1")
                    "(generic message and a reference).",
     "content": {"text/event-stream": {"schema": {"type": "string"}}}}})
 async def query(req: QueryRequest, request: Request,
-                user: User = Depends(current_user)) -> EventSourceResponse:
+                user: User = Depends(guard_query)) -> EventSourceResponse:
     """Answer a question, streaming progress, then the verified answer, then citations."""
     svc = _services(request)
     loop = asyncio.get_running_loop()
@@ -262,12 +316,17 @@ async def query(req: QueryRequest, request: Request,
         start = time.perf_counter()
         try:
             with svc.lock.reading():  # many questions at once; never during an index write
-                result = svc.assistant.ask(
-                    req.text, user.user_id,
-                    on_event=lambda step, payload: emit(
-                        "claim_verdict" if step == "claim_verdict" else "progress",
-                        payload if step == "claim_verdict" else {"step": step, **payload}),
-                    on_token=lambda text: emit("draft_token", {"text": text}))
+                key, result = _from_cache(svc, req.text, user.user_id)
+                if result is not None:
+                    emit("progress", {"step": "cache_hit"})
+                else:
+                    result = svc.assistant.ask(
+                        req.text, user.user_id,
+                        on_event=lambda step, payload: emit(
+                            "claim_verdict" if step == "claim_verdict" else "progress",
+                            payload if step == "claim_verdict" else {"step": step, **payload}),
+                        on_token=lambda text: emit("draft_token", {"text": text}))
+                    _to_cache(svc, key, result)
             emit("result", (result, time.perf_counter() - start))
         except Exception:  # noqa: BLE001 - details to the server log, generic text to the client
             ref = error_reference()

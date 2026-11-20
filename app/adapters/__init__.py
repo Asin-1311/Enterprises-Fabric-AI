@@ -12,10 +12,12 @@ from app.config import Settings
 from app.ports import (
     Cache,
     EventBus,
+    FailureLockout,
     KeywordIndex,
     LatencyWindow,
     MetadataStore,
     PolicyEngine,
+    RateLimiter,
     VectorIndex,
 )
 
@@ -107,3 +109,28 @@ def open_event_bus(settings: Settings) -> EventBus:
     from app.adapters.lite.events import InProcessEventBus
 
     return InProcessEventBus()
+
+
+def open_rate_limiter(settings: Settings, name: str, per_minute: float) -> RateLimiter:
+    """A token bucket per key: Redis (full: shared by every API worker) or memory (lite).
+    `name` separates the limits (e.g. "query", "auth") (M16a)."""
+    if settings.profile == "full":
+        from app.adapters.full.ratelimit import RedisRateLimiter
+
+        return RedisRateLimiter(_required(settings.redis_url, "REDIS_URL"), per_minute, name)
+    from app.adapters.lite.ratelimit import MemoryRateLimiter
+
+    return MemoryRateLimiter(per_minute)
+
+
+def open_failure_lockout(settings: Settings, name: str, max_failures: int,
+                         window_minutes: float) -> FailureLockout:
+    """The sign-in lockout: Redis (full) or memory (lite) (M16a)."""
+    if settings.profile == "full":
+        from app.adapters.full.ratelimit import RedisFailureLockout
+
+        return RedisFailureLockout(_required(settings.redis_url, "REDIS_URL"), max_failures,
+                                   window_minutes, name)
+    from app.adapters.lite.ratelimit import MemoryFailureLockout
+
+    return MemoryFailureLockout(max_failures, window_minutes)
