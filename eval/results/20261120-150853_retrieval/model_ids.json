@@ -1,0 +1,4 @@
+{
+  "embedding_model": "BAAI/bge-small-en-v1.5",
+  "llm_models_used": "none (retrieval-only evaluation)"
+}

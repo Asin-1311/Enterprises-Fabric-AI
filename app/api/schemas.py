@@ -106,6 +106,9 @@ class FinalPayload(BaseModel):
     # M14b: claims the LLM verifier accepted but the NLI model found contradicted by their
     # cited text; they stay in the answer, marked "check this point".
     flagged_claims: list[str] = []
+    # M15a: answered under load WITHOUT verification (low-risk questions only); the text
+    # starts with the "Reduced checking" notice and there is no confidence score.
+    degraded: bool = False
 
 
 class HistoryItem(BaseModel):

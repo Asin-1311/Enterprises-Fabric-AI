@@ -199,3 +199,14 @@ class PolicyEngine(Protocol):
         """One decision per document (keys: doc_id, access_level, engagement_id,
         source_type, classification). Raises PolicyUnavailable if it cannot decide."""
         ...
+
+
+@runtime_checkable
+class LatencyWindow(Protocol):
+    """A rolling window of full-answer times (M15a): memory in lite, Redis in full."""
+
+    def record(self, seconds: float) -> None: ...
+
+    def p95(self) -> float | None:
+        """The window's 95th percentile, or None while it holds too few answers."""
+        ...

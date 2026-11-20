@@ -9,7 +9,15 @@ from pathlib import Path
 from qdrant_client import QdrantClient
 
 from app.config import Settings
-from app.ports import Cache, EventBus, KeywordIndex, MetadataStore, PolicyEngine, VectorIndex
+from app.ports import (
+    Cache,
+    EventBus,
+    KeywordIndex,
+    LatencyWindow,
+    MetadataStore,
+    PolicyEngine,
+    VectorIndex,
+)
 
 
 def _required(value: str | None, name: str) -> str:
@@ -67,6 +75,18 @@ def open_policy_engine(settings: Settings) -> PolicyEngine:
     from app.adapters.lite.policy import InCodePolicy
 
     return InCodePolicy()
+
+
+def open_latency_window(settings: Settings) -> LatencyWindow:
+    """Redis (full: shared by every API worker) or process memory (lite) (M15a)."""
+    if settings.profile == "full":
+        from app.adapters.full.latency import RedisLatencyWindow
+
+        return RedisLatencyWindow(_required(settings.redis_url, "REDIS_URL"),
+                                  settings.latency_window_size, settings.latency_min_samples)
+    from app.adapters.lite.latency import InMemoryLatencyWindow
+
+    return InMemoryLatencyWindow(settings.latency_window_size, settings.latency_min_samples)
 
 
 def open_cache(settings: Settings) -> Cache:

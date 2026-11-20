@@ -1,10 +1,12 @@
 """Retrieval evaluation: recall@5, recall@10, MRR, nDCG@10 (overall and per source type),
-access-leak and cross-engagement-leak rates, and superseded ordering, for four modes:
+access-leak and cross-engagement-leak rates, and superseded ordering, for five modes:
 
     dense       dense only               (the single-pass baseline's retriever)
     bm25        BM25 only
     hybrid_raw  dense + BM25 with RRF
-    hybrid      RRF + superseded weight + recency boost (the system)
+    hybrid      RRF + superseded weight + recency boost (the Phase 1 system)
+    adaptive    hybrid with the retriever weights and candidate counts of the question's
+                labelled intent (M15a: what the system now uses; app/agents/plan.py)
 
 Leak checks use their OWN access rule, read directly from manifest.csv, users.csv and
 engagements.csv, so a bug in app/retrieval/acl.py cannot hide itself.
@@ -26,7 +28,11 @@ from pathlib import Path
 
 from app.config import PROJECT_ROOT, get_settings
 from app.retrieval.acl import load_user
-from app.retrieval.hybrid import MODES, build_searcher
+from app.agents.plan import intent_profile
+from app.retrieval.hybrid import MODES as SEARCH_MODES
+from app.retrieval.hybrid import build_searcher
+
+MODES = (*SEARCH_MODES, "adaptive")
 from eval.metrics import (
     dedupe_docs,
     mean,
@@ -85,8 +91,10 @@ def run(k_docs: int = 10, chunk_limit: int = 40) -> Path:
             user = load_user(s, q["user_id"])
         for mode in MODES:
             t0 = time.perf_counter()
-            hits = searcher.search(q["question"], user, mode=mode, limit=chunk_limit,
-                                   time_sensitive=q["intent"] == "time_sensitive", as_of=as_of)
+            weights, top_k = intent_profile(q["intent"], settings) if mode == "adaptive" else (None, None)
+            hits = searcher.search(q["question"], user, mode="hybrid" if mode == "adaptive" else mode,
+                                   limit=chunk_limit, time_sensitive=q["intent"] == "time_sensitive",
+                                   as_of=as_of, weights=weights, top_k=top_k)
             latencies[mode].append((time.perf_counter() - t0) * 1000)
             ranked = dedupe_docs(h.doc_id for h in hits)[:k_docs]
             gold = set(q["gold_doc_ids"])
