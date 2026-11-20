@@ -51,6 +51,17 @@
             "title": "Chunk Id",
             "type": "string"
           },
+          "cited_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cited Text"
+          },
           "doc_id": {
             "title": "Doc Id",
             "type": "string"

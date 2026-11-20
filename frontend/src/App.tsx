@@ -1,12 +1,14 @@
+import * as Tooltip from "@radix-ui/react-tooltip";
 import { ArrowUp, Square } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { getHistory, getHistoryAnswer, getMe, logout, setSessionEndedHandler, streamQuery } from "./api";
+import { getHistory, getHistoryAnswer, getMe, logout, sendSignal, setSessionEndedHandler, streamQuery } from "./api";
 import { AnswerCard, type Turn } from "./components/AnswerCard";
 import { LoginScreen } from "./components/LoginScreen";
 import { Sidebar } from "./components/Sidebar";
 import { SourcePanel } from "./components/SourcePanel";
 import { ThinkingDots } from "./components/ThinkingDots";
 import { clearToken, currentToken, saveToken } from "./lib/session";
+import { type LastAnswer, SignalSender, signalForNextQuestion } from "./lib/signals";
 import type { Citation, HistoryItem, SessionInfo, User } from "./types";
 
 const SUGGESTIONS = [
@@ -32,6 +34,9 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [panel, setPanel] = useState<{ citations: Citation[]; activeId: string } | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  // Implicit signals (M16b): the last answer of this conversation, and one sender per session.
+  const lastAnswerRef = useRef<LastAnswer | null>(null);
+  const signalsRef = useRef(new SignalSender(sendSignal));
   const bottomRef = useRef<HTMLDivElement | null>(null);
 
   function endSession() {
@@ -80,6 +85,7 @@ export default function App() {
   }
 
   function newConversation() {
+    lastAnswerRef.current = null;
     setTurns([]);
     setActiveQueryId(null);
     setPanel(null);
@@ -89,9 +95,10 @@ export default function App() {
   async function openHistory(item: HistoryItem) {
     if (busy) return;
     const id = `history-${item.query_id}`;
+    lastAnswerRef.current = null; // a reopened answer starts no follow-up
     setActiveQueryId(item.query_id);
     setPanel(null);
-    setTurns([{ id, question: item.question, steps: [], text: "", final: null, error: null }]);
+    setTurns([{ id, question: item.question, steps: [], draft: "", verdicts: [], text: "", final: null, error: null }]);
     try {
       const final = await getHistoryAnswer(item.query_id);
       updateTurn(id, (t) => ({ ...t, final }));
@@ -104,7 +111,9 @@ export default function App() {
     const text = question.trim();
     if (!text || busy) return;
     const id = crypto.randomUUID();
-    setTurns((all) => [...all, { id, question: text, steps: [], text: "", final: null, error: null }]);
+    const said = signalForNextQuestion(lastAnswerRef.current, text, Date.now());
+    if (said) signalsRef.current.send(said.answerId, said.kind);
+    setTurns((all) => [...all, { id, question: text, steps: [], draft: "", verdicts: [], text: "", final: null, error: null }]);
     setInput("");
     setBusy(true);
     setPanel(null);
@@ -113,8 +122,11 @@ export default function App() {
     try {
       await streamQuery(text, (event) => {
         if (event.event === "progress") updateTurn(id, (t) => ({ ...t, steps: [...t.steps, event.data.step] }));
+        else if (event.event === "draft_token") updateTurn(id, (t) => ({ ...t, draft: t.draft + event.data.text }));
+        else if (event.event === "claim_verdict") updateTurn(id, (t) => ({ ...t, verdicts: [...t.verdicts, event.data] }));
         else if (event.event === "token") updateTurn(id, (t) => ({ ...t, text: t.text + event.data.text }));
         else if (event.event === "final") {
+          lastAnswerRef.current = { answerId: event.data.answer_id, question: text, answeredAt: Date.now() };
           updateTurn(id, (t) => ({ ...t, final: event.data }));
           setActiveQueryId(event.data.query_id);
           refreshHistory(); // the new question now heads the History list
@@ -141,6 +153,7 @@ export default function App() {
   if (!user) return <LoginScreen onSignedIn={signedIn} resetToken={resetToken} />;
 
   return (
+    <Tooltip.Provider delayDuration={200}>
     <div className="flex h-screen bg-slate-50 text-slate-900">
       <Sidebar
         user={user}
@@ -179,7 +192,9 @@ export default function App() {
             )}
 
             {turns.map((t) => (
-              <AnswerCard key={t.id} turn={t} onOpenSource={(activeId, citations) => setPanel({ activeId, citations })} />
+              <AnswerCard key={t.id} turn={t}
+                onOpenSource={(activeId, citations) => setPanel({ activeId, citations })}
+                onSignal={(answerId, kind) => signalsRef.current.send(answerId, kind)} />
             ))}
             <div ref={bottomRef} />
           </div>
@@ -228,5 +243,6 @@ export default function App() {
         />
       )}
     </div>
+    </Tooltip.Provider>
   );
 }

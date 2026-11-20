@@ -2903,3 +2903,98 @@ The tests check both boundaries:
   - `check_compliance.py --run --run-integration`: passes.
 - **On the way:** the OpenAPI snapshot is unchanged (the limit is a dependency, and 429
   is not declared as a success response).
+
+
+## M16b: The answer view: live draft, claim verdicts, badges, Radix UI and implicit signals (2026-11-20)
+
+Branch `m16b-answer-view`, made from `phase2` after M16a was merged.
+
+### What was built
+- **The live draft (`frontend/src/components/DraftView.tsx`, `lib/draft.ts`).**
+  - As soon as the synthesiser starts writing, its text appears token by token, muted,
+    under "Checking…". The citation markers are hidden in the draft.
+  - **As the verdicts arrive** (one `claim_verdict` event per claim):
+    - a supported sentence turns normal;
+    - a removed one disappears;
+    - a flagged one gets a "check this point" marker.
+  - **The verified answer replaces the draft** when it arrives. Only that text has its
+    citations, sources, confidence and feedback.
+  - **How sentences are matched:** each verdict carries the claim exactly as written in
+    the draft, so it is found in the draft in order. Text no verdict has reached yet stays
+    muted.
+- **Badges with explanations (Radix Tooltip):**
+  - "Reduced checking": a degraded answer under load, with no confidence score;
+  - "Superseded policy involved";
+  - "check this point": on flagged claims in the final answer, plus a count of the points
+    to check.
+- **The source panel** is a Radix Dialog (a side sheet: focus stays inside, Esc closes)
+  with Radix Tabs:
+  - **Cited passage:** the preview, with the supporting sentences highlighted;
+  - **All sources.**
+- **The cited passage reaches the UI.** The API now sends each citation's passage
+  (`cited_text`) and a preview that contains it. Before, the preview was the start of the
+  chunk, which could miss the passage in a long chunk.
+- **Answer actions (Radix DropdownMenu):** copy the answer (without citation markers) and
+  show its sources.
+- **Implicit signals sent by the UI (`lib/signals.ts`):**
+
+  | Signal | When it is sent |
+  |---|---|
+  | copy | the answer is copied, from the menu or by selecting text |
+  | citation_click | a source is opened |
+  | follow_up | another question within 5 minutes |
+  | rephrase | a question at least half the same words, within 2 minutes |
+
+  Each kind is sent at most once per answer, and a failed signal never disturbs the user.
+  The routing bandit already turns them into rewards (M15b).
+- **New progress steps:** "Reusing a recent verified answer…" (the M16a cache) and "Under
+  load: … claim checking skipped".
+- **Radix packages:** react-dialog 1.3.1, react-dropdown-menu 2.2.1, react-tabs 1.2.1,
+  react-tooltip 1.4.1 (exact versions; `npm audit`: 0 vulnerabilities).
+- **The compliance checker also runs Vitest.** A UI requirement may name a Vitest test as
+  `frontend/src/<file>.test.tsx::<title>`. The checker confirms the test has a
+  `// Covers: <ID>` line, and with `--run` it runs Vitest and requires the test to pass.
+
+### A note on running Vitest on Windows
+Run from Git Bash (`/c/Users/...`), Vitest loaded two copies of its `expect` and every
+jest-dom matcher failed ("Invalid Chai property"). From PowerShell (`c:\Users\...`) and
+from Python, all tests pass. This is the drive-letter casing of the working directory, not
+the code. Use PowerShell, `npm test`, or the compliance checker.
+
+### Why it matters
+- **People see work happening at once** (the draft) but can tell what is still unchecked:
+  muted text is not yet verified, and only the final answer counts.
+- **Uncertainty is visible:** a disagreement between the two checks, or reduced checking
+  under load, is shown where the reader looks, not hidden in a log.
+
+### Likely viva questions
+- *Why show an unverified draft at all?* The spec asks for token-by-token streaming. The
+  draft is clearly muted and labelled, sentences change as each is checked, and nothing
+  can be copied, rated or cited until the verified answer replaces it.
+- *How do you tell a follow-up from a rephrase?* By time and word overlap. A rephrase is
+  close in wording and comes within 2 minutes (the answer missed the question); a
+  follow-up is any other question within 5 minutes (the answer may have been
+  incomplete). They are weak signals and weigh less than explicit feedback.
+- *Why Radix?* Accessible behaviour (focus trapping, keyboard support, ARIA roles) comes
+  built in, and Tailwind styles it.
+
+### Status
+- **Partial → Met:** R-5-exp.
+- **Not met → Met:** R-6-radix.
+- **Notes added:** R-8-degrade (the badge) and R-7.9 (the UI sends the signals).
+- **COMPLIANCE.md:** 43 requirements; 30 Met, 10 Partial, 3 Not met.
+- **Tests (2026-11-20):**
+  - default suite: 551 passed (4 new: the citation preview and the checker's Vitest
+    support; counts from pytest's JUnit report);
+  - integration: 18 passed. The first run hit a stopped Docker Desktop; it was restarted
+    and the suite re-run.
+  - frontend: 36 passed (15 new), stable over 13 consecutive runs; `tsc` clean; the
+    production build succeeds;
+  - `check_compliance.py --run --run-integration`: passes, now also running the Vitest
+    acceptance test.
+- **On the way:**
+  - **A flaky Phase 1 test.** "History is grouped by day" failed 1 run in 4. It checked
+    the History panel before the history request had answered (the panel shows
+    "Loading…" first). It now waits for the groups; the sign-in test had the same race
+    and got the same fix. What the tests assert is unchanged.
+  - **OpenAPI:** the snapshot gained `cited_text` on citations.

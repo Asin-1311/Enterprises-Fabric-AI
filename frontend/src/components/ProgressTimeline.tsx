@@ -11,6 +11,8 @@ export const STEP_LABELS: Record<string, string> = {
   synthesizing: "Writing a draft answer",
   verifying: "Checking every claim against its source",
   retrying_retrieval: "Confidence too low: searching once more",
+  reduced_checking: "Under load: low-risk answer, claim checking skipped",
+  cache_hit: "Reusing a recent verified answer for the same question and access",
 };
 
 interface Props {

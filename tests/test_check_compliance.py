@@ -3,7 +3,7 @@
 from pathlib import Path
 
 from app.config import PROJECT_ROOT
-from scripts.check_compliance import COMPLIANCE, check
+from scripts.check_compliance import COMPLIANCE, check, check_test
 
 TESTS = '''import pytest
 
@@ -80,3 +80,20 @@ def test_integration_acceptance_tests_are_recognised() -> None:
 
     assert is_integration("`tests/integration/test_full_backends.py::test_x`")
     assert not is_integration("tests/test_dms_cdc.py::test_x")
+
+
+def test_a_vitest_acceptance_test_must_exist_say_covers_and_not_be_skipped(tmp_path: Path) -> None:
+    """M16b: UI requirements may name a Vitest test as frontend/src/<file>.test.tsx::<title>."""
+    ui = tmp_path / "frontend" / "src" / "Ui.test.tsx"
+    ui.parent.mkdir(parents=True)
+    ui.write_text(
+        'test("uses the primitives", () => {\n  // Covers: R-6-radix\n  expect(1).toBe(1);\n});\n\n'
+        'test("no covers line", () => {\n  expect(1).toBe(1);\n});\n\n'
+        'test.skip("skipped one", () => {\n  // Covers: R-6-radix\n});\n', encoding="utf-8")
+    ref = "`frontend/src/Ui.test.tsx::uses the primitives`"
+    assert check_test(tmp_path, ref, "R-6-radix") == []
+    assert "Covers" in check_test(tmp_path, "frontend/src/Ui.test.tsx::no covers line", "R-6-radix")[0]
+    assert "skipped" in check_test(tmp_path, "frontend/src/Ui.test.tsx::skipped one", "R-6-radix")[0]
+    assert "not found" in check_test(tmp_path, "frontend/src/Ui.test.tsx::missing", "R-6-radix")[0]
+    # the Covers line of one test does not count for the next
+    assert check_test(tmp_path, "frontend/src/Ui.test.tsx::no covers line", "R-6-radix")
