@@ -1,4 +1,6 @@
-"""In-process rate limiting for the sign-in routes (lite profile; Redis comes in M16).
+"""In-process rate limiting (lite profile). Since M16a these classes are the lite
+adapters of the RateLimiter and FailureLockout ports; the full profile uses Redis
+(app/adapters/full/ratelimit.py) with the same behaviour.
 
 Two separate protections, both keyed by the caller's IP address:
 

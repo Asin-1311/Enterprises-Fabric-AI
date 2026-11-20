@@ -47,7 +47,8 @@ from app.api.schemas import (
     UserOut,
 )
 from app.db.models import AuthSession, Engagement, EngagementMember, PasswordReset, User
-from app.api.ratelimit import FailureLockout, TokenBucket, retry_after_header
+from app.api.ratelimit import retry_after_header
+from app.ports import FailureLockout, RateLimiter
 from app.db.session import write_audit_log
 from app.security.passwords import (
     hash_password,
@@ -74,13 +75,17 @@ def _client_ip(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 
-def _limits(request: Request) -> tuple[TokenBucket, FailureLockout]:
-    """The app's sign-in limiter, created on first use from the settings."""
+def _limits(request: Request) -> tuple[RateLimiter, FailureLockout]:
+    """The app's sign-in limiter, created on first use from the settings: in memory (lite)
+    or in Redis, shared by every API worker (full) (M16a)."""
     state = request.app.state
     if getattr(state, "auth_limits", None) is None:
+        from app.adapters import open_failure_lockout, open_rate_limiter
+
         s = state.services.settings
-        state.auth_limits = (TokenBucket(s.auth_rate_per_minute),
-                             FailureLockout(s.auth_lockout_failures, s.auth_lockout_minutes))
+        state.auth_limits = (open_rate_limiter(s, "auth", s.auth_rate_per_minute),
+                             open_failure_lockout(s, "auth", s.auth_lockout_failures,
+                                                  s.auth_lockout_minutes))
     return state.auth_limits
 
 

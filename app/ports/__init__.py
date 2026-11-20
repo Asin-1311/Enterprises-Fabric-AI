@@ -139,6 +139,27 @@ class Cache(Protocol):
 
 
 @runtime_checkable
+class RateLimiter(Protocol):
+    """A token bucket per key (M16a): `per_minute` calls a minute, refilled continuously.
+    Keys name who is limited, e.g. "query:user:S01" or "auth:ip:10.0.0.5"."""
+
+    def take(self, key: str) -> float:
+        """Use one call. Returns 0 if allowed, else the seconds until one is available."""
+        ...
+
+
+@runtime_checkable
+class FailureLockout(Protocol):
+    """Locks a key out after too many failures in a time window (sign-in, M9/M16a)."""
+
+    def record_failure(self, key: str) -> None: ...
+
+    def locked_for(self, key: str) -> float:
+        """0 if the key may try again, else the seconds until the lockout ends."""
+        ...
+
+
+@runtime_checkable
 class EventSubscription(Protocol):
     """One consumer group's view of a topic."""
 
