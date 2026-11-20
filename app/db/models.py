@@ -226,7 +226,8 @@ class Citation(Base):
 
 
 class Feedback(Base):
-    """User feedback on an answer (stored only; no learning loop)."""
+    """User feedback on an answer. Since M15b it feeds the routing bandit's rewards
+    (app/adaptive/routing_policy.py): "not helpful" within 24 hours makes an answer a failure."""
 
     __tablename__ = "feedback"
 
@@ -235,6 +236,7 @@ class Feedback(Base):
     user_id: Mapped[str] = mapped_column(ForeignKey("users.user_id"))
     rating: Mapped[str] = mapped_column(String)  # 'helpful' | 'not_helpful'
     correction: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=utc_now)  # M15b
 
 
 class Source(Base):

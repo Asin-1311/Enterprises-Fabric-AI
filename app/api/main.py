@@ -405,8 +405,9 @@ def get_traces(query_id: int, request: Request,
 
 @router.post("/feedback", response_model=FeedbackOut)
 def feedback(req: FeedbackRequest, request: Request, user: User = Depends(current_user)) -> dict:
-    """Store helpful / not helpful plus an optional correction (masked). Stored only.
-    Only the person who asked may rate an answer."""
+    """Store helpful / not helpful plus an optional correction (masked). Only the person who
+    asked may rate an answer. "Not helpful" within 24 hours counts against the sources and
+    retrievers that produced the answer when the routing policy learns (M15b)."""
     svc = _services(request)
     with svc.sessions() as s:
         answer = s.get(Answer, req.answer_id)

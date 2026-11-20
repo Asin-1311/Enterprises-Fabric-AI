@@ -16,6 +16,9 @@ in `traces` and on every fused `retrievals` row, so its effect can be measured:
 - chunk level: exploratory questions are expanded from the matching chunk to its section
   ("parent": small-to-big) before compression; the others use the matching chunks.
 - under load (M15a, app/adaptive/degradation.py): fewer candidates and no compression.
+- bandit allocation (M15b, app/adaptive/bandit.py): when the active routing policy is a
+  learned one, each retriever's candidates are shared among the routed source types by
+  Thompson sampling, recorded as `allocation` ("<source>|<method>" -> candidates).
 """
 
 from dataclasses import asdict, dataclass, field
@@ -37,6 +40,8 @@ class RetrievalPlan:
     compress: bool
     retriever_weights: dict[str, float] = field(default_factory=lambda: {"dense": 1.0, "keyword": 1.0})
     under_load: bool = False
+    allocation: dict[str, int] | None = None  # M15b: learned routing (None: the rules)
+    policy_version: int | None = None
 
     def record(self) -> dict:
         return asdict(self)
@@ -54,7 +59,9 @@ def intent_profile(intent: str, settings: Settings) -> tuple[dict[str, float], i
 
 
 def plan_for(analysis: QueryAnalysis, routing: RoutingDecision, settings: Settings,
-             under_load: bool = False) -> RetrievalPlan:
+             under_load: bool = False, bandit=None, policy_version: int | None = None,
+             rng=None) -> RetrievalPlan:
+    """`bandit` is the active routing policy's BanditState, or None for the rules."""
     light = (analysis.intent == "factual" and len(analysis.sub_queries) == 1
              and not analysis.client_engagements and not routing.used_tiebreak)
     weights, candidates = intent_profile(analysis.intent, settings)
@@ -62,8 +69,14 @@ def plan_for(analysis: QueryAnalysis, routing: RoutingDecision, settings: Settin
         candidates = min(candidates, settings.light_top_k)
     if under_load:
         candidates = degraded_candidates(candidates, settings.degraded_candidate_factor)
+    allocation = None
+    if bandit is not None and routing.source_types:
+        from app.adaptive.bandit import allocate
+
+        allocation = allocate(bandit, analysis.intent, routing.source_types, candidates, rng)
     return RetrievalPlan(
         intent=analysis.intent, light_path=light,
         chunk_level="parent" if analysis.intent in EXPLORATORY else "child",
         candidates_per_retriever=candidates, compress=not light and not under_load,
-        retriever_weights=weights, under_load=under_load)
+        retriever_weights=weights, under_load=under_load, allocation=allocation,
+        policy_version=policy_version)

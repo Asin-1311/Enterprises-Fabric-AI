@@ -78,7 +78,8 @@ class SubQueryResult:
 def retrieve_one(searcher: HybridSearcher, query: str, user: UserContext, *, round: int,
                  source_types: list[str] | None, time_sensitive: bool, limit: int,
                  top_k: int | None = None, plan: dict | None = None,
-                 weights: dict[str, float] | None = None) -> SubQueryResult:
+                 weights: dict[str, float] | None = None,
+                 allocation: dict[str, int] | None = None) -> SubQueryResult:
     """Search ONE sub-query (the graph runs one of these per sub-query, in parallel)."""
     import time
 
@@ -86,6 +87,6 @@ def retrieve_one(searcher: HybridSearcher, query: str, user: UserContext, *, rou
     steps: list[dict] = []
     hits = searcher.search([query], user, source_types=source_types or None,
                            time_sensitive=time_sensitive, limit=limit, record=steps,
-                           top_k=top_k, plan=plan, weights=weights)
+                           top_k=top_k, plan=plan, weights=weights, allocation=allocation)
     flagged = {h.chunk_id: found for h in hits if (found := scan(h.text))}
     return SubQueryResult(round, query, hits, flagged, steps, started, time.monotonic())

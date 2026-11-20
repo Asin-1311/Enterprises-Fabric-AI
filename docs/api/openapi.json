@@ -1648,7 +1648,7 @@
     },
     "/api/v1/feedback": {
       "post": {
-        "description": "Store helpful / not helpful plus an optional correction (masked). Stored only.\nOnly the person who asked may rate an answer.",
+        "description": "Store helpful / not helpful plus an optional correction (masked). Only the person who\nasked may rate an answer. \"Not helpful\" within 24 hours counts against the sources and\nretrievers that produced the answer when the routing policy learns (M15b).",
         "operationId": "feedback_api_v1_feedback_post",
         "requestBody": {
           "content": {

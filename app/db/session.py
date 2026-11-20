@@ -56,6 +56,8 @@ _ADDED_COLUMNS = [
     ("chunks", "legacy_chunk_id", "VARCHAR"),
     # M12c
     ("sources", "sync_state", "JSON"),
+    # M15b
+    ("feedback", "created_at", "DATETIME"),
 ]
 # SQLite cannot add a UNIQUE column with ALTER TABLE, so an older database gets a
 # unique index instead (a new database has the constraint from create_all as well).

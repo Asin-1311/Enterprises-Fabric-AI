@@ -92,12 +92,16 @@ class _Meta:
 
 
 def _record_ranked(record: list[dict] | None, query: str, method: str,
-                   hits: list[tuple[str, float]]) -> None:
-    """One retriever's raw output for one sub-query: chunk, raw score, rank."""
+                   hits: list[tuple[str, float]], source_type: str | None = None) -> None:
+    """One retriever's raw output for one sub-query: chunk, raw score, rank (and, for a
+    bandit arm, the one source type it searched; M15b)."""
     if record is not None:
-        record.append({"sub_query": query, "method": method, "scores": [
+        step = {"sub_query": query, "method": method, "scores": [
             {"chunk_id": cid, "score": round(score, 6), "rank": rank}
-            for rank, (cid, score) in enumerate(hits, 1)]})
+            for rank, (cid, score) in enumerate(hits, 1)]}
+        if source_type:
+            step["source_type"] = source_type
+        record.append(step)
 
 
 class HybridSearcher:
@@ -132,6 +136,7 @@ class HybridSearcher:
         top_k: int | None = None,
         plan: dict | None = None,
         weights: dict[str, float] | None = None,
+        allocation: dict[str, int] | None = None,
     ) -> list[RetrievedChunk]:
         """Search for one query or several sub-queries on behalf of `user`.
 
@@ -139,7 +144,10 @@ class HybridSearcher:
         sub-query and method the raw scores and ranks, then the fused list with every
         weight and multiplier applied. `top_k` overrides the candidates per retriever;
         `plan` (the question's retrieval plan) is recorded with the fused list (M14a).
-        `weights` gives each retriever's weight in the fusion (M15a; default 1.0 each)."""
+        `weights` gives each retriever's weight in the fusion (M15a; default 1.0 each).
+        `allocation` ("<source_type>|<method>" -> candidates; M15b, the routing bandit)
+        replaces one search per retriever by one search per arm: that retriever over that
+        one source type, with that many candidates; each arm has its own access scope."""
         weights = {**RETRIEVER_WEIGHTS, **(weights or {})}
         if mode not in MODES:
             raise ValueError(f"mode must be one of {MODES}")
@@ -147,8 +155,16 @@ class HybridSearcher:
         as_of = as_of or date.today()
 
         # 1. ACL first: both retrievers only ever see permitted chunks.
+        arm_scopes: dict[str, AccessScope] = {}
         with self.sessions() as s:
-            allowed = allowed_chunk_ids(s, user, source_types)
+            if allocation:
+                allowed = set()
+                for st in {arm.split("|", 1)[0] for arm in allocation}:
+                    ids = allowed_chunk_ids(s, user, [st])
+                    arm_scopes[st] = AccessScope(user, (st,), frozenset(ids))
+                    allowed |= ids
+            else:
+                allowed = allowed_chunk_ids(s, user, source_types)
         scope = AccessScope(user, tuple(source_types) if source_types else None,
                             frozenset(allowed))
 
@@ -159,22 +175,25 @@ class HybridSearcher:
         dense_rank: dict[str, int] = {}
         bm25_rank: dict[str, int] = {}
         use_dense, use_keyword = mode in ("dense", "hybrid_raw", "hybrid"), mode in ("bm25", "hybrid_raw", "hybrid")
+        ranks_of = {"dense": dense_rank, "keyword": bm25_rank}
         with ThreadPoolExecutor(max_workers=2) as pool:
             for q in queries:
-                dense_job = pool.submit(lambda q=q: self.store.search_scoped(
-                    self.embedder.embed_query(q), scope, k)) if use_dense else None
-                keyword_job = pool.submit(self.bm25.search_scoped, q, scope, k) if use_keyword else None
-                for method, job, ranks in (("dense", dense_job, dense_rank),
-                                           ("keyword", keyword_job, bm25_rank)):
-                    if job is None:
-                        continue
+                # (method, source type or None, scope, candidates) for every search to run.
+                searches = ([(arm.split("|", 1)[1], arm.split("|", 1)[0], arm_scopes[arm.split("|", 1)[0]], n)
+                             for arm, n in allocation.items() if n > 0] if allocation else
+                            [(m, None, scope, k) for m, on in (("dense", use_dense), ("keyword", use_keyword)) if on])
+                vector = self.embedder.embed_query(q) if any(m == "dense" for m, *_ in searches) else None
+                jobs = [(method, st, pool.submit(self.store.search_scoped, vector, sc, n) if method == "dense"
+                         else pool.submit(self.bm25.search_scoped, q, sc, n))
+                        for method, st, sc, n in searches]
+                for method, st, job in jobs:
                     hits = job.result()
                     ids = [cid for cid, _ in hits]
                     rankings.append(ids)
                     ranking_weights.append(weights[method])
                     for r, cid in enumerate(ids, 1):
-                        ranks[cid] = min(r, ranks.get(cid, r))
-                    _record_ranked(record, q, method, hits)
+                        ranks_of[method][cid] = min(r, ranks_of[method].get(cid, r))
+                    _record_ranked(record, q, method, hits, st)
 
         # 3. Fuse.
         fused = reciprocal_rank_fusion(rankings, k=self.rrf_k, weights=ranking_weights)

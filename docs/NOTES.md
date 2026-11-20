@@ -2558,3 +2558,119 @@ unchanged, so earlier runs stay comparable; their results are identical to befor
 - **Two things that happened on the way:**
   - An M11 test hard-coded the old equal fusion weights. The first full-suite run missed this, because its output was not captured, so its results were re-read from a JUnit report; the test now checks that the recorded weights are the plan's weights.
   - Docker Desktop stopped a second time (memory pressure is likely since Keycloak joined the stack). After it restarted, one integration acceptance test failed in the compliance check while Kafka was still starting; the same test passed when run alone and in the full re-run, so it was not a code failure.
+
+
+## M15b: Learned routing, rewards from the logs, and the replay gate (2026-11-20)
+
+Branch `m15b-learned-routing`, made from `phase2` after M15a was merged.
+
+### What was built
+- **The bandit (`app/adaptive/bandit.py`).**
+  - For each question type, an arm is one source type searched by one retriever, for
+    example (circulars, keyword). Each arm holds a Beta(alpha, beta) belief about how
+    often it leads to a good answer, starting at Beta(1, 1): unknown.
+  - **Allocation:** each retriever's candidate budget is shared among the source types
+    the router chose, in proportion to one random draw per arm (Thompson sampling). An
+    arm whose share would be under 2 candidates is dropped.
+  - **Limits:** the bandit never adds a source type, and every arm's search keeps its own
+    access scope (the same pre-filter as before), so learning can change where the system
+    looks, never what a user may see.
+- **Searching by arm:** with an allocation, the searcher runs one search per arm (that
+  retriever over that one source type), fuses them with the question type's weights, and
+  records each arm's search with the source it searched (`retrievals.source_id`).
+- **Rewards from the logs (`app/adaptive/routing_policy.py`).** An answer counts once it
+  is 24 hours old, so its feedback is in.
+  - **The full reward:** 1 when it was answered, verified with confidence ≥ 0.6 and got no
+    "not helpful" within the window (`feedback.created_at`, migration 0005); otherwise 0.
+  - **Implicit signals** add smaller rewards: copy +0.5, citation click +0.25, follow-up
+    −0.25, rephrase −0.5.
+  - **Credit** goes to the arms that found the answer's cited chunks; an answer without
+    citations counts against every arm that was searched.
+  - **Not learned from:** degraded (unverified) answers, denials and greetings.
+- **Versioned policies.** `python -m app.adaptive.routing_policy --propose`:
+  - starts from the active policy;
+  - adds the rewards since that policy was built;
+  - replays the result against the active policy;
+  - saves it as a new, inactive version with its replay report.
+
+  It runs nightly (`flows/jobs.py`). Only an administrator can activate a version, through
+  `PUT /api/v1/routing-policy`, and only with a passing report (the M11 gate).
+- **Replay (`app/adaptive/replay.py`).**
+  - `eval/replay/routing_replay.jsonl` holds 43 recorded inputs: the evaluation questions
+    with gold documents, each with its user, labelled intent and the sources the rule
+    router chooses. They were recorded once by `scripts/make_routing_replay.py` without
+    LLM calls.
+  - A policy is scored by document recall@10 and must lose at most 0.02 against the
+    active policy.
+  - Bandit allocations are replayed with the posterior means, not random draws, so a
+    score is the same every time. Routing replay costs nothing; prompt replay (which
+    needs the model) is M15c.
+
+### Checked on a copy of the real index
+`--propose` on a copy of the database and index learned from 0 answers. Retrieval records
+only started in M11, and no recorded answer is older than 24 hours with its retrieval
+steps, so the policy is still the uninformed prior. Its replay scored 0.8372, the same as
+the rule router's 0.8372 on the 43 questions. So spreading the budget evenly across the
+routed sources costs nothing, before any learning. Real learning needs real usage over
+days; M18 measures it. The first run on the copy also showed that a proposal could take
+version 1 when the seed rules policy had never been recorded. `propose` now records the
+seed first, so a proposal is always compared against an explicit baseline (it became
+version 2).
+
+### The tests
+- **Convergence:** a seeded 300-round simulation, with arms that truly succeed 80%, 30%
+  and 20% of the time, ends with posterior means within 0.05 of the truth and an
+  allocation of 13 / 4 / 3 candidates.
+- **A version learned from real pipeline logs:** a recent answer is not yet counted,
+  "not helpful" turns success into failure, and signals add their rewards.
+- **The replay gate:** a policy deliberately taught to starve the sources holding the
+  answers fails replay and `PUT /routing-policy` refuses it (409); an uninformed one
+  passes and is activated.
+- **In the pipeline:** with a learned policy active, the proven arm gets the largest
+  share and each arm's search is recorded with its source.
+
+### Why it matters
+- **The system can learn where answers come from,** per type of question, from verified
+  answers and from how users react, without being able to learn its way around access
+  control.
+- **No learned policy reaches users unchecked:** it must do at least as well as the one in
+  use on recorded questions, and an administrator must switch it on.
+
+### Likely viva questions
+- *Why Thompson sampling?* It balances using what works with trying what is uncertain,
+  automatically: an arm with little data has a wide belief and sometimes draws high, so
+  it gets tried.
+- *Could the bandit learn to show restricted documents?* No. It only divides the search
+  budget among sources the router chose, and every search applies the user's access
+  rules inside the index, then OPA. Access is never learned.
+- *Why wait 24 hours before learning from an answer?* So a "not helpful" given later still
+  counts; learning immediately would reward answers users went on to reject.
+
+### Status
+- **Met:** R-7.4, R-8-bandit, R-10-policy (now gated by real replay reports).
+- **Not met → Partial:** R-13.3-replay (prompt replay is M15c; CI is M17/M18).
+- **Advanced:** R-7.9 (signals feed routing; the dataset export is M15c).
+- **COMPLIANCE.md:** 43 requirements; 26 Met, 12 Partial, 5 Not met.
+
+### Found and fixed: a Kafka consumer could be dropped during a long batch (from M10)
+- **What happened:** the Debezium integration test failed once with `MAX_POLL_EXCEEDED`.
+  Kafka removes a consumer from its group if it does not poll for 5 minutes (the default
+  `max.poll.interval.ms`). Here the machine had stalled for about 16 minutes during a long
+  background test run. The same test passed alone (the update arrived in 0.9 s) and in a
+  full re-run.
+- **The weakness it revealed:** the adapter treated every consumer error as fatal. The
+  ingestion worker also applies a whole batch (up to 50 events, possibly large ICAI PDFs)
+  between polls, which can take more than 5 minutes.
+- **The fix:**
+  - the limit is now 30 minutes;
+  - this one error is logged as a warning, and the consumer rejoins on its next poll
+    (uncommitted events come again, so nothing is lost);
+  - every other Kafka error still raises.
+
+  Tested without a broker in `tests/test_kafka_subscription.py`.
+- **Tests (2026-11-20):**
+  - default suite: 525 passed (8 new; counts from pytest's JUnit report);
+  - integration: 16 passed;
+  - frontend: 21 passed;
+  - `check_compliance.py --run --run-integration`: passes.
+- **On the way:** the OpenAPI snapshot changed only in the `/feedback` description.
