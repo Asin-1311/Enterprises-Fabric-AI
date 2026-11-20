@@ -161,6 +161,11 @@ class Settings(BaseSettings):
     latency_window_size: int = 100
     latency_min_samples: int = 20
     degraded_candidate_factor: float = 0.5
+    # M15b: learned routing. A fixed seed makes Thompson sampling repeatable (tests); unset
+    # in normal use. Rewards count only answers at least this old (the feedback window).
+    bandit_seed: int | None = None
+    reward_window_hours: float = 24.0
+    replay_tolerance: float = 0.02  # a new routing policy may lose at most this much
 
     # --- Verification -------------------------------------------------------
     confidence_threshold: float = 0.6

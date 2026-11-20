@@ -7,7 +7,15 @@ then commits, and must therefore be idempotent (it is keyed by content hash).
 """
 
 import json
+import logging
 from typing import Any
+
+log = logging.getLogger(__name__)
+
+# How long a consumer may go between polls before Kafka removes it from its group. The
+# ingestion worker applies a whole batch (up to 50 events, possibly large ICAI PDFs to
+# chunk and embed) between polls, which can take longer than Kafka's default 5 minutes.
+MAX_POLL_INTERVAL_MS = 30 * 60 * 1000
 
 
 class KafkaEventBus:
@@ -61,7 +69,8 @@ class KafkaSubscription:
         from confluent_kafka import Consumer
 
         self._consumer = Consumer({"bootstrap.servers": bootstrap, "group.id": group,
-                                   "auto.offset.reset": "earliest", "enable.auto.commit": False})
+                                   "auto.offset.reset": "earliest", "enable.auto.commit": False,
+                                   "max.poll.interval.ms": MAX_POLL_INTERVAL_MS})
         self._consumer.subscribe([topic])
         self._polled = False
 
@@ -70,6 +79,14 @@ class KafkaSubscription:
         if msg is None:
             return None
         if msg.error():
+            from confluent_kafka import KafkaError
+
+            if msg.error().code() == KafkaError._MAX_POLL_EXCEEDED:
+                # Too long between polls (a long batch, or the machine paused): Kafka took
+                # this consumer out of its group. The next poll rejoins it, and anything
+                # not committed is delivered again, so this is not an error (M15b).
+                log.warning("Kafka consumer rejoining its group after a long pause: %s", msg.error())
+                return None
             raise RuntimeError(f"Kafka consumer error: {msg.error()}")
         self._polled = True
         return json.loads(msg.value())

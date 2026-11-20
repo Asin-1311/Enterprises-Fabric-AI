@@ -11,6 +11,7 @@ exit code and output. flows/serve.py turns this list into Prefect deployments.
 | nightly-retention-purge | 01:00 daily         | python -m app.security.retention (M13a)       |
 | nightly-reconciliation  | 01:30 daily         | python -m app.ingest.reconcile                |
 | nightly-retrieval-eval  | 02:00 daily         | python -m eval.run_retrieval_eval (no LLM calls) |
+| nightly-routing-policy  | 02:30 daily         | python -m app.adaptive.routing_policy --propose (M15b): learns a new INACTIVE version and replays it; an admin activates it |
 
 Added by a later milestone: the weekly answer sample for human review (M18). The
 retrieval regression gate itself is M18.
@@ -44,6 +45,9 @@ JOBS: dict[str, Job] = {
     "nightly-retrieval-eval": Job(
         "Retrieval evaluation (recall, MRR, nDCG, leak checks); no LLM calls.", "0 2 * * *",
         ["-m", "eval.run_retrieval_eval"]),
+    "nightly-routing-policy": Job(
+        "Learn a new routing policy version from the logs and replay it (never activates it).",
+        "30 2 * * *", ["-m", "app.adaptive.routing_policy", "--propose"]),
 }
 
 

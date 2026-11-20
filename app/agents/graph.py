@@ -168,6 +168,7 @@ class SubQueryTask(TypedDict):
     top_k: int
     plan: dict
     weights: dict[str, float]
+    allocation: dict[str, int] | None
 
 
 @dataclass
@@ -222,6 +223,24 @@ class AuditAssistant:
         # Looking up (and, the first time, recording) the active versions writes rows, so
         # two questions arriving together must not both try to create version 1.
         self._versions_lock = threading.Lock()
+        # Thompson sampling's random draws (M15b); a fixed BANDIT_SEED makes them repeatable.
+        import random
+
+        self._rng = random.Random(deps.settings.bandit_seed)
+
+    def _active_bandit(self, policy_id: int | None):
+        """(BanditState, version) if the active routing policy is learned, else (None, version)."""
+        from app.adaptive.bandit import BanditState
+        from app.db.models import RoutingPolicy
+
+        if policy_id is None:
+            return None, None
+        with self.deps.sessions() as s:
+            policy = s.get(RoutingPolicy, policy_id)
+        if policy is None:
+            return None, None
+        weights = policy.weights or {}
+        return (BanditState.from_json(weights) if weights.get("kind") == "bandit" else None), policy.version
 
     # ------------------------------------------------------------------- nodes
 
@@ -255,8 +274,10 @@ class AuditAssistant:
         state["tracer"].budget.check(retrieval_round=True)
         s = self.deps.settings
         p95 = self.deps.latency.p95() if self.deps.latency is not None else None
+        bandit, policy_version = self._active_bandit(state["tracer"].versions.policy_id)
         plan = plan_for(state["analysis"], state["routing"], s,
-                        under_load(p95, s.latency_target_seconds, s.degradation_enabled))
+                        under_load(p95, s.latency_target_seconds, s.degradation_enabled),
+                        bandit, policy_version, self._rng)
         state["tracer"].log("retrieval_plan", {"intent": state["analysis"].intent,
                                                "sub_queries": state["analysis"].sub_queries,
                                                "p95_seconds": p95},
@@ -276,7 +297,10 @@ class AuditAssistant:
             source_types=state.get("pending_sources"),
             time_sensitive=state["analysis"].intent == "time_sensitive",
             top_k=plan.candidates_per_retriever, plan=plan.record(),
-            weights=plan.retriever_weights))
+            weights=plan.retriever_weights,
+            # The learned allocation covers the routed sources (round 1); the follow-up and
+            # the retry search every source the user may see, as before.
+            allocation=plan.allocation if state.get("pending_sources") else None))
             for q in state["pending_queries"]]
 
     def _retrieve_one(self, task: SubQueryTask) -> dict:
@@ -285,7 +309,8 @@ class AuditAssistant:
                               source_types=task["source_types"],
                               time_sensitive=task["time_sensitive"],
                               limit=self.deps.settings.retrieval_top_k, top_k=task["top_k"],
-                              plan=task["plan"], weights=task["weights"])
+                              plan=task["plan"], weights=task["weights"],
+                              allocation=task["allocation"])
         return {"subquery_results": [result]}
 
     def _gather(self, state: GraphState) -> GraphState:
@@ -322,8 +347,10 @@ class AuditAssistant:
         source_id = folder_source_id(source_types[0]) if source_types and len(source_types) == 1 \
             else None
         with self.deps.sessions() as s:
+            # A bandit arm searched one source type (M15b): its row names that source.
             s.add_all(Retrieval(query_id=state["tracer"].query_id, sub_query=mask_text(step["sub_query"]),
-                                source_id=source_id, method=step["method"], scores=step["scores"])
+                                source_id=folder_source_id(step["source_type"]) if step.get("source_type")
+                                else source_id, method=step["method"], scores=step["scores"])
                       for step in steps)
             s.commit()
 
