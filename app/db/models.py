@@ -302,8 +302,10 @@ class PromptVersion(Base):
     version: Mapped[int] = mapped_column(Integer)
     template: Mapped[str] = mapped_column(Text)
     eval_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    eval_report: Mapped[dict | None] = mapped_column(JSON, nullable=True)  # replay (M15c)
     created_by: Mapped[str] = mapped_column(String)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+    activated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
 
 

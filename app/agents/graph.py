@@ -68,6 +68,7 @@ from app.agents.synthesizer import (
 )
 from app.agents.tracing import Tracer
 from app.agents.versions import ensure_active_versions
+from app.learning.prompt_registry import PromptedLLM
 from app.agents.verifier import FLAG_MARK, Verification, verify
 from app.config import Settings, get_settings
 from app.db.models import Answer, Citation, Document, Query, Retrieval
@@ -244,6 +245,11 @@ class AuditAssistant:
 
     # ------------------------------------------------------------------- nodes
 
+    def _llm(self, state: GraphState) -> PromptedLLM:
+        """The model, sending each agent's ACTIVE prompt version (M15c): the versions were
+        read once when the question arrived, so one answer uses one consistent set."""
+        return PromptedLLM(self.deps.llm, state["tracer"].versions.templates)
+
     def _understand(self, state: GraphState) -> GraphState:
         _emit(state, "understanding")
         state["tracer"].budget.check(llm_calls=1)
@@ -255,7 +261,7 @@ class AuditAssistant:
         if question_hits:
             log.warning("Instruction-like text in the question of query %s: %s",
                         state["tracer"].query_id, ", ".join(question_hits))
-        analysis, res = understand(state["question"], self.deps.llm, self.deps.clients)
+        analysis, res = understand(state["question"], self._llm(state), self.deps.clients)
         state["tracer"].log("query_understanding", {"question": state["question"]},
                             {**asdict(analysis), "question_injection_hits": question_hits},
                             [res])
@@ -263,7 +269,7 @@ class AuditAssistant:
 
     def _route(self, state: GraphState) -> GraphState:
         _emit(state, "routing")
-        decision, res = route(state["question"], state["analysis"], state["user"], self.deps.llm)
+        decision, res = route(state["question"], state["analysis"], state["user"], self._llm(state))
         state["tracer"].log("source_routing", {"question": state["question"],
                                                "analysis": asdict(state["analysis"])},
                             asdict(decision), [res] if res else [])
@@ -370,7 +376,7 @@ class AuditAssistant:
     def _followup(self, state: GraphState) -> GraphState:
         _emit(state, "followup_retrieval")
         state["tracer"].budget.check(llm_calls=1, retrieval_round=True)
-        queries, res = reformulate(state["question"], self.deps.llm)
+        queries, res = reformulate(state["question"], self._llm(state))
         state["tracer"].log("reformulate", {"question": state["question"]}, {"queries": queries}, [res])
         # The follow-up widens to every source type the user may see.
         return {"followup_done": True, "round": state["round"] + 1,
@@ -388,7 +394,7 @@ class AuditAssistant:
                                                   s.parent_expansion_max)
         if plan.compress:
             state["tracer"].budget.check(llm_calls=1)
-            evidence, res = compress_evidence(state["question"], ranked, self.deps.llm,
+            evidence, res = compress_evidence(state["question"], ranked, self._llm(state),
                                               s.good_chunk_threshold)
         else:
             evidence, res = whole_chunks(ranked, s.good_chunk_threshold), None
@@ -404,7 +410,7 @@ class AuditAssistant:
         chunks = {r.chunk.chunk_id: r.chunk for r in state["ranked"]}
         docs = self._doc_info({chunks[e.chunk_id].doc_id for e in state["evidence"]}, state["user"])
         synthesis, res = synthesize(state["question"], state["evidence"], chunks, docs,
-                                    self.deps.llm, on_text=state.get("on_token"))
+                                    self._llm(state), on_text=state.get("on_token"))
         state["tracer"].log("synthesis", {"evidence": [e.chunk_id for e in state["evidence"]]},
                             {"status": synthesis.status, "text": synthesis.text,
                              "invalid_citations": synthesis.invalid_citations,
@@ -418,7 +424,7 @@ class AuditAssistant:
         chunks = {r.chunk.chunk_id: r.chunk for r in state["ranked"]}
         docs = self._doc_info({c.doc_id for c in chunks.values()}, state["user"])
         s = self.deps.settings
-        v, res = verify(state["question"], draft, chunks, self.deps.llm, docs,
+        v, res = verify(state["question"], draft, chunks, self._llm(state), docs,
                         [e.chunk_id for e in state["evidence"]], nli=self.deps.nli,
                         evidence={e.chunk_id: e.sentences for e in state["evidence"]},
                         entail_at=s.nli_entailment_threshold,
@@ -446,7 +452,7 @@ class AuditAssistant:
         """Low confidence: ONE loop back to retrieval with reworded, widened queries."""
         _emit(state, "retrying_retrieval", confidence=state["confidence"])
         state["tracer"].budget.check(llm_calls=1, retrieval_round=True)
-        queries, res = reformulate(state["question"], self.deps.llm)
+        queries, res = reformulate(state["question"], self._llm(state))
         state["tracer"].log("reformulate", {"question": state["question"],
                                             "confidence": state["confidence"]},
                             {"queries": queries}, [res])

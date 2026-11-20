@@ -58,7 +58,16 @@ _ADDED_COLUMNS = [
     ("sources", "sync_state", "JSON"),
     # M15b
     ("feedback", "created_at", "DATETIME"),
+    # M15c
+    ("prompt_versions", "eval_report", "JSON"),
+    ("prompt_versions", "activated_at", "DATETIME"),
 ]
+# Run once, right after the column is added to an older database.
+_BACKFILLS = {
+    # Before M15c every recorded prompt version was activated when it was recorded.
+    ("prompt_versions", "activated_at"):
+        "UPDATE prompt_versions SET activated_at = created_at WHERE activated_at IS NULL",
+}
 # SQLite cannot add a UNIQUE column with ALTER TABLE, so an older database gets a
 # unique index instead (a new database has the constraint from create_all as well).
 _ADDED_INDEXES = [
@@ -76,6 +85,8 @@ def init_db(engine: Engine) -> None:
             existing = {row[1] for row in conn.exec_driver_sql(f"PRAGMA table_info({table})")}
             if column not in existing:
                 conn.exec_driver_sql(f"ALTER TABLE {table} ADD COLUMN {column} {sql_type}")
+                if (table, column) in _BACKFILLS:
+                    conn.exec_driver_sql(_BACKFILLS[(table, column)])
         for ddl in _ADDED_INDEXES:
             conn.exec_driver_sql(ddl)
         for ddl in _AUDIT_TRIGGERS:

@@ -211,20 +211,24 @@ def test_spans_ignore_whitespace_differences_and_cover_every_sentence() -> None:
     assert supporting_span(text, []) is None
 
 
-def test_a_changed_prompt_is_recorded_as_a_new_active_version(client, monkeypatch) -> None:
-    with client.indexer.sessions() as s:
-        before = s.scalars(select(PromptVersion).where(PromptVersion.agent == "compress",
-                                                       PromptVersion.is_active.is_(True))).first()
+def test_a_changed_code_prompt_is_recorded_as_an_inactive_candidate(client, monkeypatch) -> None:
+    """M15c (replaces the M11 rule that a changed code prompt went live by itself): the
+    code holds only the seed. A changed code prompt is recorded once as a new INACTIVE
+    version; the active one, and the text sent to the model, stay as they were."""
+    before = ensure_active_versions(client.indexer.sessions)
     monkeypatch.setitem(PROMPTS, "compress", PROMPTS["compress"] + "\nEdited.")
-    versions = ensure_active_versions(client.indexer.sessions)
+    after = ensure_active_versions(client.indexer.sessions)
+    ensure_active_versions(client.indexer.sessions)  # recorded once, not on every question
     with client.indexer.sessions() as s:
-        new = s.get(PromptVersion, versions.prompt_ids["compress"])
-        rows = list(s.scalars(select(PromptVersion).where(PromptVersion.agent == "compress")))
-    assert new.template.endswith("Edited.") and new.is_active
-    if before is not None:
-        assert new.version == before.version + 1
+        rows = list(s.scalars(select(PromptVersion).where(PromptVersion.agent == "compress")
+                              .order_by(PromptVersion.version)))
+    assert after.prompt_ids["compress"] == before.prompt_ids["compress"]
+    assert after.templates["compress"] == before.templates["compress"]
+    assert rows[-1].template.endswith("Edited.") and not rows[-1].is_active
+    assert rows[-1].created_by == "system (code change)" and rows[-1].eval_report is None
+    assert sum(r.template.endswith("Edited.") for r in rows) == 1
     assert sum(r.is_active for r in rows) == 1
-    assert "prompt_version_recorded" in _actions(client, "system")
+    assert "prompt_candidate_recorded" in _actions(client, "system")
 
 
 # --------------------------------------------------------------------------- signals

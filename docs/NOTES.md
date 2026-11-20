@@ -2674,3 +2674,150 @@ version 2).
   - frontend: 21 passed;
   - `check_compliance.py --run --run-integration`: passes.
 - **On the way:** the OpenAPI snapshot changed only in the `/feedback` description.
+
+
+## M15c: The prompt registry, prompt replay, and learning for the re-ranker (2026-11-20)
+
+Branch `m15c-prompts-reranker`, made from `phase2` after M15b was merged.
+
+### What was built
+- **Prompts come from the database (`app/learning/prompt_registry.py`).**
+  - Every model call goes through `PromptedLLM`, which sends the agent's ACTIVE version
+    from `prompt_versions` instead of the text in the code.
+  - The versions are read once when a question arrives, so one answer uses one consistent
+    set, and every trace names the exact version that was sent.
+  - The code now holds only the seed: on a new database it becomes version 1, active.
+- **A changed prompt in the code no longer goes live by itself.**
+  - It is recorded once as a new, INACTIVE candidate ("system (code change)"), with a
+    warning in the log and an audit-log entry.
+  - It becomes active like any other new version: replay, then activation.
+  - This replaces the M11 rule (a changed code prompt became active automatically). That
+    rule was right while the code was the source of the prompts; CLAUDE.md section 7 now
+    says the code holds only the seed. The M11 test was rewritten to the new rule (it is
+    not an access-control, masking or audit-log test).
+- **Admin endpoints:**
+  - `GET /api/v1/admin/prompts` lists the versions;
+  - `POST /api/v1/admin/prompts` stores a new, inactive version;
+  - `POST /api/v1/admin/prompts/{id}/activate` makes it live, but only if it has a passing
+    replay report made against the version active now. A version that served users before
+    can be re-activated without a replay: that is a rollback.
+  - Every step writes the audit log (`prompt_version_created`, `prompt_replayed`,
+    `prompt_activated`, `prompt_rolled_back`).
+  - A prompt for an agent that reads retrieved documents (compress, synthesis,
+    verification) is refused unless it keeps the untrusted-data rule word for word.
+  - Migration 0006 adds `prompt_versions.eval_report` and `activated_at`. Older rows get
+    `activated_at = created_at`, because before M15c every recorded version went live
+    when it was recorded.
+- **Prompt replay (`app/learning/prompt_replay.py`).**
+  - It runs the agent's own code twice on the same recorded inputs, once with the
+    candidate prompt and once with the active one, and scores both the same way.
+  - The inputs are `eval/replay/prompt_replay.jsonl`: 24 evaluation questions over
+    synthetic documents only, recorded without any model call by
+    `scripts/make_prompt_replay.py`. They hold chunk ids, never licensed text, and run
+    from a clean clone.
+  - Scorers, one per agent:
+
+    | Agent | Score |
+    |---|---|
+    | query understanding | the labelled intent |
+    | routing tie-breaker | a gold document's source type is chosen |
+    | reformulation | a search with the new wording finds a gold document |
+    | compression | the gold chunk keeps a sentence |
+    | synthesis | the gold chunk is cited and no chunk it was not given |
+    | verification | the expected verdict on 24 drafted claims (12 supported, 12 not) |
+
+  - **The labels are not reviewed yet.** The claim labels were drafted automatically (an
+    "unsupported" claim is a sentence from another document sharing at most 30% of its
+    longer words with the gold chunk). Every label is `"reviewed": false`, the report
+    counts the reviewed ones, and the author should check them.
+  - **Pass rule:** the candidate may score at most `PROMPT_REPLAY_TOLERANCE` (0.05) below
+    the active version. A call that fails scores 0, so a prompt that breaks an agent's
+    output fails.
+  - **It is paid.** Without `--confirm-paid` it only says how many calls it would make.
+  - **The report records** calls, tokens, the estimated cost (token counts × the listed
+    prices) and the measured spend (the OpenRouter balance change, when available). It
+    goes into `eval/results/<ts>_prompt_replay/`.
+  - **No live prompt replay has been run in M15c.**
+- **The re-ranker dataset (`app/learning/reranker_dataset.py`,
+  `scripts/export_reranker_dataset.py`).** An answer counts once its 24-hour feedback
+  window has passed.
+  - **Positive pairs:** each chunk a verified answer cites, when the answer reached the
+    confidence threshold and got no "not helpful".
+  - **Negative pairs:** each chunk the re-ranker put in its top list that the answer did
+    not cite (a hard negative).
+  - **Skipped and counted:** answers rated "not helpful", low-confidence answers,
+    abstentions and denials. These may have failed for reasons other than the evidence.
+  - **Restricted text is never written.**
+  - **Old chunk ids are mapped:** answers from before M12b cite the old chunk ids, which
+    are mapped through `chunks.legacy_chunk_id`.
+  - **Output:** `data/learning/reranker/<ts>.jsonl` (git-ignored).
+- **Corrections become candidate evaluation questions (`app/learning/corrections.py`).**
+  - A correction given with feedback becomes a candidate question with the correction as
+    a draft gold answer and `"reviewed": false`.
+  - Candidates go to `data/learning/eval_candidates/`, never straight into the evaluation
+    set; only the author moves reviewed ones in.
+- **Fine-tuning and its gate (`app/learning/reranker_finetune.py`,
+  `scripts/finetune_reranker.py`).**
+  - **Training:** a plain PyTorch loop (binary cross-entropy, AdamW, fixed seed), so no
+    new dependency.
+  - **No testing on training data:** pairs from evaluation questions, as the whole
+    question or as one of its sub-queries, are removed before training.
+  - **The comparison:** both models re-rank the same search candidates for the 43
+    evaluation questions, measured by document recall@5, MRR and nDCG@10.
+  - **The gate:** the new model "beats" the current one only with a higher nDCG@10 and no
+    metric lower. The decision is written to the model folder's `promotion.json`.
+  - **The re-ranker refuses to load** a local model whose `promotion.json` does not say it
+    beat the current one.
+  - **Using it** is one setting the author changes: `RERANKER_MODEL`.
+
+### What the real database gives today (no model calls)
+The export on the local database used 75 answers:
+- **pairs:** 242 positive and 130 negative;
+- **skipped answers:** 8 low-confidence, 12 denied, 14 not found and 9 greetings;
+- **after removing evaluation questions:** 55 pairs from 11 questions remain.
+
+So most of what the system has answered so far are the evaluation questions themselves.
+Fine-tuning was NOT run on this data. It was tested only on a tiny synthetic set with a
+tiny random model, to show the pipeline and the gate work. No improvement is claimed.
+
+### Why it matters
+- **Prompt changes are now governed:** a prompt can change, but only to a version that
+  did at least as well on recorded inputs. A bad one can be rolled back in one call, and
+  every step is in the audit log.
+- **The system can learn from its own verified answers** without learning from text it
+  must not share, and without being tested on the questions it trained on.
+
+### Likely viva questions
+- *Why not let a changed code prompt go live automatically, as in M11?* A prompt changes
+  every answer. If any edit went live untested, the replay gate would mean nothing. The
+  code's text is now just a proposal.
+- *Why replay against the active version and not a fixed target?* Model outputs vary, and
+  a fixed target would mix that drift with the prompt's effect. Running both prompts on
+  the same inputs, in the same run, isolates the prompt.
+- *Why is the tolerance 0.05, wider than routing's 0.02?* Routing replay is deterministic.
+  Prompt replay is not, and one record of about 20 is 0.05. M18 measures the real
+  run-to-run spread, and the value should be revisited then.
+- *Why are uncited ranked chunks negatives?* The re-ranker put them in its top list, but
+  the verified answer did not need them. That is the mistake a fine-tuned re-ranker should
+  learn to avoid. The label is weak, because a chunk can be relevant but redundant, which
+  is why the gate, not the training loss, decides.
+- *Why not train on the evaluation questions?* The gate measures on them. Training on
+  them would make any model look better than it is.
+
+### Status
+- **Partial → Met:** R-7.9 (signals feed routing; verification and feedback give
+  labelled pairs; corrections become candidate questions).
+- **Not met → Partial:** R-7.10 (API half: register a source, inspect a trace, roll back a
+  prompt; the console UI is M16).
+- **Advanced:** R-13.3-replay (prompt replay added; running the suite in CI is M17/M18).
+- **COMPLIANCE.md:** 43 requirements; 27 Met, 12 Partial, 4 Not met.
+- **Tests (2026-11-20):**
+  - default suite: 540 passed (15 new; counts from pytest's JUnit report);
+  - integration: 16 passed (PostgreSQL schema matches the models with migration 0006);
+  - frontend: 21 passed;
+  - `check_compliance.py --run --run-integration`: passes.
+- **On the way:**
+  - The OpenAPI snapshot gained the three `/admin/prompts` endpoints, each with a contract
+    case.
+  - The router's tie-breaker is now its own function (`tiebreak`), so replay can call it
+    directly; routing behaviour is unchanged.
