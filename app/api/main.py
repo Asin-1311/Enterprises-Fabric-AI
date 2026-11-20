@@ -50,7 +50,7 @@ from typing import Any
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query as Q, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func, select
 from sse_starlette.sse import EventSourceResponse
@@ -671,6 +671,15 @@ def create_app(services: Services | None = None, static_dir: Path | None = FRONT
                             content={"detail": GENERIC_ERROR.format(ref=ref), "reference": ref})
 
     if static_dir is not None and (static_dir / "index.html").exists():
+        index = static_dir / "index.html"
+
+        # The React app's own pages (M16c): /admin is a client-side route, so the server
+        # answers it with the app, which then shows the page (or refuses a non-admin).
+        @app.get("/admin", include_in_schema=False)
+        @app.get("/admin/{rest:path}", include_in_schema=False)
+        def ui_page(rest: str = "") -> FileResponse:
+            return FileResponse(index)
+
         app.mount("/", StaticFiles(directory=static_dir, html=True), name="ui")
     return app
 

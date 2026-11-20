@@ -711,3 +711,115 @@ def test_response_cache_keys_on_redis_never_cross_access_fingerprints(settings, 
         assert rc.key(q, s1) != key
     finally:
         cache.delete(key)
+
+
+# ------------------------------------------------------ classification policies (M16c)
+
+def test_a_classification_policy_reaches_postgres_qdrant_and_opensearch(
+        tmp_path, pg_store, qdrant_server, opensearch_index) -> None:
+    """Covers: R-7.10 (full profile): a rule raises the matching documents in PostgreSQL
+    and in the payloads of the Qdrant server and OpenSearch; switching it off restores them."""
+    from app.db.models import ClassificationPolicy
+
+    indexer = _full_indexer(_clean_clone(tmp_path), pg_store, qdrant_server, opensearch_index)
+    indexer.sync(actor="integration-test")
+
+    def levels(doc_id: str) -> tuple[str, set, set]:
+        with pg_store.sessions() as s:
+            doc = s.get(Document, doc_id)
+        hits = opensearch_index.client.search(index=opensearch_index.index, body={
+            "size": 100, "query": {"term": {"doc_id": doc_id}}})["hits"]["hits"]
+        return (doc.classification, {p["classification"] for p in qdrant_server.payloads(doc_id)},
+                {h["_source"]["classification"] for h in hits})
+
+    assert levels("FAQ-01") == ("public_internal", {"public_internal"}, {"public_internal"})
+    with pg_store.sessions() as s:
+        rule = ClassificationPolicy(match="source_type", pattern="faq", classification="restricted",
+                                    active=True, created_by="test")
+        s.add(rule)
+        s.commit()
+        rule_id = rule.id
+    assert "FAQ-01" in indexer.reclassify(actor="test")
+    assert levels("FAQ-01") == ("restricted", {"restricted"}, {"restricted"})
+    with pg_store.sessions() as s:
+        s.get(ClassificationPolicy, rule_id).active = False
+        s.commit()
+    assert "FAQ-01" in indexer.reclassify(actor="test")
+    assert levels("FAQ-01") == ("public_internal", {"public_internal"}, {"public_internal"})
+
+
+# ------------------------------------------------------ browser sign-in with PKCE (M16c)
+
+def _keycloak_sign_in(client, base: str, verifier_for_challenge: str, username: str, password: str) -> str:
+    """Drive the realm's sign-in page as a browser would; returns the authorization code."""
+    import base64
+    import hashlib
+    import html
+    import re
+    from urllib.parse import parse_qs, urlparse
+
+    challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier_for_challenge.encode()).digest()).rstrip(b"=").decode()
+    page = client.get(f"{base}/realms/fabric/protocol/openid-connect/auth", params={
+        "response_type": "code", "client_id": "fabric-ui", "redirect_uri": "http://127.0.0.1:5173/",
+        "scope": "openid", "state": "st-1", "code_challenge": challenge, "code_challenge_method": "S256"})
+    assert page.status_code == 200, page.text[:300]
+    action = html.unescape(re.search(r'<form[^>]*action="([^"]+)"', page.text).group(1))
+    # Keycloak marks its sign-in cookies Secure; browsers still send them to 127.0.0.1 and
+    # localhost (secure origins), httpx does not over http, so they are passed on here.
+    cookie = "; ".join(f"{k}={v}" for k, v in page.cookies.items())
+    done = client.post(action, data={"username": username, "password": password},
+                       headers={"Cookie": cookie})
+    assert done.status_code == 302, done.text[:300]
+    query = parse_qs(urlparse(done.headers["location"]).query)
+    assert query["state"] == ["st-1"]
+    return query["code"][0]
+
+
+def test_the_browser_sign_in_with_pkce_works_against_the_real_realm(tmp_path, settings) -> None:
+    """Covers: R-12-auth (browser sign-in, M16c): the fabric-ui client signs a synthetic user
+    in with the authorization code flow; the code is exchanged only with the matching PKCE
+    verifier, and the resulting access token signs in to the API as that user."""
+    import secrets
+    from types import SimpleNamespace
+
+    import httpx
+    from fastapi.testclient import TestClient
+
+    from app.api.main import Services, create_app
+    from app.concurrency import ReadWriteLock
+    from app.config import env_reference
+    from scripts.keycloak_token import KEYCLOAK_URL
+    from tests.helpers import make_indexer
+
+    _need(KEYCLOAK_URL, "Keycloak", "identity", 8180)
+    password = env_reference("env:KEYCLOAK_DEMO_PASSWORD")
+    if not password:
+        pytest.skip("set KEYCLOAK_DEMO_PASSWORD in .env and run scripts.keycloak_setup")
+    token_url = f"{KEYCLOAK_URL}/realms/fabric/protocol/openid-connect/token"
+    exchange = {"grant_type": "authorization_code", "client_id": "fabric-ui",
+                "redirect_uri": "http://127.0.0.1:5173/"}
+
+    verifier = secrets.token_urlsafe(48)
+    with httpx.Client(follow_redirects=False, timeout=15) as browser:
+        code = _keycloak_sign_in(browser, KEYCLOAK_URL, verifier, "m01", password)
+        wrong = httpx.post(token_url, data={**exchange, "code": code, "code_verifier": secrets.token_urlsafe(48)})
+        assert wrong.status_code == 400  # a stolen code is useless without the verifier
+    with httpx.Client(follow_redirects=False, timeout=15) as browser:
+        code = _keycloak_sign_in(browser, KEYCLOAK_URL, verifier, "m01", password)
+        tokens = httpx.post(token_url, data={**exchange, "code": code, "code_verifier": verifier})
+    assert tokens.status_code == 200, tokens.text
+    access = tokens.json()["access_token"]
+    assert tokens.json().get("refresh_token")
+
+    root = _clean_clone(tmp_path)
+    indexer = make_indexer(root, synthetic_fallback=True)
+    indexer.load_reference_data()
+    app_settings = settings.model_copy(update={"auth_mode": "oidc",
+                                               "oidc_issuer": f"{KEYCLOAK_URL}/realms/fabric"})
+    services = Services(app_settings, SimpleNamespace(deps=SimpleNamespace(sessions=indexer.sessions)),  # type: ignore[arg-type]
+                        indexer, ReadWriteLock())
+    with TestClient(create_app(services, static_dir=None)) as client:
+        config = client.get("/api/v1/auth/config").json()
+        assert (config["mode"], config["oidc_client_id"]) == ("oidc", "fabric-ui")
+        me = client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {access}"})
+        assert me.status_code == 200 and (me.json()["user_id"], me.json()["role"]) == ("M01", "manager")

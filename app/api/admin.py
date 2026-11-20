@@ -18,15 +18,21 @@ Every change is written to audit_log. (POST /documents/reindex is in main.py.)
 """
 
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import Query as Q
 from sqlalchemy import func, select
 
 from app.api.auth import current_user
 from app.api.schemas import (
+    AdminQueryItem,
+    AgentPerformanceOut,
+    ClassificationChangeOut,
+    ClassificationPolicyCreate,
+    ClassificationPolicyOut,
     PromptActivationOut,
     PromptCreate,
     PromptVersionOut,
@@ -36,7 +42,17 @@ from app.api.schemas import (
     SourceOut,
     SourceStatusOut,
 )
-from app.db.models import Chunk, Document, PromptVersion, RoutingPolicy, Source, User
+from app.db.models import (
+    Answer,
+    Chunk,
+    ClassificationPolicy,
+    Document,
+    PromptVersion,
+    Query,
+    RoutingPolicy,
+    Source,
+    User,
+)
 from app.db.session import write_audit_log
 from app.learning import prompt_registry
 
@@ -245,3 +261,157 @@ def activate_prompt(version_id: int, request: Request,
             raise HTTPException(409, str(exc)) from exc
         s.commit()
         return PromptActivationOut(action=action, version=_prompt_out(version))
+
+
+# --------------------------------------------------------------------------- sources (M16c)
+
+@router.get("/sources", response_model=list[SourceOut])
+def list_sources(request: Request, admin: User = Depends(require_admin)) -> list[SourceOut]:
+    """Every registered source (the console's source list)."""
+    with request.app.state.services.sessions() as s:
+        return [_source_out(src) for src in s.scalars(select(Source).order_by(Source.id))]
+
+
+def _set_source_status(request: Request, source_id: str, status: str, admin: User) -> SourceOut:
+    with request.app.state.services.sessions() as s:
+        source = s.get(Source, source_id)
+        if source is None:
+            raise HTTPException(404, f"There is no source {source_id!r}.")
+        if source.status != status:
+            source.status = status
+            s.flush()
+            write_audit_log(s, admin.user_id, f"source_{status}", source_id)
+        return _source_out(source)
+
+
+@router.post("/sources/{source_id}/pause", response_model=SourceOut)
+def pause_source(source_id: str, request: Request, admin: User = Depends(require_admin)) -> SourceOut:
+    """Stop taking changes from a source: its connector is not polled and its change events
+    are skipped (a resume and the nightly reconciliation catch up)."""
+    return _set_source_status(request, source_id, "paused", admin)
+
+
+@router.post("/sources/{source_id}/resume", response_model=SourceOut)
+def resume_source(source_id: str, request: Request, admin: User = Depends(require_admin)) -> SourceOut:
+    """Take changes from a paused source again."""
+    return _set_source_status(request, source_id, "active", admin)
+
+
+# ---------------------------------------------------------------- routing policy versions (M16c)
+
+@router.get("/admin/routing-policies", response_model=list[RoutingPolicyOut])
+def list_routing_policies(request: Request,
+                          admin: User = Depends(require_admin)) -> list[RoutingPolicyOut]:
+    """Every routing-policy version, newest first (activate or roll back with PUT /routing-policy)."""
+    with request.app.state.services.sessions() as s:
+        return [_policy_out(p) for p in
+                s.scalars(select(RoutingPolicy).order_by(RoutingPolicy.version.desc()))]
+
+
+# ------------------------------------------------------------------- recent questions (M16c)
+
+@router.get("/admin/queries", response_model=list[AdminQueryItem])
+def recent_queries(request: Request, limit: int = Q(50, ge=1, le=500),
+                   admin: User = Depends(require_admin)) -> list[AdminQueryItem]:
+    """Recent questions with their outcome, to open a trace. The question text is shown to
+    partners only (the same rule as GET /traces)."""
+    show = admin.role == "partner"
+    with request.app.state.services.sessions() as s:
+        rows = s.execute(select(Query, Answer.status).outerjoin(Answer, Answer.query_id == Query.id)
+                         .order_by(Query.id.desc()).limit(limit)).all()
+        return [AdminQueryItem(query_id=q.id, user_id=q.user_id, asked_at=q.created_at,
+                               intent=q.intent, status=status,
+                               question=q.text if show else None, question_hidden=not show)
+                for q, status in rows]
+
+
+# ------------------------------------------------------------- classification policies (M16c)
+
+def _rule_out(p: ClassificationPolicy) -> ClassificationPolicyOut:
+    return ClassificationPolicyOut(id=p.id, match=p.match, pattern=p.pattern,
+                                   classification=p.classification, active=p.active,
+                                   created_by=p.created_by, created_at=p.created_at,
+                                   deactivated_at=p.deactivated_at)
+
+
+def _reclassify(request: Request, actor: str) -> list[str]:
+    indexer = request.app.state.services.indexer
+    if indexer is None:
+        raise HTTPException(503, "Re-indexing is not available in this process.")
+    return indexer.reclassify(actor=actor)
+
+
+@router.get("/admin/classification-policies", response_model=list[ClassificationPolicyOut])
+def list_classification_policies(request: Request,
+                                 admin: User = Depends(require_admin)) -> list[ClassificationPolicyOut]:
+    """Every classification rule, active or switched off."""
+    with request.app.state.services.sessions() as s:
+        return [_rule_out(p) for p in
+                s.scalars(select(ClassificationPolicy).order_by(ClassificationPolicy.id))]
+
+
+@router.post("/admin/classification-policies", response_model=ClassificationChangeOut,
+             status_code=201)
+def create_classification_policy(req: ClassificationPolicyCreate, request: Request,
+                                  admin: User = Depends(require_admin)) -> ClassificationChangeOut:
+    """Add a rule ("documents of this source type / path are at least X") and apply it to
+    the documents it matches at once. Rules only make documents stricter."""
+    from app.ingest.classification import rule_problems
+
+    problems = rule_problems(req.match, req.pattern.strip(), req.classification)
+    if problems:
+        raise HTTPException(422, " ".join(problems))
+    with request.app.state.services.sessions() as s:
+        rule = ClassificationPolicy(match=req.match, pattern=req.pattern.strip(),
+                                    classification=req.classification, active=True,
+                                    created_by=admin.user_id, created_at=_now())
+        s.add(rule)
+        s.flush()
+        write_audit_log(s, admin.user_id, "classification_policy_created",
+                        f"#{rule.id}: {req.match} {req.pattern.strip()} -> {req.classification}")
+        out = _rule_out(rule)
+    return ClassificationChangeOut(policy=out, reclassified=_reclassify(request, admin.user_id))
+
+
+@router.post("/admin/classification-policies/{policy_id}/deactivate",
+             response_model=ClassificationChangeOut)
+def deactivate_classification_policy(policy_id: int, request: Request,
+                                      admin: User = Depends(require_admin)) -> ClassificationChangeOut:
+    """Switch a rule off; the documents it raised return to their base classification
+    (unless another active rule still applies)."""
+    with request.app.state.services.sessions() as s:
+        rule = s.get(ClassificationPolicy, policy_id)
+        if rule is None:
+            raise HTTPException(404, f"There is no classification policy {policy_id}.")
+        if rule.active:
+            rule.active, rule.deactivated_at = False, _now()
+            s.flush()
+            write_audit_log(s, admin.user_id, "classification_policy_deactivated", f"#{policy_id}")
+        out = _rule_out(rule)
+    return ClassificationChangeOut(policy=out, reclassified=_reclassify(request, admin.user_id))
+
+
+# -------------------------------------------------------------------- agent performance (M16c)
+
+def _naive_utc(moment: datetime | None) -> datetime | None:
+    if moment is None or moment.tzinfo is None:
+        return moment
+    return moment.astimezone(timezone.utc).replace(tzinfo=None)
+
+
+@router.get("/admin/agents/performance", response_model=AgentPerformanceOut)
+def agents_performance(request: Request, from_: datetime | None = Q(None, alias="from"),
+                       to: datetime | None = None,
+                       admin: User = Depends(require_admin)) -> dict:
+    """Latency per agent (p50/p95), tokens, verification failure, degradation and cache-hit
+    rates, and an ESTIMATED cost per answer, for questions asked in [from, to) (default:
+    the last 7 days). Computed from the stored traces (app/observability/performance.py)."""
+    from app.observability.performance import agent_performance
+
+    end = _naive_utc(to) or _now()
+    start = _naive_utc(from_) or end - timedelta(days=7)
+    if start >= end:
+        raise HTTPException(422, "'from' must be before 'to'.")
+    settings = request.app.state.services.settings
+    with request.app.state.services.sessions() as s:
+        return agent_performance(s, start, end, settings.confidence_threshold)

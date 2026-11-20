@@ -53,7 +53,7 @@ def _api_routes(app_or_router, prefix: str = "") -> dict[tuple[str, str], APIRou
     one entry wrapping the original router, so walk into those as well."""
     found: dict[tuple[str, str], APIRoute] = {}
     for r in app_or_router.routes:
-        if isinstance(r, APIRoute):
+        if isinstance(r, APIRoute) and r.include_in_schema:  # not the UI's own pages (/admin)
             found.update({(method, prefix + r.path): r for method in r.methods})
         elif hasattr(r, "original_router"):
             inner_prefix = prefix + (getattr(getattr(r, "include_context", None), "prefix", "") or "")
@@ -151,6 +151,23 @@ def test_every_endpoint_answers_valid_input_with_its_declared_shape(client, tmp_
         ("PUT", "/api/v1/routing-policy"): lambda c: c.put(
             "/api/v1/routing-policy", headers=admin, json={"version": 1}),
         ("GET", "/api/v1/metrics/quality"): lambda c: c.get("/api/v1/metrics/quality", headers=staff),
+        ("GET", "/api/v1/sources"): lambda c: c.get("/api/v1/sources", headers=admin),
+        ("POST", "/api/v1/sources/{source_id}/pause"): lambda c: c.post(
+            "/api/v1/sources/fs-faq/pause", headers=admin),
+        ("POST", "/api/v1/sources/{source_id}/resume"): lambda c: c.post(
+            "/api/v1/sources/fs-faq/resume", headers=admin),
+        ("GET", "/api/v1/admin/routing-policies"): lambda c: c.get("/api/v1/admin/routing-policies", headers=admin),
+        ("GET", "/api/v1/admin/queries"): lambda c: c.get("/api/v1/admin/queries", headers=admin),
+        ("POST", "/api/v1/admin/classification-policies"): lambda c: c.post(
+            "/api/v1/admin/classification-policies", headers=admin,
+            json={"match": "source_type", "pattern": "faq", "classification": "confidential"}),
+        ("GET", "/api/v1/admin/classification-policies"): lambda c: c.get(
+            "/api/v1/admin/classification-policies", headers=admin),
+        ("POST", "/api/v1/admin/classification-policies/{policy_id}/deactivate"): lambda c: c.post(
+            "/api/v1/admin/classification-policies/{}/deactivate".format(
+                c.get("/api/v1/admin/classification-policies", headers=admin).json()[0]["id"]), headers=admin),
+        ("GET", "/api/v1/admin/agents/performance"): lambda c: c.get(
+            "/api/v1/admin/agents/performance", headers=admin),
         ("GET", "/api/v1/admin/prompts"): lambda c: c.get("/api/v1/admin/prompts", headers=admin),
         ("POST", "/api/v1/admin/prompts"): lambda c: c.post("/api/v1/admin/prompts", headers=admin, json={
             "agent": "query_understanding", "template": "Classify the audit question."}),

@@ -1,4 +1,5 @@
-import { BookOpen, History, LogOut, MessageSquarePlus, ShieldCheck } from "lucide-react";
+import { BookOpen, History, LogOut, MessageSquarePlus, Settings, ShieldCheck } from "lucide-react";
+import { Link } from "react-router";
 import { groupHistory } from "../lib/history";
 import type { HistoryItem, User } from "../types";
 
@@ -80,6 +81,13 @@ export function Sidebar({
         >
           <LogOut size={15} aria-hidden /> Sign out
         </button>
+
+        {user.is_admin && (
+          <Link to="/admin"
+            className="mt-1 flex w-full items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-indigo-700 hover:bg-indigo-50">
+            <Settings size={15} aria-hidden /> Admin console
+          </Link>
+        )}
 
         <nav aria-label="History" className="mt-6">
           <h2 className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">

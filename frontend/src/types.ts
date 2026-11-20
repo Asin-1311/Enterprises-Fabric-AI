@@ -6,6 +6,7 @@ export interface User {
   role: "staff" | "manager" | "partner";
   email: string | null;
   engagements: string[];
+  is_admin?: boolean; // admin console; grants no extra document access
 }
 
 /** Returned by sign-in and registration (the token is shown once). */
