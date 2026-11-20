@@ -55,6 +55,7 @@ from app.db.session import write_audit_log
 from app.ingest.chunker import Chunk as ChunkSpec
 from app.ingest.chunker import ChunkingResult, chunk_icai_chapter, chunk_markdown, text_hash
 from app.ingest.chunking_profiles import ChunkingProfile, profile_for
+from app.ingest.classification import active_rules, strictest
 from app.ingest.enrich import (
     DocumentSpec,
     EnrichmentError,
@@ -281,6 +282,30 @@ class Indexer:
                     if folder_source_id(r.source_type) == source_id]
             return self._force(rows, actor)
 
+    def reclassify(self, actor: str = "system") -> list[str]:
+        """Re-apply the active classification policies to every stored document (M16c):
+        each becomes the strictest of its base classification and the matching rules. The
+        metadata store and the payloads of both indexes are updated together; content is
+        not touched, so nothing is re-embedded. Returns the doc_ids that changed."""
+        changed: list[str] = []
+        with self.lock, self.sessions() as s:
+            rules = active_rules(s)
+            for doc in s.scalars(select(Document).order_by(Document.doc_id)):
+                base = doc.base_classification or doc.classification or "public_internal"
+                doc.base_classification = base
+                new = strictest(base, rules, doc.source_type, doc.path or doc.uri or "")
+                if new != doc.classification:
+                    doc.classification = new
+                    self.store.set_document_payload(doc.doc_id, {"classification": new})
+                    self.bm25.set_document_payload(doc.doc_id, {"classification": new})
+                    changed.append(doc.doc_id)
+            s.commit()
+            if changed:
+                write_audit_log(s, actor, "documents_reclassified",
+                                f"{len(changed)} document(s): {', '.join(changed[:20])}")
+                self.rebuild_bm25()
+        return changed
+
     def repair_document(self, doc_id: str, actor: str = "reconcile") -> None:
         """Rebuild ONE document in both indexes from its stored record and file (M12d):
         its entries are removed from the vector and keyword index, then it is re-chunked
@@ -462,7 +487,7 @@ class Indexer:
         spec = enrich(event.metadata, doc_id=event.doc_id, source_id=event.source_id,
                       uri=event.uri, path=event.uri, source=source,
                       engagement_ids=engagement_ids, user_ids=user_ids,
-                      occurred_at=event.occurred)
+                      occurred_at=event.occurred, rules=active_rules(s))
         return self._index_doc(s, spec, file, actor)
 
     def _resolve(self, uri: str, must_exist: bool = True) -> Path:
@@ -557,7 +582,7 @@ class Indexer:
             return enrich(manifest_metadata(row), doc_id=row.doc_id, source_id=source_id,
                           uri=row.path, path=row.path, source=source,
                           engagement_ids=set(s.scalars(select(Engagement.engagement_id))),
-                          user_ids=set(s.scalars(select(User.user_id))))
+                          user_ids=set(s.scalars(select(User.user_id))), rules=active_rules(s))
         except EnrichmentError as exc:
             raise ManifestError([str(exc)]) from exc
 

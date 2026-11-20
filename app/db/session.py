@@ -61,12 +61,17 @@ _ADDED_COLUMNS = [
     # M15c
     ("prompt_versions", "eval_report", "JSON"),
     ("prompt_versions", "activated_at", "DATETIME"),
+    # M16c
+    ("documents", "base_classification", "VARCHAR"),
 ]
 # Run once, right after the column is added to an older database.
 _BACKFILLS = {
     # Before M15c every recorded prompt version was activated when it was recorded.
     ("prompt_versions", "activated_at"):
         "UPDATE prompt_versions SET activated_at = created_at WHERE activated_at IS NULL",
+    # Before M16c no classification policy existed: the base is the current value.
+    ("documents", "base_classification"):
+        "UPDATE documents SET base_classification = classification WHERE base_classification IS NULL",
 }
 # SQLite cannot add a UNIQUE column with ALTER TABLE, so an older database gets a
 # unique index instead (a new database has the constraint from create_all as well).

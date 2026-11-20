@@ -5,6 +5,7 @@
 // The API decides who the user is from that token alone (never from the request body).
 // A 401 answer means the session ended, so the app returns to the sign-in screen.
 
+import { ensureFreshToken } from "./lib/oidc";
 import { SSEParser } from "./lib/sse";
 import { clearToken, currentToken } from "./lib/session";
 import type { SignalKind } from "./lib/signals";
@@ -42,6 +43,7 @@ async function messageFrom(response: Response, fallback: string): Promise<string
 async function call(path: string, init: RequestInit = {}): Promise<Response> {
   const headers = new Headers(init.headers);
   if (init.body) headers.set("Content-Type", "application/json");
+  await ensureFreshToken(); // single sign-on: renew the 5-minute access token in time (M16c)
   const token = currentToken();
   if (token) headers.set("Authorization", `Bearer ${token}`);
   const response = await fetch(`${API}${path}`, { ...init, headers });
@@ -52,19 +54,20 @@ async function call(path: string, init: RequestInit = {}): Promise<Response> {
   return response;
 }
 
-async function callJson<T>(path: string, init: RequestInit, fallback: string): Promise<T> {
+export async function callJson<T>(path: string, init: RequestInit, fallback: string): Promise<T> {
   const response = await call(path, init);
   if (!response.ok) throw new ApiError(await messageFrom(response, fallback), response.status);
   return (await response.json()) as T;
 }
 
-const post = (body: unknown): RequestInit => ({ method: "POST", body: JSON.stringify(body) });
+export const post = (body: unknown): RequestInit => ({ method: "POST", body: JSON.stringify(body) });
 
 // ------------------------------------------------------------------------------ sign-in
 
 /** What the sign-in screen may offer (self-registration is off unless the firm enables it). */
 export const getAuthConfig = () =>
-  callJson<{ self_registration: boolean }>("/auth/config", {}, "Sign-in settings unavailable.");
+  callJson<{ self_registration: boolean; mode?: "session" | "oidc"; oidc_issuer?: string | null;
+    oidc_client_id?: string | null }>("/auth/config", {}, "Sign-in settings unavailable.");
 
 export const login = (email: string, password: string) =>
   callJson<SessionInfo>("/auth/login", post({ email, password }), "Sign-in failed.");

@@ -1,6 +1,221 @@
 {
   "components": {
     "schemas": {
+      "AdminQueryItem": {
+        "description": "A recent question, for finding its trace. The question text is shown to partners\nonly: an administrator who is not a partner gets no extra document access.",
+        "properties": {
+          "asked_at": {
+            "format": "date-time",
+            "title": "Asked At",
+            "type": "string"
+          },
+          "intent": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Intent"
+          },
+          "query_id": {
+            "title": "Query Id",
+            "type": "integer"
+          },
+          "question": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Question"
+          },
+          "question_hidden": {
+            "title": "Question Hidden",
+            "type": "boolean"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "query_id",
+          "user_id",
+          "asked_at",
+          "intent",
+          "status",
+          "question",
+          "question_hidden"
+        ],
+        "title": "AdminQueryItem",
+        "type": "object"
+      },
+      "AgentPerformanceItem": {
+        "properties": {
+          "agent": {
+            "title": "Agent",
+            "type": "string"
+          },
+          "latency_p50_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latency P50 Ms"
+          },
+          "latency_p95_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latency P95 Ms"
+          },
+          "steps": {
+            "title": "Steps",
+            "type": "integer"
+          },
+          "tokens_in": {
+            "title": "Tokens In",
+            "type": "integer"
+          },
+          "tokens_out": {
+            "title": "Tokens Out",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "agent",
+          "steps",
+          "latency_p50_ms",
+          "latency_p95_ms",
+          "tokens_in",
+          "tokens_out"
+        ],
+        "title": "AgentPerformanceItem",
+        "type": "object"
+      },
+      "AgentPerformanceOut": {
+        "properties": {
+          "agents": {
+            "items": {
+              "$ref": "#/components/schemas/AgentPerformanceItem"
+            },
+            "title": "Agents",
+            "type": "array"
+          },
+          "answers": {
+            "title": "Answers",
+            "type": "integer"
+          },
+          "answers_by_status": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Answers By Status",
+            "type": "object"
+          },
+          "cache_hit_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cache Hit Rate"
+          },
+          "cost_basis": {
+            "title": "Cost Basis",
+            "type": "string"
+          },
+          "degraded_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Degraded Rate"
+          },
+          "estimated_cost_per_answer_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimated Cost Per Answer Usd"
+          },
+          "from": {
+            "title": "From",
+            "type": "string"
+          },
+          "to": {
+            "title": "To",
+            "type": "string"
+          },
+          "verification_failure_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verification Failure Rate"
+          },
+          "verification_steps": {
+            "title": "Verification Steps",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "from",
+          "to",
+          "answers",
+          "answers_by_status",
+          "verification_steps",
+          "verification_failure_rate",
+          "degraded_rate",
+          "cache_hit_rate",
+          "estimated_cost_per_answer_usd",
+          "cost_basis",
+          "agents"
+        ],
+        "title": "AgentPerformanceOut",
+        "type": "object"
+      },
       "AuthConfigOut": {
         "properties": {
           "mode": {
@@ -157,6 +372,117 @@
           "preview"
         ],
         "title": "CitationOut",
+        "type": "object"
+      },
+      "ClassificationChangeOut": {
+        "properties": {
+          "policy": {
+            "$ref": "#/components/schemas/ClassificationPolicyOut"
+          },
+          "reclassified": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Reclassified",
+            "type": "array"
+          }
+        },
+        "required": [
+          "policy",
+          "reclassified"
+        ],
+        "title": "ClassificationChangeOut",
+        "type": "object"
+      },
+      "ClassificationPolicyCreate": {
+        "additionalProperties": false,
+        "properties": {
+          "classification": {
+            "enum": [
+              "confidential",
+              "restricted"
+            ],
+            "title": "Classification",
+            "type": "string"
+          },
+          "match": {
+            "enum": [
+              "source_type",
+              "path"
+            ],
+            "title": "Match",
+            "type": "string"
+          },
+          "pattern": {
+            "maxLength": 300,
+            "minLength": 1,
+            "title": "Pattern",
+            "type": "string"
+          }
+        },
+        "required": [
+          "match",
+          "pattern",
+          "classification"
+        ],
+        "title": "ClassificationPolicyCreate",
+        "type": "object"
+      },
+      "ClassificationPolicyOut": {
+        "properties": {
+          "active": {
+            "title": "Active",
+            "type": "boolean"
+          },
+          "classification": {
+            "title": "Classification",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "created_by": {
+            "title": "Created By",
+            "type": "string"
+          },
+          "deactivated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deactivated At"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "match": {
+            "title": "Match",
+            "type": "string"
+          },
+          "pattern": {
+            "title": "Pattern",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "match",
+          "pattern",
+          "classification",
+          "active",
+          "created_by",
+          "created_at",
+          "deactivated_at"
+        ],
+        "title": "ClassificationPolicyOut",
         "type": "object"
       },
       "FeedbackOut": {
@@ -1496,6 +1822,203 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v1/admin/agents/performance": {
+      "get": {
+        "description": "Latency per agent (p50/p95), tokens, verification failure, degradation and cache-hit\nrates, and an ESTIMATED cost per answer, for questions asked in [from, to) (default:\nthe last 7 days). Computed from the stored traces (app/observability/performance.py).",
+        "operationId": "agents_performance_api_v1_admin_agents_performance_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "From"
+            }
+          },
+          {
+            "in": "query",
+            "name": "to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "To"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentPerformanceOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Agents Performance",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/classification-policies": {
+      "get": {
+        "description": "Every classification rule, active or switched off.",
+        "operationId": "list_classification_policies_api_v1_admin_classification_policies_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ClassificationPolicyOut"
+                  },
+                  "title": "Response List Classification Policies Api V1 Admin Classification Policies Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Classification Policies",
+        "tags": [
+          "admin"
+        ]
+      },
+      "post": {
+        "description": "Add a rule (\"documents of this source type / path are at least X\") and apply it to\nthe documents it matches at once. Rules only make documents stricter.",
+        "operationId": "create_classification_policy_api_v1_admin_classification_policies_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClassificationPolicyCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClassificationChangeOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Classification Policy",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/classification-policies/{policy_id}/deactivate": {
+      "post": {
+        "description": "Switch a rule off; the documents it raised return to their base classification\n(unless another active rule still applies).",
+        "operationId": "deactivate_classification_policy_api_v1_admin_classification_policies__policy_id__deactivate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "policy_id",
+            "required": true,
+            "schema": {
+              "title": "Policy Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClassificationChangeOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Deactivate Classification Policy",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
     "/api/v1/admin/prompts": {
       "get": {
         "description": "Every prompt version, by agent and version (optionally of one agent).",
@@ -1643,6 +2166,92 @@
           }
         ],
         "summary": "Activate Prompt",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/queries": {
+      "get": {
+        "description": "Recent questions with their outcome, to open a trace. The question text is shown to\npartners only (the same rule as GET /traces).",
+        "operationId": "recent_queries_api_v1_admin_queries_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/AdminQueryItem"
+                  },
+                  "title": "Response Recent Queries Api V1 Admin Queries Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Recent Queries",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/routing-policies": {
+      "get": {
+        "description": "Every routing-policy version, newest first (activate or roll back with PUT /routing-policy).",
+        "operationId": "list_routing_policies_api_v1_admin_routing_policies_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/RoutingPolicyOut"
+                  },
+                  "title": "Response List Routing Policies Api V1 Admin Routing Policies Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Routing Policies",
         "tags": [
           "admin"
         ]
@@ -2344,6 +2953,35 @@
       }
     },
     "/api/v1/sources": {
+      "get": {
+        "description": "Every registered source (the console's source list).",
+        "operationId": "list_sources_api_v1_sources_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SourceOut"
+                  },
+                  "title": "Response List Sources Api V1 Sources Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Sources",
+        "tags": [
+          "admin"
+        ]
+      },
       "post": {
         "description": "Register a source of documents. A polling source (git, s3, confluence, jira,\nsharepoint) is picked up by the connector runner on its next round.",
         "operationId": "register_source_api_v1_sources_post",
@@ -2416,6 +3054,102 @@
           }
         ],
         "summary": "Sources Status"
+      }
+    },
+    "/api/v1/sources/{source_id}/pause": {
+      "post": {
+        "description": "Stop taking changes from a source: its connector is not polled and its change events\nare skipped (a resume and the nightly reconciliation catch up).",
+        "operationId": "pause_source_api_v1_sources__source_id__pause_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "source_id",
+            "required": true,
+            "schema": {
+              "title": "Source Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Pause Source",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/sources/{source_id}/resume": {
+      "post": {
+        "description": "Take changes from a paused source again.",
+        "operationId": "resume_source_api_v1_sources__source_id__resume_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "source_id",
+            "required": true,
+            "schema": {
+              "title": "Source Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Resume Source",
+        "tags": [
+          "admin"
+        ]
       }
     },
     "/api/v1/sources/{source_id}/status": {

@@ -260,15 +260,9 @@ def write_results(report: dict, rows: list[dict], settings: Settings,
 
 def _cost(report: dict) -> dict:
     """Estimated spend from token counts and the listed prices (eval/costs.py)."""
-    from eval.costs import estimate_usd
+    from eval.costs import estimate_usd  # model ids are mapped to the price list there
 
-    def listed(model: str) -> str:  # "claude-haiku-5-5" -> "anthropic/claude-haiku-5.5"
-        if model.startswith("anthropic/"):
-            return model
-        name, _, minor = model.rpartition("-")
-        return f"anthropic/{name}.{minor}"
-
-    return {"estimated_usd": round(sum(estimate_usd(listed(m), i, o)
+    return {"estimated_usd": round(sum(estimate_usd(m, i, o)
                                        for m, (i, o) in report["tokens"].items()), 4),
             "basis": "token counts x eval/costs.py list prices (an estimate)"}
 

@@ -2998,3 +2998,120 @@ the code. Use PowerShell, `npm test`, or the compliance checker.
     "Loading…" first). It now waits for the groups; the sign-in test had the same race
     and got the same fix. What the tests assert is unchanged.
   - **OpenAPI:** the snapshot gained `cited_text` on citations.
+
+
+## M16c: The admin console, classification policies, agent performance and browser single sign-on (2026-11-20)
+
+Branch `m16c-admin-console`, made from `phase2` after M16b was merged.
+
+### What was built
+- **The admin console (`frontend/src/admin/`, route `/admin`).**
+  - It is for users with the admin flag only. Others are refused and see no link. The flag
+    lets them manage the system; it gives no extra document access.
+  - Six Radix tabs:
+
+    | Tab | What it does |
+    |---|---|
+    | Sources | Lists registered sources with status and last change; pause, resume, show freshness lag, register a new one (secrets as `env:NAME` only). |
+    | Questions & traces | Recent questions and each one's agent-by-agent trace: model, tokens, latency, prompt and policy versions. |
+    | Prompts | Every version with its replay result: activate a version that passed, or roll back to one that served before. |
+    | Routing policies | The same as Prompts, for routing-policy versions. |
+    | Classification | Add or switch off classification rules. |
+    | Performance | The figures below. |
+
+  - **Who sees what in Questions & traces:** a non-partner administrator sees neither the
+    question text nor any input or output (the M11 rule). Partners see everything.
+  - It is a separate bundle, loaded only when opened. FastAPI serves the app at `/admin`.
+- **New admin API:**
+  - `GET /sources`, `POST /sources/{id}/pause` and `/resume` (a paused source's change
+    events are skipped; the runner already skipped paused sources);
+  - `GET /admin/queries`, `GET /admin/routing-policies`;
+  - `GET`/`POST /admin/classification-policies`, `POST
+    /admin/classification-policies/{id}/deactivate`;
+  - `GET /admin/agents/performance`.
+
+  Every change writes the audit log.
+- **Classification policies (`app/ingest/classification.py`, migration 0008).**
+  - A rule says: documents of a source type, or whose path matches a glob, are at least
+    `confidential` or `restricted`.
+  - A document's effective classification is the strictest of its own (now kept as
+    `base_classification`) and every matching active rule. Rules never lower one.
+  - **New and changed documents** get the rules during enrichment.
+  - **Existing documents** are reclassified at once when a rule is added or switched off
+    (`Indexer.reclassify`): the metadata store and the payloads of both indexes change
+    together, and nothing is re-embedded.
+  - **Switching a rule off** restores each document's base classification.
+  - **Why it matters for privacy:** restricted text goes only to the private model (M13a).
+    An administrator can therefore keep, say, all engagement files away from the external
+    model in one step.
+- **Agent performance (`app/observability/performance.py`)**, computed from the stored
+  traces and answers of a window (default: the last 7 days):
+  - latency p50 and p95 per agent, and tokens;
+  - the verification failure rate: a verification step that removed a claim or ended
+    below the confidence threshold;
+  - the share answered with reduced checking, and the share served from the cache;
+  - the cost per answer, labelled an ESTIMATE (token counts × the list prices in
+    `eval/costs.py`).
+
+  Nothing is invented: an empty window shows zero answers. M17 moves these figures to
+  Prometheus.
+- **Browser sign-in with Keycloak (`frontend/src/lib/oidc.ts`).** In the full profile the
+  sign-in screen offers only "Continue to firm sign-in". This uses the authorization code
+  flow with PKCE (S256) for the public client `fabric-ui`:
+  - **The verifier never leaves the tab.** The random state must match, and a code can be
+    used once.
+  - **Tokens:** the 5-minute access token is renewed with the refresh token before it
+    expires.
+  - **Sign-out** also ends the Keycloak session.
+  - **Lite** keeps the email and password sign-in.
+
+### Checked against the real servers
+- **Classification:** a rule raised FAQ-01 to `restricted` in PostgreSQL, the Qdrant server
+  and OpenSearch. Switching it off restored `public_internal` in all three.
+- **Single sign-on:** the realm's sign-in page was driven as a browser would.
+  - With the wrong verifier, the code was refused (HTTP 400). With the right one, the
+    token signed in to the API as M01 (manager).
+  - **A note for the viva:** Keycloak marks its sign-in cookies `Secure`. Browsers still
+    send them to `127.0.0.1`/`localhost`, which count as secure origins, but the test's
+    HTTP client does not, so the test passes them on explicitly.
+
+### Why it matters
+- **The firm can run the system without editing files:** sources, prompts, routing,
+  classification and performance are all in one place, each change is audited, and the
+  console cannot be used to read documents.
+- **Classification is now something the firm decides,** and it takes effect on the very
+  next question.
+
+### Likely viva questions
+- *Can an administrator read a client's documents through the console?* No. Only a
+  partner sees question text or trace contents; others see timings, models, tokens and
+  versions. The admin flag never enters an access decision.
+- *Why keep a base classification?* So that removing a rule is exact: each document returns
+  to what its source and its own metadata said, not to a guess.
+- *Why PKCE for the browser?* A browser cannot keep a client secret. PKCE binds the code to
+  a secret (the verifier) that only the tab which started the sign-in holds, so an
+  intercepted code is useless.
+- *Why compute performance from traces instead of guessing cost?* Every number comes from
+  stored records. Cost is the one estimate, labelled as such, because the provider's bill
+  is not visible to the system.
+
+### Status
+- **Partial → Met:** R-7.10.
+- **Notes added:** R-12-auth (browser single sign-on) and R-12-model (classification rules
+  feed the private-model routing).
+- **COMPLIANCE.md:** 43 requirements; 31 Met, 9 Partial, 3 Not met.
+- **M16 is complete:** R-5-serve, R-5-exp, R-6-radix and R-7.10 are Met.
+- **Tests (2026-11-20):**
+  - default suite: 558 passed (7 new; counts from pytest's JUnit report);
+  - integration: 20 passed (2 new: classification on PostgreSQL, Qdrant and OpenSearch;
+    PKCE sign-in against the real realm);
+  - frontend: 47 passed (11 new), stable over repeated runs; `tsc` clean; production
+    build OK (the admin console is its own 18 kB bundle);
+  - `npm audit`: 0 vulnerabilities (react-router 8.5.2 added, exact version);
+  - `check_compliance.py --run --run-integration`: passes.
+- **On the way:**
+  - The API contract test now ignores the UI's own pages (`/admin`, not in the OpenAPI
+    schema). They appeared once `frontend/dist` existed.
+  - The model-to-price mapping moved to `eval/costs.py` (`price_key`), shared by prompt
+    replay and the performance figures.
+  - The OpenAPI snapshot gained the new admin endpoints.

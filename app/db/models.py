@@ -27,6 +27,7 @@ from sqlalchemy import (
     UniqueConstraint,
     event,
     false,
+    true,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -130,6 +131,9 @@ class Document(Base):
     owner: Mapped[str | None] = mapped_column(String, nullable=True)
     classification: Mapped[str | None] = mapped_column(String, nullable=True)
     updated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # M16c: the classification before any classification policy; `classification` is the
+    # strictest of this and every active policy that matches the document.
+    base_classification: Mapped[str | None] = mapped_column(String, nullable=True)
 
 
 class Chunk(Base):
@@ -319,6 +323,23 @@ class FeedbackSignal(Base):
     user_id: Mapped[str] = mapped_column(ForeignKey("users.user_id"))
     kind: Mapped[str] = mapped_column(String)  # copy | citation_click | follow_up | rephrase
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+
+
+class ClassificationPolicy(Base):
+    """An administrator's rule: documents of a source type, or whose path matches a glob,
+    are at least `classification` (M16c; spec 7.10). Rules only ever make documents
+    stricter; a document's own classification is never lowered by a rule."""
+
+    __tablename__ = "classification_policies"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    match: Mapped[str] = mapped_column(String)  # source_type | path
+    pattern: Mapped[str] = mapped_column(String)  # a source type, or a glob such as "engagement/*"
+    classification: Mapped[str] = mapped_column(String)  # confidential | restricted
+    active: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true())
+    created_by: Mapped[str] = mapped_column(String)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+    deactivated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
 class IndexState(Base):

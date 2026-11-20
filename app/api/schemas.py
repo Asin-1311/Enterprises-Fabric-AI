@@ -348,3 +348,65 @@ class PromptVersionOut(BaseModel):
 class PromptActivationOut(BaseModel):
     action: Literal["unchanged", "prompt_activated", "prompt_rolled_back"]
     version: PromptVersionOut
+
+
+# --------------------------------------------------------------- admin console (M16c)
+
+class ClassificationPolicyCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    match: Literal["source_type", "path"]
+    pattern: str = Field(min_length=1, max_length=300)
+    classification: Literal["confidential", "restricted"]
+
+
+class ClassificationPolicyOut(BaseModel):
+    id: int
+    match: str
+    pattern: str
+    classification: str
+    active: bool
+    created_by: str
+    created_at: datetime
+    deactivated_at: datetime | None
+
+
+class ClassificationChangeOut(BaseModel):
+    policy: ClassificationPolicyOut
+    reclassified: list[str]  # documents whose classification changed now
+
+
+class AdminQueryItem(BaseModel):
+    """A recent question, for finding its trace. The question text is shown to partners
+    only: an administrator who is not a partner gets no extra document access."""
+
+    query_id: int
+    user_id: str
+    asked_at: datetime
+    intent: str | None
+    status: str | None
+    question: str | None
+    question_hidden: bool
+
+
+class AgentPerformanceItem(BaseModel):
+    agent: str
+    steps: int
+    latency_p50_ms: float | None
+    latency_p95_ms: float | None
+    tokens_in: int
+    tokens_out: int
+
+
+class AgentPerformanceOut(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+    from_: str = Field(alias="from")
+    to: str
+    answers: int
+    answers_by_status: dict[str, int]
+    verification_steps: int
+    verification_failure_rate: float | None
+    degraded_rate: float | None
+    cache_hit_rate: float | None
+    estimated_cost_per_answer_usd: float | None
+    cost_basis: str
+    agents: list[AgentPerformanceItem]
