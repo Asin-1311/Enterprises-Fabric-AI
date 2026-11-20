@@ -222,7 +222,7 @@ def _final(svc: Services, r: AnswerResult, seconds: float) -> FinalPayload:
         injection_flagged_chunks=len(r.injection_hits),
         citations=_citations(svc, [(c.chunk_id, c.span_start, c.span_end) for c in r.citations]),
         seconds_to_answer=round(seconds, 2),
-        flagged_claims=[f["claim"] for f in r.flagged_claims])
+        flagged_claims=[f["claim"] for f in r.flagged_claims], degraded=r.degraded)
 
 
 def stream_pieces(text: str) -> list[str]:
@@ -375,7 +375,8 @@ def history_answer(query_id: int, request: Request,
         superseded_involved=bool(synthesis.get("superseded_involved")) and answer.status == "answered",
         injection_flagged_chunks=len(flagged),
         citations=_citations(svc, cited), seconds_to_answer=None,
-        flagged_claims=[f.get("claim", "") for f in (answer.flagged_claims or [])])
+        flagged_claims=[f.get("claim", "") for f in (answer.flagged_claims or [])],
+        degraded=bool(answer.degraded))
 
 
 @router.get("/traces/{query_id}", response_model=list[TraceRow])

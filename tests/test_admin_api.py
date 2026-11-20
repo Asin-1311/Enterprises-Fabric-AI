@@ -183,8 +183,9 @@ def test_answering_records_versions_retrieval_steps_and_spans(client) -> None:
     assert methods == {"dense", "keyword", "fused"}
     fused = next(st for st in steps if st.method == "fused")
     for entry in fused.scores:
-        assert entry["weights"] == {"dense": 1.0, "keyword": 1.0}
-        assert set(entry["multipliers"]) == {"superseded", "recency"}
+        # M15a: the weights of the question's type, as decided by its plan (factual here).
+        assert entry["weights"] == entry["plan"]["retriever_weights"] == {"dense": 0.4, "keyword": 0.6}
+        assert set(entry["multipliers"]) == {"superseded", "recency", "source_freshness"}
         assert entry["final_score"] == pytest.approx(
             entry["rrf_score"] * math.prod(entry["multipliers"].values()), abs=1e-5)
     dense = next(st for st in steps if st.method == "dense")

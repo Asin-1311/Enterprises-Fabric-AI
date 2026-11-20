@@ -25,7 +25,7 @@ import logging
 from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, datetime
 
 from qdrant_client import QdrantClient
 from sqlalchemy import select
@@ -42,7 +42,8 @@ from app.retrieval.recency import multipliers
 log = logging.getLogger(__name__)
 MODES = ("dense", "bm25", "hybrid_raw", "hybrid")
 # Each retriever's weight in the fusion. Plain RRF weighs every ranked list equally (1.0);
-# M14 makes the weights depend on the question type. Recorded with every fused result.
+# M15a passes weights that depend on the question type (app/agents/plan.py). The weights
+# actually used are recorded with every fused result.
 RETRIEVER_WEIGHTS = {"dense": 1.0, "keyword": 1.0}
 
 
@@ -69,6 +70,7 @@ class RetrievedChunk:
     multipliers: dict[str, float] = field(default_factory=dict)
     # M13: "restricted" text is read only by the private model (app/agents/model_router.py).
     classification: str = "public_internal"
+    access_level: str = "staff"  # M15a: degradation may skip checking only staff-level text
 
 
 @dataclass(frozen=True)
@@ -86,6 +88,7 @@ class _Meta:
     page_end: int | None
     text: str
     classification: str = "public_internal"
+    updated_at: datetime | None = None  # when the document's source last changed (M15a)
 
 
 def _record_ranked(record: list[dict] | None, query: str, method: str,
@@ -103,7 +106,8 @@ class HybridSearcher:
     def __init__(self, *, session_factory: sessionmaker[Session], store: VectorIndex,
                  embedder: Embedder, bm25: KeywordIndex, rrf_k: int = 60, top_k: int = 20,
                  superseded_weight: float = 0.5, recency_weight: float = 0.2,
-                 half_life_days: float = 365.0, policy: PolicyEngine | None = None) -> None:
+                 half_life_days: float = 365.0, policy: PolicyEngine | None = None,
+                 freshness_weight: float = 0.0, freshness_window_days: float = 30.0) -> None:
         from app.adapters.lite.policy import InCodePolicy
 
         self.sessions, self.store, self.embedder, self.bm25 = session_factory, store, embedder, bm25
@@ -112,6 +116,7 @@ class HybridSearcher:
         self.rrf_k, self.top_k = rrf_k, top_k
         self.superseded_weight, self.recency_weight = superseded_weight, recency_weight
         self.half_life_days = half_life_days
+        self.freshness_weight, self.freshness_window_days = freshness_weight, freshness_window_days
 
     def search(
         self,
@@ -126,13 +131,16 @@ class HybridSearcher:
         record: list[dict] | None = None,
         top_k: int | None = None,
         plan: dict | None = None,
+        weights: dict[str, float] | None = None,
     ) -> list[RetrievedChunk]:
         """Search for one query or several sub-queries on behalf of `user`.
 
         With `record`, appends what each step did (for the `retrievals` table): per
         sub-query and method the raw scores and ranks, then the fused list with every
         weight and multiplier applied. `top_k` overrides the candidates per retriever;
-        `plan` (the question's retrieval plan) is recorded with the fused list (M14a)."""
+        `plan` (the question's retrieval plan) is recorded with the fused list (M14a).
+        `weights` gives each retriever's weight in the fusion (M15a; default 1.0 each)."""
+        weights = {**RETRIEVER_WEIGHTS, **(weights or {})}
         if mode not in MODES:
             raise ValueError(f"mode must be one of {MODES}")
         queries = [queries] if isinstance(queries, str) else list(queries)
@@ -147,6 +155,7 @@ class HybridSearcher:
         # 2. Ranked lists per sub-query; dense and keyword search run at the same time.
         k = top_k or self.top_k
         rankings: list[list[str]] = []
+        ranking_weights: list[float] = []
         dense_rank: dict[str, int] = {}
         bm25_rank: dict[str, int] = {}
         use_dense, use_keyword = mode in ("dense", "hybrid_raw", "hybrid"), mode in ("bm25", "hybrid_raw", "hybrid")
@@ -162,12 +171,13 @@ class HybridSearcher:
                     hits = job.result()
                     ids = [cid for cid, _ in hits]
                     rankings.append(ids)
+                    ranking_weights.append(weights[method])
                     for r, cid in enumerate(ids, 1):
                         ranks[cid] = min(r, ranks.get(cid, r))
                     _record_ranked(record, q, method, hits)
 
         # 3. Fuse.
-        fused = reciprocal_rank_fusion(rankings, k=self.rrf_k)
+        fused = reciprocal_rank_fusion(rankings, k=self.rrf_k, weights=ranking_weights)
         meta = self._metadata([cid for cid, _ in fused])
 
         # 4. Policy: one batch decision for every candidate (raises PolicyUnavailable).
@@ -200,7 +210,10 @@ class HybridSearcher:
                                       time_sensitive=time_sensitive, as_of=as_of,
                                       superseded_weight=self.superseded_weight,
                                       recency_weight=self.recency_weight,
-                                      half_life_days=self.half_life_days)
+                                      half_life_days=self.half_life_days,
+                                      updated_at=m.updated_at,
+                                      freshness_weight=self.freshness_weight,
+                                      freshness_window_days=self.freshness_window_days)
             factor = 1.0
             for value in applied.values():
                 factor *= value
@@ -210,13 +223,14 @@ class HybridSearcher:
                 page_end=m.page_end, effective_date=m.effective_date, superseded=m.superseded,
                 text=m.text, score=rrf_score * factor, rrf_score=rrf_score,
                 dense_rank=dense_rank.get(cid), bm25_rank=bm25_rank.get(cid),
-                multipliers=applied, classification=m.classification))
+                multipliers=applied, classification=m.classification,
+                access_level=m.access_level))
         results.sort(key=lambda r: (-r.score, r.chunk_id))
         results = results[:limit]
         if record is not None:
             record.append({"sub_query": " || ".join(queries), "method": "fused", "scores": [
                 {"chunk_id": r.chunk_id, "rank": rank, "rrf_score": round(r.rrf_score, 6),
-                 "weights": dict(RETRIEVER_WEIGHTS),
+                 "weights": dict(weights),
                  "multipliers": {name: round(v, 6) for name, v in r.multipliers.items()},
                  "final_score": round(r.score, 6), **({"plan": plan} if plan else {})}
                 for rank, r in enumerate(results, 1)]})
@@ -241,7 +255,7 @@ class HybridSearcher:
             section=m.section, section_title=m.section_title, page_start=m.page_start,
             page_end=m.page_end, effective_date=m.effective_date, superseded=m.superseded,
             text=m.text, score=0.0, rrf_score=0.0, dense_rank=None, bm25_rank=None,
-            classification=m.classification)
+            classification=m.classification, access_level=m.access_level)
             for (cid, m), ok in zip(candidates, decisions, strict=True) if ok]
 
     def _metadata(self, chunk_ids: list[str]) -> dict[str, _Meta]:
@@ -259,7 +273,7 @@ class HybridSearcher:
                 effective_date=d.effective_date, superseded=d.doc_id in superseded,
                 section=c.section, section_title=c.section_title, page_start=c.page_start,
                 page_end=c.page_end, text=c.text,
-                classification=d.classification or "public_internal")
+                classification=d.classification or "public_internal", updated_at=d.updated_at)
             for c, d in rows
         }
 
@@ -285,4 +299,6 @@ def build_searcher(settings: Settings, embedder: Embedder | None = None,
         store=open_vector_index(settings, embedder.dim, embedded_client=qdrant_client),
         embedder=embedder, bm25=keyword, rrf_k=settings.rrf_k, top_k=settings.retrieval_top_k,
         superseded_weight=settings.superseded_weight, recency_weight=settings.recency_weight,
-        half_life_days=settings.recency_half_life_days, policy=open_policy_engine(settings))
+        half_life_days=settings.recency_half_life_days, policy=open_policy_engine(settings),
+        freshness_weight=settings.source_freshness_weight,
+        freshness_window_days=settings.source_freshness_window_days)

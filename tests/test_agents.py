@@ -314,7 +314,7 @@ def test_retrieval_trace_records_every_score_multiplier(world) -> None:
     records = json.loads(step.output)["scores"]
     assert records and {r["chunk_id"] for r in records} == set(json.loads(step.output)["chunk_ids"])
     for r in records:
-        assert set(r["multipliers"]) == {"superseded", "recency"}
+        assert set(r["multipliers"]) == {"superseded", "recency", "source_freshness"}  # M15a adds freshness
         product = math.prod(r["multipliers"].values())
         assert r["final_score"] == pytest.approx(r["rrf_score"] * product, abs=1e-5)
     superseded = [r for r in records if r["multipliers"]["superseded"] != 1.0]

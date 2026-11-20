@@ -2465,3 +2465,96 @@ view in M16; no paid evaluation.
   - integration: 15 passed;
   - frontend: 21 passed;
   - `check_compliance.py --run --run-integration`: passes.
+
+
+## M15a: Retrieval by question type, source freshness and degradation under load (2026-11-20)
+
+M15 is split into M15a (adaptive retrieval), M15b (learned routing, signals and replay)
+and M15c (prompt registry and re-ranker learning), as the author agreed. Branch
+`m15a-adaptive-retrieval`, made from `phase2` after M14b was merged.
+
+### What was built
+- **Weighted fusion (`app/retrieval/fusion.py`):** each ranked list may carry a weight, so
+  a chunk's contribution is weight / (60 + rank).
+- **Retrieval by question type (`app/agents/plan.py`; values in config):**
+  - factual and procedural: keyword 0.6 / dense 0.4, 20 candidates per retriever;
+  - comparison, analytical and open-ended: dense 0.6 / keyword 0.4, 30 candidates;
+  - time-sensitive: equal weights.
+
+  The weights and count actually used are recorded on every fused `retrievals` row.
+- **Source freshness:** for time-sensitive questions, documents whose source changed
+  recently get a boost that falls to nothing over 30 days (weight 0.1). It is recorded as
+  the `source_freshness` multiplier. It is limited to time-sensitive questions for two
+  reasons:
+  - for corpus files, the change time is also when a file was last indexed, so boosting
+    every question would favour whatever was re-indexed last;
+  - it would make every evaluation result depend on the calendar date.
+- **Degradation under load:**
+  - **The window:** the rolling p95 of full-answer time over the last 100 answers. It
+    lives in process memory in lite and in Redis in full, shared by every API worker. It
+    acts only once 20 answers are in the window, so slow first answers while models load
+    don't trigger it.
+  - **Above the 8 s target:** fewer candidates (half, at least 5) and no compression.
+  - **Low-risk questions only** skip verification: factual, every evidence chunk from the
+    standards, FAQ or calendar, staff level, nothing from an engagement file, nothing
+    superseded. Client files, superseded material, and manager- or partner-level content
+    are always verified.
+  - **What the user sees:** a degraded answer starts with "Reduced checking: this answer
+    was not fully verified because the system is under load", has no confidence score and
+    is stored as `degraded` (also in `final.degraded`). The UI badge comes in M16.
+
+### Retrieval evaluation, and a decision on the defaults
+The retrieval evaluation has a new `adaptive` mode: the system's search with the weights
+and candidate count of each question's labelled intent. The four earlier modes are
+unchanged, so earlier runs stay comparable; their results are identical to before.
+
+| Mode (63 questions) | R@5 | R@10 | MRR | nDCG@10 | Leaks | Run |
+|---|---|---|---|---|---|---|
+| hybrid (equal weights, 20 candidates) | 0.981 | 0.988 | 0.880 | 0.907 | 0 | both runs |
+| adaptive, spec starting values (10 candidates) | 0.969 | 0.977 | 0.880 | 0.892 | 0 | `20261120-150532` |
+| adaptive with 20 candidates | 0.969 | 0.988 | 0.895 | 0.906 | 0 | `20261120-150853` |
+
+- **The spec's starting values were slightly worse than the plain search.** Searching only
+  10 candidates for factual and procedural questions lost recall@10.
+- **The author chose 20 candidates.** Recall@10 then matches, MRR is better and nDCG is
+  about equal; recall@5 is still slightly lower, which comes from the weights.
+- **The light path also searches 20 now (was 10, from M14a).** Simple factual questions
+  are the same questions, and 10 measurably lost recall; the light path still skips
+  compression.
+- **What is not modelled:** the evaluation's `adaptive` mode does not include the light
+  path or the bandit (M15b). Both are measured on live answers in M18.
+- **Reviewed questions:** 0 of 63.
+
+### Smaller changes
+- **Two tests now expect the new values:** the M9 multiplier test (it now also sees
+  `source_freshness`, because recording every adjustment is the requirement) and the M14a
+  plan test (exploratory questions now search 30 candidates).
+- **The OpenAPI snapshot** has the new `degraded` field.
+
+### Why it matters
+- **Each type of question is searched the way it needs:** exact wording matters for "what
+  does SA 230 require"; meaning matters for "how do these two circulars differ".
+- **Under load, the system gets faster where errors are cheapest,** says so, and never
+  cuts checking on client files.
+- **Every adjustment is recorded and measured.** Here the measurement changed a spec
+  default, and the report says why.
+
+### Likely viva questions
+- *Why did you not use the spec's 10 candidates?* The evaluation showed they lost recall;
+  the spec calls them starting points to be tuned. Both runs are kept, and the choice is
+  recorded with its evidence.
+- *Is skipping verification ever safe?* Only for low-risk questions under load, where the
+  evidence is public ICAI material, the FAQ or the calendar, at staff level. The answer
+  says it was not fully verified, so the reader can judge.
+
+### Status
+- **Met:** R-3-adapt, R-8-degrade.
+- **COMPLIANCE.md:** 43 requirements; 24 Met, 12 Partial, 7 Not met.
+- **Tests (2026-11-20):**
+  - default suite: 517 passed (9 new; counts from pytest's JUnit report);
+  - integration: 16 passed (new: the Redis latency window);
+  - frontend: 21 passed;
+  - `check_compliance.py --run --run-integration`: passes.
+- **Two things that happened on the way:**
+  - An M11 test hard-coded the old equal fusion weights. The first full-suite run missed this, because its output was not captured, so its results were re-read from a JUnit report; the test now checks that the recorded weights are the plan's weights.
+  - Docker Desktop stopped a second time (memory pressure is likely since Keycloak joined the stack). After it restarted, one integration acceptance test failed in the compliance check while Kafka was still starting; the same test passed when run alone and in the full re-run, so it was not a code failure.

@@ -122,7 +122,7 @@ class Settings(BaseSettings):
     # M14a: the light path (simple factual questions) searches fewer candidates and skips
     # compression; exploratory questions (comparison, analytical, open-ended) add at most
     # this many section chunks around their best chunks (small-to-big).
-    light_top_k: int = 10
+    light_top_k: int = 20  # M15a: was 10; 10 candidates measurably lost recall (see precise_top_k)
     parent_expansion_max: int = 6
     # M14a step budgets per question (CLAUDE.md section 7): a run that would pass one ends
     # with the best verified answer so far, or an abstention. Starting points, tuned in M18.
@@ -135,6 +135,32 @@ class Settings(BaseSettings):
     superseded_weight: float = 0.5  # multiplier for superseded documents
     recency_weight: float = 0.2  # strength of the time_sensitive recency boost
     recency_half_life_days: float = 365.0  # freshness halves every year
+    # M15a: boost (time-sensitive questions only) for documents whose source changed
+    # recently; it falls to nothing over the window (app/retrieval/recency.py).
+    source_freshness_weight: float = 0.1
+    source_freshness_window_days: float = 30.0
+    # M15a: retrieval by question type (CLAUDE.md section 8). Starting points to be tuned on
+    # the evaluation set, not facts. "Precise" = factual and procedural questions:
+    # keyword search counts more and fewer candidates are searched; "exploratory" =
+    # comparison, analytical and open-ended: dense search counts more, more candidates.
+    # Other intents (time_sensitive) use equal weights and RETRIEVAL_TOP_K.
+    precise_dense_weight: float = 0.4
+    precise_keyword_weight: float = 0.6
+    # 20, not the spec's starting value of 10: on the evaluation set 10 candidates lost
+    # recall (runs 20261120-150532 vs 20261120-150853; author's decision, M15a).
+    precise_top_k: int = 20
+    exploratory_dense_weight: float = 0.6
+    exploratory_keyword_weight: float = 0.4
+    exploratory_top_k: int = 30
+    # M15a: degradation under load. When the p95 of full-answer time over the last
+    # LATENCY_WINDOW_SIZE answers is above LATENCY_TARGET_SECONDS (and at least
+    # LATENCY_MIN_SAMPLES answers are known), fewer candidates are searched, compression is
+    # skipped, and verification is skipped for LOW-RISK questions only, with a notice.
+    degradation_enabled: bool = True
+    latency_target_seconds: float = 8.0
+    latency_window_size: int = 100
+    latency_min_samples: int = 20
+    degraded_candidate_factor: float = 0.5
 
     # --- Verification -------------------------------------------------------
     confidence_threshold: float = 0.6

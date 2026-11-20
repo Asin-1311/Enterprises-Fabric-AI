@@ -44,6 +44,7 @@ from langgraph.types import Send
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.adaptive.degradation import REDUCED_CHECKING_NOTICE, low_risk_reasons, under_load
 from app.agents.budgets import BudgetExceeded, StepBudget
 from app.agents.llm import LLM, LLMCaller, LLMResult
 from app.agents.nli import NliScorer
@@ -119,6 +120,7 @@ class AgentDeps:
     sessions: sessionmaker[Session]
     clients: ClientMatcher
     nli: NliScorer | None = None  # M14b: the second verification opinion (None: LLM only)
+    latency: Any = None  # M15a: LatencyWindow (app/ports); None = never under load
 
 
 class GraphState(TypedDict, total=False):
@@ -150,6 +152,7 @@ class GraphState(TypedDict, total=False):
     verification: Verification
     verify_retry_done: bool
     confidence: float | None
+    degraded: bool  # M15a: answered without verification under load (low-risk only)
     status: str
     answer: str
 
@@ -164,6 +167,7 @@ class SubQueryTask(TypedDict):
     time_sensitive: bool
     top_k: int
     plan: dict
+    weights: dict[str, float]
 
 
 @dataclass
@@ -195,6 +199,7 @@ class AnswerResult:
     claims_factual: int = 0
     claims_supported: int = 0
     flagged_claims: list[dict] = field(default_factory=list)  # M14b: "check this point"
+    degraded: bool = False  # M15a: reduced checking under load
 
 
 def _emit(state: GraphState, step: str, **payload: Any) -> None:
@@ -248,9 +253,13 @@ class AuditAssistant:
     def _plan(self, state: GraphState) -> GraphState:
         """How much retrieval this question gets (app/agents/plan.py), then round 1."""
         state["tracer"].budget.check(retrieval_round=True)
-        plan = plan_for(state["analysis"], state["routing"], self.deps.settings)
+        s = self.deps.settings
+        p95 = self.deps.latency.p95() if self.deps.latency is not None else None
+        plan = plan_for(state["analysis"], state["routing"], s,
+                        under_load(p95, s.latency_target_seconds, s.degradation_enabled))
         state["tracer"].log("retrieval_plan", {"intent": state["analysis"].intent,
-                                               "sub_queries": state["analysis"].sub_queries},
+                                               "sub_queries": state["analysis"].sub_queries,
+                                               "p95_seconds": p95},
                             plan.record())
         return {"plan": plan, "round": 1, "round_kind": "retrieval", "groups": [],
                 "candidates": [], "injection_hits": {}, "followup_done": False,
@@ -266,7 +275,8 @@ class AuditAssistant:
             query=q, round=state["round"], user=state["user"],
             source_types=state.get("pending_sources"),
             time_sensitive=state["analysis"].intent == "time_sensitive",
-            top_k=plan.candidates_per_retriever, plan=plan.record()))
+            top_k=plan.candidates_per_retriever, plan=plan.record(),
+            weights=plan.retriever_weights))
             for q in state["pending_queries"]]
 
     def _retrieve_one(self, task: SubQueryTask) -> dict:
@@ -275,7 +285,7 @@ class AuditAssistant:
                               source_types=task["source_types"],
                               time_sensitive=task["time_sensitive"],
                               limit=self.deps.settings.retrieval_top_k, top_k=task["top_k"],
-                              plan=task["plan"])
+                              plan=task["plan"], weights=task["weights"])
         return {"subquery_results": [result]}
 
     def _gather(self, state: GraphState) -> GraphState:
@@ -459,7 +469,23 @@ class AuditAssistant:
 
     @staticmethod
     def _after_synthesize(state: GraphState) -> str:
-        return "verify" if state["status"] == "answered" else END
+        if state["status"] != "answered":
+            return END
+        plan = state["plan"]
+        if plan.under_load:
+            used = {e.chunk_id for e in state["evidence"]}
+            chunks = [r.chunk for r in state["ranked"] if r.chunk.chunk_id in used]
+            if not low_risk_reasons(state["analysis"].intent, chunks):
+                return "skip_verification"
+        return "verify"
+
+    def _skip_verification(self, state: GraphState) -> GraphState:
+        """Under load, a LOW-RISK answer is given without verification, and says so."""
+        _emit(state, "reduced_checking")
+        state["tracer"].log("verification_skipped", {"reason": "under load", "low_risk": True},
+                            {"evidence": [e.chunk_id for e in state["evidence"]]})
+        return {"answer": f"{REDUCED_CHECKING_NOTICE}\n\n{state['synthesis'].text}",
+                "confidence": None, "degraded": True, "verification": None}
 
     def _after_verify(self, state: GraphState) -> str:
         v = state["verification"]
@@ -478,6 +504,7 @@ class AuditAssistant:
                          ("followup", self._followup), ("compress", self._compress),
                          ("synthesize", self._synthesize), ("verify", self._verify),
                          ("retry", self._retry), ("abstain", self._abstain),
+                         ("skip_verification", self._skip_verification),
                          ("no_retrieval", self._no_retrieval),
                          ("denied", self._denied), ("not_found", self._not_found)]:
             g.add_node(name, self._snapshotting(fn) if name != "retrieve_one" else fn)
@@ -490,7 +517,9 @@ class AuditAssistant:
         g.add_edge("gather", "rerank")
         g.add_conditional_edges("rerank", self._after_rerank, ["followup", "compress", "not_found"])
         g.add_conditional_edges("compress", self._after_compress, ["synthesize", "not_found"])
-        g.add_conditional_edges("synthesize", self._after_synthesize, ["verify", END])
+        g.add_conditional_edges("synthesize", self._after_synthesize,
+                                ["verify", "skip_verification", END])
+        g.add_edge("skip_verification", END)
         g.add_conditional_edges("verify", self._after_verify, [END, "retry", "abstain"])
         for terminal in ("abstain", "no_retrieval", "denied", "not_found"):
             g.add_edge(terminal, END)
@@ -548,6 +577,7 @@ class AuditAssistant:
     def ask(self, question: str, user_id: str, on_event: EventCallback | None = None,
             on_token: Callable[[str], None] | None = None) -> AnswerResult:
         """Answer `question` for `user_id`; stores query, traces, answer and citations."""
+        asked_at = time.perf_counter()
         with self._versions_lock:
             versions = ensure_active_versions(self.deps.sessions)
         with self.deps.sessions() as s:
@@ -575,7 +605,10 @@ class AuditAssistant:
         synthesis = state.get("synthesis")
         v: Verification | None = state.get("verification")
         chunks = {r.chunk.chunk_id: r.chunk for r in state.get("ranked", [])}
+        degraded = bool(state.get("degraded"))
         cited = v.cited_ids if v is not None and state["status"] == "answered" else []
+        if degraded:  # no verification: the synthesiser's own (validated) citations
+            cited = state["synthesis"].cited_chunk_ids
         evidence = {e.chunk_id: e.sentences for e in state.get("evidence", [])}
         citations = []
         support = v.support if v is not None and state["status"] == "answered" else {}
@@ -591,7 +624,8 @@ class AuditAssistant:
         with self.deps.sessions() as s:
             flagged_claims = v.flagged if v is not None and state["status"] == "answered" else []
             answer = Answer(query_id=query_id, text=state["answer"], confidence=confidence,
-                            status=state["status"], flagged_claims=flagged_claims or None)
+                            status=state["status"], flagged_claims=flagged_claims or None,
+                            degraded=degraded)
             s.add(answer)
             s.flush()
             s.add_all(Citation(answer_id=answer.id, chunk_id=c.chunk_id, span_start=c.span_start,
@@ -600,12 +634,15 @@ class AuditAssistant:
                 s.get(Query, query_id).intent = state["analysis"].intent
             s.commit()
             answer_id = answer.id
+        if self.deps.latency is not None and state["status"] == "answered":
+            # The full-answer time feeds the load window that degradation reads (M15a).
+            self.deps.latency.record(time.perf_counter() - asked_at)
         return AnswerResult(
             query_id, answer_id, state["status"], state["answer"], citations,
             bool(synthesis and synthesis.superseded_involved and state["status"] == "answered"),
             state.get("injection_hits", {}), confidence,
             v.removed if v else [], v.factual if v else 0, v.supported if v else 0,
-            flagged_claims)
+            flagged_claims, degraded)
 
 
 def build_assistant(settings: Settings) -> AuditAssistant:
@@ -622,8 +659,11 @@ def build_assistant(settings: Settings) -> AuditAssistant:
     from app.agents.nli import CrossEncoderNli
 
     nli = CrossEncoderNli(settings.nli_model) if settings.nli_model else None
+    from app.adapters import open_latency_window
+
     return AuditAssistant(AgentDeps(
         settings=settings, llm=llm, searcher=searcher, nli=nli,
+        latency=open_latency_window(settings),
         reranker=CrossEncoderReranker(settings.reranker_model), sessions=searcher.sessions,
         clients=clients))
 

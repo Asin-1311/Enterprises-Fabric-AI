@@ -233,6 +233,11 @@
             ],
             "title": "Confidence"
           },
+          "degraded": {
+            "default": false,
+            "title": "Degraded",
+            "type": "boolean"
+          },
           "flagged_claims": {
             "default": [],
             "items": {

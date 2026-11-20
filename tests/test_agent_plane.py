@@ -114,7 +114,9 @@ def test_the_plan_depends_on_the_intent() -> None:
         (True, False, s.light_top_k, "child")
     for intent in EXPLORATORY:
         p = plan_for(QueryAnalysis(intent, [], [], sub_queries=["a", "b"]), rules, s)
-        assert (p.light_path, p.chunk_level, p.candidates_per_retriever) == (False, "parent", s.retrieval_top_k)
+        assert (p.light_path, p.chunk_level, p.candidates_per_retriever) == (False, "parent", s.exploratory_top_k)
+        assert p.retriever_weights == {"dense": 0.6, "keyword": 0.4}  # M15a
+    assert simple.retriever_weights == {"dense": 0.4, "keyword": 0.6}
     tiebreak = RoutingDecision(["standards"], ["tiebreak"], True)
     assert not plan_for(QueryAnalysis("factual", [], [], sub_queries=["q"]), tiebreak, s).light_path
     assert not plan_for(QueryAnalysis("factual", [], ["ENG-A"], sub_queries=["q"]), rules, s).light_path

@@ -635,3 +635,24 @@ def test_keycloak_tokens_sign_in_to_the_api_and_others_are_rejected(tmp_path, se
             assert client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {bad}"}).status_code == 401
         assert client.post("/api/v1/auth/login", json={"email": "riya.kapoor@example-associates.test",
                                                        "password": "x" * 12}).status_code == 404
+
+
+# ------------------------------------------------------ latency window (M15a)
+
+def test_redis_latency_window_is_shared_between_workers(settings) -> None:
+    """Covers: R-8-degrade (full profile): the load window lives in Redis, so every API
+    worker sees the same p95."""
+    from app.adapters.full.latency import RedisLatencyWindow
+
+    url = _need(settings.redis_url, "REDIS_URL", "core", 6379)
+    key = f"fabric:latency:test-{uuid.uuid4().hex[:8]}"
+    a = RedisLatencyWindow(url, size=3, min_samples=2, key=key)
+    b = RedisLatencyWindow(url, size=3, min_samples=2, key=key)
+    try:
+        a.record(1.0)
+        assert b.p95() is None
+        for x in (9.0, 2.0, 3.0):
+            b.record(x)
+        assert a.p95() == b.p95() == 9.0 and a.client.llen(key) == 3
+    finally:
+        a.client.delete(key)
