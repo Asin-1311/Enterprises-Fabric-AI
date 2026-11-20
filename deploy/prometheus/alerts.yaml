@@ -1,0 +1,51 @@
+# Alerts (CLAUDE.md section 14; M17a). Thresholds are the project's targets; each alert is
+# unit-tested with synthetic series in alerts_test.yaml (promtool test rules).
+groups:
+  - name: enterprise-fabric
+    rules:
+      - alert: AnswerLatencyAboveTarget
+        expr: histogram_quantile(0.95, sum by (le) (rate(efa_answer_seconds_bucket[10m]))) > 8
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: p95 full answer time is above the 8 s target
+          description: "p95 over 10 minutes is {{ $value | humanize }} s. Degradation (reduced checking) may be active."
+
+      - alert: FirstTokenLatencyAboveTarget
+        expr: histogram_quantile(0.95, sum by (le) (rate(efa_first_draft_token_seconds_bucket[10m]))) > 1.5
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: p95 time to the first draft token is above the 1.5 s target
+
+      - alert: VerificationFailureRateHigh
+        expr: |
+          sum(rate(efa_verification_total{outcome="failed"}[30m]))
+            / sum(rate(efa_verification_total[30m])) > 0.2
+        for: 15m
+        labels: {severity: warning}
+        annotations:
+          summary: More than 20% of verification steps removed claims or ended below the confidence threshold
+
+      - alert: IngestionLagHigh
+        expr: max by (source) (efa_ingestion_lag_seconds) > 900
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: "Changes from source {{ $labels.source }} take more than 15 minutes to reach the indexes"
+
+      - alert: AccessControlDisagreement
+        expr: increase(efa_acl_disagreements_total[5m]) > 0
+        labels: {severity: critical}
+        annotations:
+          summary: The index pre-filter allowed a chunk the policy engine denied
+          description: The chunk was dropped, but the two statements of the access rules disagree. Investigate at once (server log line "SECURITY").
+
+      - alert: ApiErrorRateHigh
+        expr: |
+          sum(rate(efa_http_requests_total{status_class="5xx"}[10m]))
+            / sum(rate(efa_http_requests_total[10m])) > 0.05
+        for: 10m
+        labels: {severity: critical}
+        annotations:
+          summary: More than 5% of API responses are server errors

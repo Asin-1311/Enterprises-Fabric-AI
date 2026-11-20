@@ -1,7 +1,10 @@
-"""Agent performance for the admin console (spec 7.10; CLAUDE.md section 11; M16c).
+"""Agent performance for the admin console (spec 7.10; CLAUDE.md section 11; M16c, M17a).
 
-Computed from the stored traces and answers of a time window: no estimate is made up and
-no model is called. (M17 adds Prometheus; the console's numbers then come from there too.)
+Two sources, the same figures:
+- the metrics backend (Prometheus) when PROMETHEUS_URL is set (M17a): what the dashboards
+  show, from the API's /metrics;
+- otherwise the stored traces and answers of the window (M16c).
+No estimate is made up and no model is called.
 
 - per agent: steps, latency p50 / p95 (ms), input and output tokens;
 - answers: how many, by status; the verification failure rate (a verification step that
@@ -13,7 +16,7 @@ no model is called. (M17 adds Prometheus; the console's numbers then come from t
 
 import json
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -75,7 +78,7 @@ def agent_performance(s: Session, start: datetime, end: datetime,
         status[answer.status] += 1
     n = len(answers)
     return {
-        "from": start.isoformat(), "to": end.isoformat(),
+        "from": start.isoformat(), "to": end.isoformat(), "source": "traces",
         "answers": n, "answers_by_status": dict(sorted(status.items())),
         "verification_steps": verifications,
         "verification_failure_rate": round(failed / verifications, 4) if verifications else None,
@@ -88,4 +91,66 @@ def agent_performance(s: Session, start: datetime, end: datetime,
                     "latency_p95_ms": percentile(a["latencies"], 95),
                     "tokens_in": a["tokens_in"], "tokens_out": a["tokens_out"]}
                    for name, a in sorted(by_agent.items())],
+    }
+
+
+# ------------------------------------------------------------------ from Prometheus (M17a)
+
+def _instant(prom: "httpx.Client", query: str, at: datetime) -> list[dict]:
+    r = prom.get("/api/v1/query", params={"query": query, "time": at.timestamp()})
+    r.raise_for_status()
+    return r.json()["data"]["result"]
+
+
+def _scalar(rows: list[dict]) -> float | None:
+    if not rows:
+        return None
+    value = float(rows[0]["value"][1])
+    return None if value != value else value  # NaN (0/0) -> None
+
+
+def prometheus_performance(url: str, start: datetime, end: datetime, client=None) -> dict:
+    """The same figures, from Prometheus (the metrics backend) over [start, end).
+
+    Uses increase() over the window, so API restarts (counter resets) are handled. Only
+    what Prometheus scraped is counted: questions asked before it started are not."""
+    import httpx
+
+    w = f"{max(60, int((end - start).total_seconds()))}s"
+    at = end.replace(tzinfo=timezone.utc) if end.tzinfo is None else end
+    prom = client or httpx.Client(base_url=url, timeout=10)
+    q = lambda expr: _instant(prom, expr, at)  # noqa: E731
+    by_status = {r["metric"].get("status", "?"): round(float(r["value"][1]))
+                 for r in q(f"sum by (status) (increase(efa_queries_total[{w}]))")}
+    answers = sum(by_status.values())
+    verifications = _scalar(q(f"sum(increase(efa_verification_total[{w}]))")) or 0.0
+    failed = _scalar(q(f'sum(increase(efa_verification_total{{outcome="failed"}}[{w}]))')) or 0.0
+    degraded = _scalar(q(f"sum(increase(efa_degraded_answers_total[{w}]))")) or 0.0
+    hits = _scalar(q(f'sum(increase(efa_cache_lookups_total{{outcome="hit"}}[{w}]))')) or 0.0
+    cost = _scalar(q(f"sum(increase(efa_llm_cost_usd_total[{w}]))")) or 0.0
+    steps = {r["metric"]["agent"]: float(r["value"][1])
+             for r in q(f"sum by (agent) (increase(efa_agent_step_seconds_count[{w}]))")}
+    p50 = {r["metric"]["agent"]: float(r["value"][1]) for r in q(
+        f"histogram_quantile(0.5, sum by (le, agent) (increase(efa_agent_step_seconds_bucket[{w}])))")}
+    p95 = {r["metric"]["agent"]: float(r["value"][1]) for r in q(
+        f"histogram_quantile(0.95, sum by (le, agent) (increase(efa_agent_step_seconds_bucket[{w}])))")}
+    tokens = {(r["metric"]["agent"], r["metric"]["direction"]): float(r["value"][1]) for r in q(
+        f"sum by (agent, direction) (increase(efa_llm_tokens_total[{w}]))")}
+
+    def ms(seconds: float | None) -> float | None:
+        return None if seconds is None or seconds != seconds else round(seconds * 1000, 1)
+
+    names = sorted(set(steps) | {a for a, _ in tokens})
+    return {
+        "from": start.isoformat(), "to": end.isoformat(), "source": "prometheus",
+        "answers": answers, "answers_by_status": dict(sorted(by_status.items())),
+        "verification_steps": round(verifications),
+        "verification_failure_rate": round(failed / verifications, 4) if verifications else None,
+        "degraded_rate": round(degraded / answers, 4) if answers else None,
+        "cache_hit_rate": round(hits / answers, 4) if answers else None,
+        "estimated_cost_per_answer_usd": round(cost / answers, 5) if answers else None,
+        "cost_basis": "estimate: token counts x eval/costs.py list prices; unpriced models count 0",
+        "agents": [{"agent": a, "steps": round(steps.get(a, 0)), "latency_p50_ms": ms(p50.get(a)),
+                    "latency_p95_ms": ms(p95.get(a)), "tokens_in": round(tokens.get((a, "in"), 0)),
+                    "tokens_out": round(tokens.get((a, "out"), 0))} for a in names],
     }

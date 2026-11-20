@@ -401,6 +401,7 @@ class AgentPerformanceOut(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
     from_: str = Field(alias="from")
     to: str
+    source: Literal["prometheus", "traces"] = "traces"  # M17a: where the figures came from
     answers: int
     answers_by_status: dict[str, int]
     verification_steps: int

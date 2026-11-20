@@ -63,6 +63,23 @@ class Settings(BaseSettings):
     redis_url: str | None = None          # redis://localhost:6379/0
     kafka_bootstrap: str | None = None    # localhost:9092
 
+    # --- Observability (M17a) -------------------------------------------------
+    # OTLP/HTTP traces endpoint; unset = no traces exported. In the observability profile:
+    # Langfuse, http://127.0.0.1:3000/api/public/otel/v1/traces
+    otel_exporter_otlp_endpoint: str | None = None
+    otel_service_name: str = "enterprise-fabric-api"
+    otel_include_content: bool = True     # masked step input/output on model-call spans
+    otel_content_max_chars: int = 4000
+    # Where the Langfuse project keys are (references, never the values): sent as Basic
+    # auth with the OTLP traces when both are set in .env.
+    langfuse_public_key_ref: str = "env:LANGFUSE_PUBLIC_KEY"
+    langfuse_secret_key_ref: str = "env:LANGFUSE_SECRET_KEY"
+    # Prometheus HTTP API; when set, the admin console's performance figures come from it
+    # (otherwise from the stored traces). e.g. http://127.0.0.1:9090
+    prometheus_url: str | None = None
+    # The ingestion worker's own /metrics port (full profile: a separate process); 0 = off.
+    worker_metrics_port: int = 9464
+
     # --- Paths -------------------------------------------------------------
     data_dir: Path = PROJECT_ROOT / "data"
     corpus_dir: Path = PROJECT_ROOT / "data" / "corpus"

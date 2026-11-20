@@ -132,6 +132,19 @@ class _ChunkPlan:
     legacy: dict[str, str | None] = field(default_factory=dict)  # new chunk id -> Phase 1 id
 
 
+def _record_ingestion(events: list, outcomes: list[tuple[str, str]]) -> None:
+    """Metrics (M17a): events per source and outcome, and for each change now in every
+    index the lag from when it happened to now (the "ingestion lag" alert)."""
+    from app.observability import metrics
+
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    for event, (_, outcome) in zip(events, outcomes, strict=True):
+        metrics.INGESTION_EVENTS.labels(event.source_id, outcome).inc()
+        if outcome in ("indexed", "metadata", "removed", "unchanged"):
+            metrics.INGESTION_LAG.labels(event.source_id).set(
+                max(0.0, (now - event.occurred).total_seconds()))
+
+
 class Indexer:
     """Keeps SQLite, Qdrant and BM25 in step with the corpus and the manifest."""
 
@@ -460,6 +473,7 @@ class Indexer:
                 self._refresh_superseded(s)
                 s.commit()
             self.rebuild_bm25()
+            _record_ingestion(events, outcomes)
             return outcomes
 
     def _apply(self, s: Session, event, engagement_ids: set[str], user_ids: set[str],

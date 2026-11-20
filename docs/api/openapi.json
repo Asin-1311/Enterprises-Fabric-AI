@@ -180,6 +180,15 @@
             "title": "From",
             "type": "string"
           },
+          "source": {
+            "default": "traces",
+            "enum": [
+              "prometheus",
+              "traces"
+            ],
+            "title": "Source",
+            "type": "string"
+          },
           "to": {
             "title": "To",
             "type": "string"
@@ -1824,7 +1833,7 @@
   "paths": {
     "/api/v1/admin/agents/performance": {
       "get": {
-        "description": "Latency per agent (p50/p95), tokens, verification failure, degradation and cache-hit\nrates, and an ESTIMATED cost per answer, for questions asked in [from, to) (default:\nthe last 7 days). Computed from the stored traces (app/observability/performance.py).",
+        "description": "Latency per agent (p50/p95), tokens, verification failure, degradation and cache-hit\nrates, and an ESTIMATED cost per answer, for questions asked in [from, to) (default:\nthe last 7 days). From Prometheus when PROMETHEUS_URL is set, else from the stored\ntraces (app/observability/performance.py); `source` says which.",
         "operationId": "agents_performance_api_v1_admin_agents_performance_get",
         "parameters": [
           {

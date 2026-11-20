@@ -69,6 +69,7 @@ from app.agents.synthesizer import (
 from app.agents.tracing import Tracer
 from app.agents.versions import ensure_active_versions
 from app.learning.prompt_registry import PromptedLLM
+from app.observability import metrics, otel
 from app.agents.verifier import FLAG_MARK, Verification, verify
 from app.config import Settings, get_settings
 from app.db.models import Answer, Citation, Document, Query, Retrieval
@@ -371,6 +372,7 @@ class AuditAssistant:
                                        "newly_scored": len(scores) - len(known)},
                             {"top": [(r.chunk.chunk_id, round(r.rerank_score, 4), r.query)
                                      for r in ranked], "good_count": good}, latency_ms=ms)
+        metrics.RETRIEVALS.labels("hit" if good else "miss").inc()
         return {"ranked": ranked, "good_count": good, "rerank_scores": scores}
 
     def _followup(self, state: GraphState) -> GraphState:
@@ -438,6 +440,8 @@ class AuditAssistant:
              "nli": {cid: {"label": c.label, "entailment": round(c.entailment, 3),
                            "contradiction": round(c.contradiction, 3)} for cid, c in v.nli.items()}},
             [res] if res else [])
+        failed = bool(v.removed) or (v.confidence is not None and v.confidence < s.confidence_threshold)
+        metrics.VERIFICATIONS.labels("failed" if failed else "passed").inc()
         # One claim_verdict event per claim, while the draft is still on screen (M14b).
         flagged = {f["claim"] for f in v.flagged}
         for c in v.claims:
@@ -624,6 +628,9 @@ class AuditAssistant:
         tracer = Tracer(self.deps.sessions, query_id, versions, StepBudget(
             s.budget_max_llm_calls, s.budget_max_tokens, s.budget_max_seconds,
             s.budget_max_retrieval_rounds))
+        if otel.tracing_enabled():  # M17a: one trace per question, agent steps as children
+            tracer.span = otel.QuerySpan(query_id, user.role)
+            tracer.include_content, tracer.content_max_chars = s.otel_include_content, s.otel_content_max_chars
         try:
             state: GraphState = self.graph.invoke({
                 "question": question, "user": user, "tracer": tracer,
@@ -670,6 +677,14 @@ class AuditAssistant:
         if self.deps.latency is not None and state["status"] == "answered":
             # The full-answer time feeds the load window that degradation reads (M15a).
             self.deps.latency.record(time.perf_counter() - asked_at)
+        # M17a: the figures the dashboards and alerts read.
+        metrics.QUERIES.labels(state["status"]).inc()
+        if state["status"] == "answered":
+            metrics.ANSWER_SECONDS.observe(time.perf_counter() - asked_at)
+        if degraded:
+            metrics.DEGRADED.inc()
+        if tracer.span is not None:
+            tracer.span.end(state["status"])
         return AnswerResult(
             query_id, answer_id, state["status"], state["answer"], citations,
             bool(synthesis and synthesis.superseded_involved and state["status"] == "answered"),
