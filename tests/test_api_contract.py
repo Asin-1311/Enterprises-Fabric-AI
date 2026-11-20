@@ -151,6 +151,13 @@ def test_every_endpoint_answers_valid_input_with_its_declared_shape(client, tmp_
         ("PUT", "/api/v1/routing-policy"): lambda c: c.put(
             "/api/v1/routing-policy", headers=admin, json={"version": 1}),
         ("GET", "/api/v1/metrics/quality"): lambda c: c.get("/api/v1/metrics/quality", headers=staff),
+        ("GET", "/api/v1/admin/prompts"): lambda c: c.get("/api/v1/admin/prompts", headers=admin),
+        ("POST", "/api/v1/admin/prompts"): lambda c: c.post("/api/v1/admin/prompts", headers=admin, json={
+            "agent": "query_understanding", "template": "Classify the audit question."}),
+        ("POST", "/api/v1/admin/prompts/{version_id}/activate"): lambda c: c.post(
+            "/api/v1/admin/prompts/{}/activate".format(next(
+                p["id"] for p in c.get("/api/v1/admin/prompts?agent=synthesis", headers=admin).json()
+                if p["is_active"])), headers=admin),
         ("GET", "/api/v1/users"): lambda c: c.get("/api/v1/users", headers=partner),
         ("POST", "/api/v1/webhooks/documents"): webhook,
     }

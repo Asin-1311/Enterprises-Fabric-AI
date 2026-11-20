@@ -9,6 +9,11 @@ and engagement team, enforced in retrieval).
 - GET  /sources/{id}/status    ingestion status, last change, counts, freshness lag.
 - PUT  /routing-policy         activates a routing-policy version, only with a passing replay
                                report (or a version that was active before: a rollback).
+- GET  /admin/prompts          every prompt version (optionally of one agent) (M15c).
+- POST /admin/prompts          stores a new, inactive prompt version.
+- POST /admin/prompts/{id}/activate
+                               makes it the agent's active prompt, only with a passing replay
+                               report (or a version that was active before: a rollback).
 Every change is written to audit_log. (POST /documents/reindex is in main.py.)
 """
 
@@ -22,14 +27,18 @@ from sqlalchemy import func, select
 
 from app.api.auth import current_user
 from app.api.schemas import (
+    PromptActivationOut,
+    PromptCreate,
+    PromptVersionOut,
     RoutingPolicyActivate,
     RoutingPolicyOut,
     SourceCreate,
     SourceOut,
     SourceStatusOut,
 )
-from app.db.models import Chunk, Document, RoutingPolicy, Source, User
+from app.db.models import Chunk, Document, PromptVersion, RoutingPolicy, Source, User
 from app.db.session import write_audit_log
+from app.learning import prompt_registry
 
 router = APIRouter(prefix="/api/v1", tags=["admin"])
 
@@ -188,3 +197,51 @@ def activate_routing_policy(req: RoutingPolicyActivate, request: Request,
             s.flush()
             write_audit_log(s, admin.user_id, "routing_policy_activated", f"version {req.version}")
         return _policy_out(policy)
+
+
+# --------------------------------------------------------------------------- prompt registry
+
+def _prompt_out(p: PromptVersion) -> PromptVersionOut:
+    return PromptVersionOut(id=p.id, agent=p.agent, version=p.version, template=p.template,
+                            eval_score=p.eval_score, eval_report=p.eval_report,
+                            created_by=p.created_by, created_at=p.created_at,
+                            activated_at=p.activated_at, is_active=p.is_active)
+
+
+@router.get("/admin/prompts", response_model=list[PromptVersionOut])
+def list_prompts(request: Request, agent: str | None = None,
+                 admin: User = Depends(require_admin)) -> list[PromptVersionOut]:
+    """Every prompt version, by agent and version (optionally of one agent)."""
+    stmt = select(PromptVersion).order_by(PromptVersion.agent, PromptVersion.version)
+    if agent is not None:
+        stmt = stmt.where(PromptVersion.agent == agent)
+    with request.app.state.services.sessions() as s:
+        return [_prompt_out(p) for p in s.scalars(stmt)]
+
+
+@router.post("/admin/prompts", response_model=PromptVersionOut, status_code=201)
+def create_prompt(req: PromptCreate, request: Request,
+                  admin: User = Depends(require_admin)) -> PromptVersionOut:
+    """Store a new, INACTIVE version; it needs a passing replay before it can go live."""
+    with request.app.state.services.sessions() as s:
+        try:
+            version = prompt_registry.create_version(s, req.agent, req.template, admin.user_id)
+        except prompt_registry.PromptRegistryError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        return _prompt_out(version)
+
+
+@router.post("/admin/prompts/{version_id}/activate", response_model=PromptActivationOut)
+def activate_prompt(version_id: int, request: Request,
+                    admin: User = Depends(require_admin)) -> PromptActivationOut:
+    """Activate a version with a passing replay report, or roll back to one that was
+    active before. Everything else is refused (409)."""
+    with request.app.state.services.sessions() as s:
+        try:
+            version, action = prompt_registry.activate(s, version_id, admin.user_id)
+        except LookupError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        except prompt_registry.PromptRegistryError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        s.commit()
+        return PromptActivationOut(action=action, version=_prompt_out(version))

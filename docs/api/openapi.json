@@ -416,6 +416,133 @@
         "title": "PasswordResetOut",
         "type": "object"
       },
+      "PromptActivationOut": {
+        "properties": {
+          "action": {
+            "enum": [
+              "unchanged",
+              "prompt_activated",
+              "prompt_rolled_back"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "version": {
+            "$ref": "#/components/schemas/PromptVersionOut"
+          }
+        },
+        "required": [
+          "action",
+          "version"
+        ],
+        "title": "PromptActivationOut",
+        "type": "object"
+      },
+      "PromptCreate": {
+        "additionalProperties": false,
+        "properties": {
+          "agent": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Agent",
+            "type": "string"
+          },
+          "template": {
+            "maxLength": 20000,
+            "minLength": 1,
+            "title": "Template",
+            "type": "string"
+          }
+        },
+        "required": [
+          "agent",
+          "template"
+        ],
+        "title": "PromptCreate",
+        "type": "object"
+      },
+      "PromptVersionOut": {
+        "properties": {
+          "activated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Activated At"
+          },
+          "agent": {
+            "title": "Agent",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "created_by": {
+            "title": "Created By",
+            "type": "string"
+          },
+          "eval_report": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Eval Report"
+          },
+          "eval_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Eval Score"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "is_active": {
+            "title": "Is Active",
+            "type": "boolean"
+          },
+          "template": {
+            "title": "Template",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "agent",
+          "version",
+          "template",
+          "eval_score",
+          "eval_report",
+          "created_by",
+          "created_at",
+          "activated_at",
+          "is_active"
+        ],
+        "title": "PromptVersionOut",
+        "type": "object"
+      },
       "QualityMetricsOut": {
         "properties": {
           "from": {
@@ -1358,6 +1485,158 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v1/admin/prompts": {
+      "get": {
+        "description": "Every prompt version, by agent and version (optionally of one agent).",
+        "operationId": "list_prompts_api_v1_admin_prompts_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "agent",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Agent"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/PromptVersionOut"
+                  },
+                  "title": "Response List Prompts Api V1 Admin Prompts Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Prompts",
+        "tags": [
+          "admin"
+        ]
+      },
+      "post": {
+        "description": "Store a new, INACTIVE version; it needs a passing replay before it can go live.",
+        "operationId": "create_prompt_api_v1_admin_prompts_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PromptCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PromptVersionOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Prompt",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/prompts/{version_id}/activate": {
+      "post": {
+        "description": "Activate a version with a passing replay report, or roll back to one that was\nactive before. Everything else is refused (409).",
+        "operationId": "activate_prompt_api_v1_admin_prompts__version_id__activate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "version_id",
+            "required": true,
+            "schema": {
+              "title": "Version Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PromptActivationOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Activate Prompt",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
     "/api/v1/auth/config": {
       "get": {
         "description": "What the sign-in screen may offer (public: no secrets, no user data). In the full\nprofile it names the identity provider the browser signs in with (M13b/M16).",

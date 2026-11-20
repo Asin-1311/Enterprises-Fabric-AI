@@ -319,3 +319,29 @@ class RoutingPolicyOut(BaseModel):
     eval_report: dict[str, Any] | None
     activated_at: datetime | None
     is_active: bool
+
+
+# --------------------------------------------------------------- prompt registry (M15c)
+
+class PromptCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    agent: str = Field(min_length=1, max_length=64)
+    template: str = Field(min_length=1, max_length=20_000)
+
+
+class PromptVersionOut(BaseModel):
+    id: int
+    agent: str
+    version: int
+    template: str
+    eval_score: float | None
+    eval_report: dict[str, Any] | None
+    created_by: str
+    created_at: datetime
+    activated_at: datetime | None
+    is_active: bool
+
+
+class PromptActivationOut(BaseModel):
+    action: Literal["unchanged", "prompt_activated", "prompt_rolled_back"]
+    version: PromptVersionOut
