@@ -7,6 +7,7 @@
     python -m eval.gates accept retrieval --run DIR
     python -m eval.gates accept routing-replay --run DIR
     python -m eval.gates accept prompts [--initial]
+    python -m eval.gates accept trace-replay --run DIR    # eval/trace_replay.py (M18b)
 
 1. Retrieval regression gate (13.1). A run of `eval.run_retrieval_eval --corpus synthetic`
    (what a clean clone can measure) is compared with eval/baselines/retrieval_synthetic.json.
@@ -314,7 +315,7 @@ def main(argv: list[str] | None = None) -> int:
     rr.add_argument("--run", type=Path, help="compare an existing run instead of replaying now")
     sub.add_parser("prompts")
     a = sub.add_parser("accept")
-    a.add_argument("what", choices=["retrieval", "routing-replay", "prompts"])
+    a.add_argument("what", choices=["retrieval", "routing-replay", "prompts", "trace-replay"])
     a.add_argument("--run", type=Path)
     a.add_argument("--initial", action="store_true")
     args = parser.parse_args(argv)
@@ -331,6 +332,11 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit("accept retrieval / routing-replay needs --run <eval/results folder>")
     elif args.what == "retrieval":
         accept_retrieval(args.run)
+    elif args.what == "trace-replay":
+        from eval.trace_replay import BASELINE, run_values
+
+        _write(BASELINE, {"source_run": args.run.name, "values": run_values(args.run),
+                          "accepted_at": _today()})
     else:
         accept_routing_replay(args.run)
     return 0

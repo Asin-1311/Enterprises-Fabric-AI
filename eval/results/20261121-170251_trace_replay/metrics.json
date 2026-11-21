@@ -1,0 +1,7 @@
+{
+  "score": 1.0,
+  "traces": 20,
+  "reproduced": 20,
+  "trace_file": "answer_traces.jsonl",
+  "ran_at": "2026-11-21T11:32:51+00:00"
+}

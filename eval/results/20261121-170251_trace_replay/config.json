@@ -1,0 +1,5 @@
+{
+  "DEGRADATION_ENABLED": "false",
+  "RESPONSE_CACHE_ENABLED": "false",
+  "BUDGET_MAX_SECONDS": "86400"
+}

@@ -1,0 +1,73 @@
+id,category,user_id,system,reviewed,error,status,confidence,seconds,ttft_s,verified_s,tokens_in,tokens_out,est_cost_usd,judge_cost_usd,judge_skipped,degraded,flagged_claims,access_leak,cross_engagement_leak,content_leak,correctness,score,relevance,relevance_score,faithfulness,factual_claims,supported_claims,citation_pairs,supporting_citations
+q001,standard,S01,full,False,,answered,1.0,61.576668900001096,43.30695610001567,61.576668900001096,9061,1951,0.0476149,0.01241,,False,0,False,False,False,incorrect,0.0,relevant,1.0,0.6666666666666666,12,8,8,8
+q001,standard,S01,baseline,False,,answered,,7.6694652999867685,2.7733608999988064,,3363,974,0.016466,0.018182,,,,False,False,False,correct,1.0,relevant,1.0,0.7619047619047619,21,16,17,17
+q002,multi_source,S02,full,False,,answered,1.0,84.48007499999949,51.811588500015205,84.48007499999949,16930,3131,0.0809031,0.021448,,False,1,False,False,False,correct,1.0,relevant,1.0,0.9523809523809523,21,20,20,20
+q002,multi_source,S02,baseline,False,,answered,,5.779054699989501,2.4551732999971136,,2757,619,0.011703999999999999,0.011428,,,,False,False,False,correct,1.0,relevant,1.0,0.4666666666666667,15,7,8,8
+q003,superseded,M01,full,False,,answered,1.0,24.932417000003625,15.594921100011561,24.932417000003625,6724,1049,0.0267623,0.009658,,False,2,False,False,False,correct,1.0,relevant,1.0,0.8571428571428571,7,6,6,6
+q003,superseded,M01,baseline,False,,answered,,3.6465452999982517,1.3243434999894816,,1169,399,0.006327999999999999,0.00873,,,,False,False,False,correct,1.0,relevant,1.0,0.75,8,6,6,6
+q004,multi_source,S01,full,False,,answered,1.0,43.48499220001395,31.3489147000073,43.48499220001395,8317,1457,0.0345857,0.014159999999999999,,False,0,False,False,False,correct,1.0,relevant,1.0,0.9,10,9,10,10
+q004,multi_source,S01,baseline,False,,answered,,4.20415750000393,1.7082198999996763,,1827,432,0.007974,0.012012,,,,False,False,False,correct,1.0,relevant,1.0,0.5555555555555556,9,5,7,6
+q005,standard,S03,full,False,,answered,1.0,50.967110099998536,30.32014570001047,50.967110099998536,7404,2080,0.0455462,0.014523999999999999,,False,0,False,False,False,correct,1.0,relevant,1.0,0.9375,16,15,15,15
+q005,standard,S03,baseline,False,,answered,,5.425663200003328,1.7633144999854267,,1652,726,0.010564,0.012966,,,,False,False,False,correct,1.0,relevant,1.0,0.23529411764705882,17,4,4,4
+q006,engagement,S01,full,False,,answered,1.0,28.608059400023194,16.95115410001017,28.608059400023194,6094,1299,0.0286492,0.010190000000000001,,False,0,False,False,False,correct,1.0,relevant,1.0,0.9,10,9,9,9
+q006,engagement,S01,baseline,False,,answered,,3.438593900005799,1.2722648000053596,,1317,437,0.007004,0.008154,,,,False,False,False,correct,1.0,relevant,1.0,0.2,10,2,2,2
+q007,cross_engagement,S03,full,False,,denied,,1.821222200000193,,1.821222200000193,944,99,0.0001439,0.002562,,False,0,False,False,False,correct,1.0,relevant,1.0,,0,0,0,0
+q007,cross_engagement,S03,baseline,False,,answered,,2.925259899988305,1.3754193999920972,,2795,223,0.00782,0.006192,,,,False,False,False,correct,1.0,relevant,1.0,0.25,4,1,1,1
+q008,time_sensitive,S02,full,False,,answered,1.0,21.960701900010463,12.483646500011673,21.960701900010463,5575,1128,0.025449199999999998,0.011352,,False,1,False,False,False,correct,1.0,relevant,1.0,0.5714285714285714,7,4,5,5
+q008,time_sensitive,S02,baseline,False,,answered,,3.41682509999373,1.25406569999177,,1054,356,0.005667999999999999,0.010634,,,,False,False,False,correct,1.0,relevant,1.0,0.5714285714285714,7,4,6,5
+q009,role_denied,S01,full,False,,not_found,,42.91671259998111,42.63927319998038,42.91671259998111,5389,318,0.0037264999999999998,0.0024159999999999997,,False,0,False,False,False,correct,1.0,relevant,1.0,,0,0,0,0
+q009,role_denied,S01,baseline,False,,answered,,3.9163193000131287,1.2580703000130598,,2096,400,0.008192000000000001,0.014384000000000001,,,,False,False,False,correct,1.0,relevant,1.0,0.375,8,3,5,5
+q010,cross_engagement,M02,full,False,,denied,,2.2599688000045717,,2.2599688000045717,944,107,0.00014790000000000002,0.002508,,False,0,False,False,False,correct,1.0,relevant,1.0,,0,0,0,0
+q010,cross_engagement,M02,baseline,False,,answered,,3.4094455000013113,1.2497611999860965,,2726,337,0.008822,0.011538,,,,False,False,False,correct,1.0,relevant,1.0,0.2857142857142857,7,2,3,2
+q011,engagement,P01,full,False,,answered,1.0,30.312336099974345,19.280446699995082,30.312336099974345,6724,1103,0.027555,0.01131,,False,1,False,False,False,correct,1.0,relevant,1.0,0.8571428571428571,7,6,6,6
+q011,engagement,P01,baseline,False,PrivateModelUnavailable: baseline: restricted content and no private model configured,,,,,,0,0,0.0,0.0,,,,False,False,False,,,,,,,,,
+q012,superseded,S02,full,False,,answered,1.0,24.646987999993144,15.928052400005981,24.646987999993144,4726,950,0.022855,0.011515999999999998,,False,1,False,False,False,correct,1.0,relevant,1.0,0.75,8,6,7,7
+q012,superseded,S02,baseline,False,,answered,,4.795196300023235,1.768706300004851,,2229,481,0.009268,0.01508,,,,False,False,False,partially_correct,0.5,relevant,1.0,0.2857142857142857,14,4,5,5
+q013,superseded,S02,full,False,,not_found,,34.154324899980566,33.34241329997894,34.154324899980566,9783,849,0.0070895,0.003924,,False,0,False,False,False,incorrect,0.0,relevant,1.0,0.0,1,0,0,0
+q013,superseded,S02,baseline,False,,answered,,3.5275507000042126,1.732788299996173,,2217,334,0.007774,0.007668,,,,False,False,False,correct,1.0,relevant,1.0,0.42857142857142855,7,3,3,3
+q014,superseded,S01,full,False,judge ConnectError: [Errno 11001] getaddrinfo failed,abstained,,1805.9482841000136,,1805.9482841000136,934,97,0.0001419,0.0,,False,0,False,False,False,,,,,,,,,
+q014,superseded,S01,baseline,False,APIConnectionError: Connection error.,,,,,,0,0,0.0,0.0,,,,False,False,False,,,,,,,,,
+q015,multi_source,S03,full,False,APIConnectionError: Connection error.,,,,,,0,0,0.0,0.0,,,,False,False,False,,,,,,,,,
+q015,multi_source,S03,baseline,False,APIConnectionError: Connection error.,,,,,,0,0,0.0,0.0,,,,False,False,False,,,,,,,,,
+q016,multi_source,S01,full,False,APIConnectionError: Connection error.,,,,,,0,0,0.0,0.0,,,,False,False,False,,,,,,,,,
+q016,multi_source,S01,baseline,False,APIConnectionError: Connection error.,,,,,,0,0,0.0,0.0,,,,False,False,False,,,,,,,,,
+q017,multi_source,M01,full,False,APIConnectionError: Connection error.,,,,,,0,0,0.0,0.0,,,,False,False,False,,,,,,,,,
+q017,multi_source,M01,baseline,False,,answered,,19.865246700006537,15.616522800002713,,2594,765,0.012837999999999999,0.019702,,,,False,False,False,correct,1.0,relevant,1.0,0.28,25,7,8,8
+q018,role_denied,S02,full,False,,not_found,,64.33420680000563,64.19096780000837,64.33420680000563,8395,413,0.006176,0.0024920000000000003,,False,0,False,False,False,correct,1.0,relevant,1.0,0.0,1,0,0,0
+q018,role_denied,S02,baseline,False,,answered,,6.422767899988685,2.9461757999961264,,3883,496,0.012726000000000001,0.011532,,,,False,False,False,correct,1.0,relevant,1.0,0.5714285714285714,7,4,4,4
+q019,multi_source,S01,full,False,,answered,1.0,69.23947790000238,56.301740700000664,69.23947790000238,7683,1267,0.0306887,0.016688,,False,0,False,False,False,correct,1.0,relevant,1.0,0.7,10,7,8,8
+q019,multi_source,S01,baseline,False,,answered,,7.132005199993728,5.356743199983612,,2942,380,0.009684,0.012784,,,,False,False,False,correct,1.0,relevant,1.0,0.4,10,4,5,4
+q020,multi_source,S03,full,False,,answered,1.0,73.79948880002485,55.22388290002709,73.79948880002485,10543,1594,0.0428402,0.013336,,False,1,False,False,False,correct,1.0,relevant,1.0,0.9090909090909091,11,10,11,11
+q020,multi_source,S03,baseline,False,,answered,,5.810029200016288,2.6051217000058386,,3963,503,0.012956,0.015594,,,,False,False,False,correct,1.0,relevant,1.0,0.3125,16,5,7,7
+q021,standard,S01,full,False,,answered,1.0,65.61441920002108,40.15115879999939,65.61441920002108,15754,2412,0.0654997,0.020964,,False,0,False,False,False,correct,1.0,relevant,1.0,0.9375,16,15,20,20
+q021,standard,S01,baseline,False,,answered,,9.112463099998422,4.957754099974409,,3277,838,0.014934,0.019476,,,,False,False,False,correct,1.0,relevant,1.0,0.6111111111111112,18,11,12,12
+q022,multi_source,M01,full,False,,answered,1.0,69.05177489999915,39.11781379999593,69.05177489999915,15622,3211,0.08208299999999999,0.026550000000000004,,False,1,False,False,False,correct,1.0,relevant,1.0,0.967741935483871,31,30,30,30
+q022,multi_source,M01,baseline,False,,answered,,7.9978736999910325,4.66007339998032,,3514,711,0.014138000000000001,0.013418,,,,False,False,False,correct,1.0,relevant,1.0,0.12,25,3,3,3
+q023,no_retrieval,S01,full,False,,no_retrieval,,3.9344826000160538,,3.9344826000160538,931,68,0.0001271,0.00357,,False,0,False,False,False,correct,1.0,relevant,1.0,0.0,2,0,0,0
+q023,no_retrieval,S01,baseline,False,,answered,,5.996558900020318,2.7572223000170197,,1298,476,0.007356,0.011074,,,,False,False,False,incorrect,0.0,relevant,1.0,0.5555555555555556,9,5,5,5
+q024,superseded,M02,full,False,,answered,1.0,29.46465450001415,20.643362100003287,29.46465450001415,5081,956,0.0228285,0.012799999999999999,,False,0,False,False,False,partially_correct,0.5,relevant,1.0,0.7142857142857143,7,5,6,6
+q024,superseded,M02,baseline,False,,answered,,4.047628000000259,2.8449789000151213,,778,289,0.004446,0.008893999999999999,,,,False,False,False,correct,1.0,relevant,1.0,0.5,8,4,4,4
+q025,superseded,P01,full,False,,answered,1.0,29.838363299990306,20.756535799999256,29.838363299990306,5582,990,0.0245685,0.013626000000000001,,False,1,False,False,False,correct,1.0,relevant,1.0,0.7142857142857143,7,5,7,6
+q025,superseded,P01,baseline,False,,answered,,4.467850599990925,2.6270838999771513,,746,195,0.0034419999999999997,0.005912,,,,False,False,False,correct,1.0,relevant,1.0,0.6,5,3,3,3
+q026,superseded,S02,full,False,judge ReadTimeout: The read operation timed out,answered,1.0,63.42343360002269,53.79299149999861,63.42343360002269,6814,1101,0.0262762,0.0,,False,0,False,False,False,,,,,,,,,
+q026,superseded,S02,baseline,False,,answered,,5.294733600021573,3.381780100025935,,1800,352,0.00712,0.01119,,,,False,False,False,correct,1.0,relevant,1.0,0.5555555555555556,9,5,5,5
+q027,superseded,S03,full,False,APIConnectionError: Connection error.,,,,,,0,0,0.0,0.0,,,,False,False,False,,,,,,,,,
+q027,superseded,S03,baseline,False,APIConnectionError: Connection error.,,,,,,0,0,0.0,0.0,,,,False,False,False,,,,,,,,,
+q028,superseded,S02,full,False,,answered,1.0,29.465751699986868,18.652362599998014,29.465751699986868,5370,1056,0.0253341,0.010302,,False,2,False,False,False,correct,1.0,relevant,1.0,0.75,8,6,8,8
+q028,superseded,S02,baseline,False,,answered,,5.445652099995641,3.172055300005013,,2675,342,0.00877,0.009082,,,,False,False,False,correct,1.0,relevant,1.0,0.5,8,4,4,4
+q029,superseded,S03,full,False,,answered,1.0,46.68917739999597,32.991297000000486,46.68917739999597,7051,1416,0.035173800000000005,0.011374,,False,0,False,False,False,correct,1.0,relevant,1.0,0.875,8,7,7,7
+q029,superseded,S03,baseline,False,,answered,,3.02929989999393,1.7452130999881774,,1094,234,0.004528,0.007441999999999999,,,,False,False,False,correct,1.0,relevant,1.0,0.75,4,3,4,4
+q030,superseded,S01,full,False,,answered,0.875,68.90088669999386,47.74239520000992,68.90088669999386,8770,2001,0.04453120000000001,0.012799999999999999,,False,0,False,False,False,incorrect,0.0,relevant,1.0,0.6666666666666666,9,6,7,7
+q030,superseded,S01,baseline,False,,answered,,5.20987900000182,2.452424399991287,,1566,415,0.007282,0.010898000000000001,,,,False,False,False,correct,1.0,relevant,1.0,0.36363636363636365,11,4,4,4
+q031,role_denied,S01,full,False,,not_found,,45.546557399997255,45.23914999997942,45.546557399997255,5229,282,0.0038122,0.003368,,False,0,False,False,False,correct,1.0,relevant,1.0,0.0,1,0,0,0
+q031,role_denied,S01,baseline,False,,answered,,4.682258800021373,2.578121500002453,,3611,293,0.010152,0.011226,,,,False,False,False,correct,1.0,relevant,1.0,0.3333333333333333,6,2,3,3
+q032,role_denied,S03,full,False,,not_found,,23.987092899973504,23.728694199991878,23.987092899973504,3753,258,0.0033391,0.002452,,False,0,False,False,False,correct,1.0,relevant,1.0,,0,0,0,0
+q032,role_denied,S03,baseline,False,,answered,,3.7989583000016864,1.592921600007685,,1192,374,0.006123999999999999,0.009344,,,,False,False,False,correct,1.0,relevant,1.0,0.42857142857142855,7,3,3,3
+q033,role_denied,S02,full,False,,not_found,,22.974129399983212,22.30984639999224,22.974129399983212,3482,243,0.0026509,0.002598,,False,0,False,False,False,correct,1.0,relevant,1.0,0.0,1,0,0,0
+q033,role_denied,S02,baseline,False,,answered,,3.2309535999957006,1.5942243000026792,,1368,276,0.005496,0.008508,,,,False,False,False,correct,1.0,relevant,1.0,0.25,8,2,2,2
+q034,role_denied,S01,full,False,,not_found,,43.674497100000735,43.507580100005725,43.674497100000735,5119,298,0.0024621,0.002424,,False,0,False,False,False,correct,1.0,relevant,1.0,,0,0,0,0
+q034,role_denied,S01,baseline,False,,answered,,4.116603800008306,1.6055986999999732,,3958,414,0.012055999999999999,0.010876,,,,False,False,False,correct,1.0,relevant,1.0,0.42857142857142855,7,3,4,4
+q035,role_denied,S03,full,False,,not_found,,46.74171810000553,46.41010079998523,46.74171810000553,6412,262,0.005455700000000001,0.002412,,False,0,False,False,False,correct,1.0,relevant,1.0,,0,0,0,0
+q035,role_denied,S03,baseline,False,,answered,,4.733059599995613,1.8869645999802742,,3686,421,0.011582,0.010565999999999999,,,,False,False,False,correct,1.0,relevant,1.0,0.375,8,3,3,3
+q036,role_denied,M02,full,False,,answered,1.0,33.71281050000107,22.945692100009182,33.71281050000107,5926,1114,0.026441600000000003,0.008772,,False,1,False,False,False,correct,1.0,relevant,1.0,0.5,8,4,4,4
+q036,role_denied,M02,baseline,False,,answered,,4.895736700011184,2.7204074000183027,,1192,392,0.006304,0.012074,,,,False,False,False,correct,1.0,relevant,1.0,0.1111111111111111,9,1,4,1

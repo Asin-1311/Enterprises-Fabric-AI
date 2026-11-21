@@ -1,0 +1,11 @@
+id,category,user_id,system,reviewed,error,status,confidence,seconds,ttft_s,verified_s,tokens_in,tokens_out,est_cost_usd,judge_cost_usd,judge_skipped,access_leak,cross_engagement_leak,content_leak,correctness,score,relevance,relevance_score,faithfulness,factual_claims,supported_claims,citation_pairs,supporting_citations
+q001,standard,S01,full,False,,answered,1.0,60.30315220000921,43.58682560001034,60.30315220000921,9067,1761,0.0430539,0.01506,,False,False,False,partially_correct,0.5,relevant,1.0,0.6666666666666666,12,8,8,8
+q001,standard,S01,baseline,False,,answered,,7.944872399995802,3.4095215999986976,,3363,920,0.015926,0.019667999999999998,,False,False,False,correct,1.0,relevant,1.0,0.625,24,15,16,16
+q009,role_denied,S01,full,False,,not_found,,54.181155400001444,53.88918230001582,54.181155400001444,5604,337,0.0039209,0.0024159999999999997,,False,False,False,correct,1.0,relevant,1.0,,0,0,0,0
+q009,role_denied,S01,baseline,False,,answered,,4.2527615999861155,1.8084976999962237,,2096,368,0.007872,0.011925999999999999,,False,False,False,correct,1.0,relevant,1.0,0.3333333333333333,9,3,5,5
+pol-09,single_source,S01,full,False,,not_found,,88.19904090001364,87.90805940001155,88.19904090001364,9200,429,0.005305000000000001,0.003978000000000001,,False,False,False,incorrect,0.0,partially_relevant,0.5,0.0,1,0,0,0
+pol-09,single_source,S01,baseline,False,,answered,,4.440188199980184,1.833146199991461,,4097,329,0.011484,0.010202,,False,False,False,incorrect,0.0,relevant,1.0,0.5,8,4,2,2
+eng-04,engagement,S03,full,False,,answered,1.0,57.579645699996036,34.98259530001087,57.579645699996036,6146,2075,0.044598200000000005,0.014478,,False,False,False,correct,1.0,relevant,1.0,0.9166666666666666,12,11,11,11
+eng-04,engagement,S03,baseline,False,,answered,,4.811699000012595,1.7998446999990847,,2645,517,0.01046,0.01227,,False,False,False,correct,1.0,relevant,1.0,0.25,16,4,4,4
+cal-01,time_sensitive,S01,full,False,,answered,1.0,29.741123800020432,20.19797860001563,29.741123800020432,4979,989,0.0222163,0.00957,,False,False,False,incorrect,0.0,relevant,1.0,0.5714285714285714,7,4,5,5
+cal-01,time_sensitive,S01,baseline,False,,answered,,3.9587336000113282,2.3225118000118528,,1703,275,0.006156,0.00879,,False,False,False,correct,1.0,relevant,1.0,0.5,6,3,3,3

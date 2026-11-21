@@ -1,0 +1,189 @@
+{
+  "_strata": {
+    "not_correct": 8,
+    "correct": 22,
+    "judged_in_run": 119,
+    "seed": 42,
+    "min_not_correct": 8
+  },
+  "1": {
+    "id": "eng-04",
+    "system": "full",
+    "run": "20261121-151459_answers",
+    "judge_correctness": "correct"
+  },
+  "2": {
+    "id": "q039",
+    "system": "full",
+    "run": "20261121-183054_answers",
+    "judge_correctness": "correct"
+  },
+  "3": {
+    "id": "cal-05",
+    "system": "baseline",
+    "run": "20261121-183054_answers",
+    "judge_correctness": "correct"
+  },
+  "4": {
+    "id": "chk-08",
+    "system": "full",
+    "run": "20261121-181723_answers",
+    "judge_correctness": "correct"
+  },
+  "5": {
+    "id": "q013",
+    "system": "baseline",
+    "run": "20261121-171000_answers",
+    "judge_correctness": "correct"
+  },
+  "6": {
+    "id": "tpl-03",
+    "system": "baseline",
+    "run": "20261121-183054_answers",
+    "judge_correctness": "correct"
+  },
+  "7": {
+    "id": "q018",
+    "system": "full",
+    "run": "20261121-171000_answers",
+    "judge_correctness": "correct"
+  },
+  "8": {
+    "id": "pol-09",
+    "system": "baseline",
+    "run": "20261121-151459_answers",
+    "judge_correctness": "incorrect"
+  },
+  "9": {
+    "id": "faq-08",
+    "system": "full",
+    "run": "20261121-183054_answers",
+    "judge_correctness": "correct"
+  },
+  "10": {
+    "id": "tpl-03",
+    "system": "full",
+    "run": "20261121-181723_answers",
+    "judge_correctness": "correct"
+  },
+  "11": {
+    "id": "std-04",
+    "system": "full",
+    "run": "20261121-181723_answers",
+    "judge_correctness": "correct"
+  },
+  "12": {
+    "id": "q033",
+    "system": "baseline",
+    "run": "20261121-171000_answers",
+    "judge_correctness": "correct"
+  },
+  "13": {
+    "id": "q033",
+    "system": "full",
+    "run": "20261121-171000_answers",
+    "judge_correctness": "correct"
+  },
+  "14": {
+    "id": "q001",
+    "system": "full",
+    "run": "20261121-151459_answers",
+    "judge_correctness": "partially_correct"
+  },
+  "15": {
+    "id": "q035",
+    "system": "full",
+    "run": "20261121-171000_answers",
+    "judge_correctness": "correct"
+  },
+  "16": {
+    "id": "q001",
+    "system": "full",
+    "run": "20261121-171000_answers",
+    "judge_correctness": "incorrect"
+  },
+  "17": {
+    "id": "q030",
+    "system": "full",
+    "run": "20261121-171000_answers",
+    "judge_correctness": "incorrect"
+  },
+  "18": {
+    "id": "pol-04",
+    "system": "full",
+    "run": "20261121-181723_answers",
+    "judge_correctness": "correct"
+  },
+  "19": {
+    "id": "q024",
+    "system": "full",
+    "run": "20261121-171000_answers",
+    "judge_correctness": "partially_correct"
+  },
+  "20": {
+    "id": "q013",
+    "system": "full",
+    "run": "20261121-171000_answers",
+    "judge_correctness": "incorrect"
+  },
+  "21": {
+    "id": "q017",
+    "system": "baseline",
+    "run": "20261121-171000_answers",
+    "judge_correctness": "correct"
+  },
+  "22": {
+    "id": "q004",
+    "system": "full",
+    "run": "20261121-171000_answers",
+    "judge_correctness": "correct"
+  },
+  "23": {
+    "id": "eng-04",
+    "system": "baseline",
+    "run": "20261121-151459_answers",
+    "judge_correctness": "correct"
+  },
+  "24": {
+    "id": "q011",
+    "system": "full",
+    "run": "20261121-171000_answers",
+    "judge_correctness": "correct"
+  },
+  "25": {
+    "id": "q012",
+    "system": "baseline",
+    "run": "20261121-171000_answers",
+    "judge_correctness": "partially_correct"
+  },
+  "26": {
+    "id": "faq-08",
+    "system": "full",
+    "run": "20261121-181723_answers",
+    "judge_correctness": "correct"
+  },
+  "27": {
+    "id": "pol-09",
+    "system": "full",
+    "run": "20261121-151459_answers",
+    "judge_correctness": "incorrect"
+  },
+  "28": {
+    "id": "q036",
+    "system": "full",
+    "run": "20261121-183054_answers",
+    "judge_correctness": "correct"
+  },
+  "29": {
+    "id": "std-04",
+    "system": "baseline",
+    "run": "20261121-183054_answers",
+    "judge_correctness": "correct"
+  },
+  "30": {
+    "id": "q012",
+    "system": "baseline",
+    "run": "20261121-181723_answers",
+    "judge_correctness": "correct"
+  }
+}

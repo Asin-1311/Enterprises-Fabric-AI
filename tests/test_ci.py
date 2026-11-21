@@ -36,7 +36,7 @@ def test_ci_runs_every_required_check() -> None:
         "policy": ["test /policy"],
         "dependency-audit": ["pip-audit"],
         "eval-gates": ["eval.run_retrieval_eval --corpus synthetic", "eval.gates retrieval",
-                       "eval.gates routing-replay", "eval.gates prompts"],
+                       "eval.gates routing-replay", "eval.gates prompts", "eval.trace_replay check"],
         "helm": ["helm lint", "helm template"],
         "images": ["--exit-code 1", "--severity HIGH,CRITICAL", "smoke_deploy.py"],
         "integration": ["scripts.ci_env", "--profile full up", "pytest -m integration",
