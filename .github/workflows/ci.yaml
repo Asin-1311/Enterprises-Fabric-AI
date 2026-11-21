@@ -262,8 +262,7 @@ jobs:
   release:
     name: Release and staging
     needs: [python, frontend, policy, dependency-audit, eval-gates, helm, images, integration]
-    # TEMPORARY (M17c development): m17c-ci-cd also runs the release, to verify it before merging.
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/phase2' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/m17c-ci-cd')
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/phase2' || github.ref == 'refs/heads/main')
     permissions:
       contents: read
       packages: write

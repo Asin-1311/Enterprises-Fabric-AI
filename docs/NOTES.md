@@ -3376,3 +3376,145 @@ Branch `m17a-observability`, made from `phase2` after M16c was merged.
 - **On the way:** `scripts/kind_smoke.py` and the Helm test now decode tool output as
   UTF-8. kind prints symbols that Windows' default code page cannot decode; it raised an
   error in a reader thread, although the run itself went on.
+
+## M17c — CI/CD, quality gates and the operations guide (2026-11-21)
+
+### What was built
+- **`.github/workflows/ci.yaml`** runs on every push and pull request, on a clean clone:
+  no `.env`, no ICAI material, no API key, `LLM_MODE=mock`. It has eight jobs:
+  - *python:* ruff lint (`ruff.toml`: syntax errors and pyflakes), the unit tests, and the
+    static compliance check;
+  - *frontend:* `npm ci`, type check, Vitest, `npm audit --audit-level=high`;
+  - *policy:* `opa test policy/` with the pinned OPA image;
+  - *dependency-audit:* `pip-audit` of the installed environment (direct and transitive
+    packages, CPU PyTorch as actually installed);
+  - *eval-gates:* index the committed synthetic corpus, run the retrieval evaluation, then
+    the three gates (below);
+  - *helm:* `helm lint` and a render of both profiles;
+  - *images:* build the three images, scan them with Trivy (any HIGH or CRITICAL
+    vulnerability with a published fix fails), then run the API container read-only,
+    without capabilities, through the smoke test;
+  - *integration:* a throwaway `.env` (`scripts/ci_env.py`: random passwords, masked in
+    the logs), `docker compose --profile full`, Keycloak, the synthetic DMS and Debezium,
+    `pytest -m integration`, then `check_compliance --run --run-integration`, which runs
+    every Met acceptance test (Python, integration and Vitest).
+- **`.github/workflows/release.yaml`**, called only when all eight jobs pass on a push to
+  `phase2` or `main`:
+  1. pushes the images to GitHub Container Registry, tagged with the commit SHA;
+  2. starts a kind cluster on the runner, installs exactly those images in the namespace
+     `staging`, and runs `helm test`.
+- **Supply chain:**
+  - every third-party action is pinned to a commit SHA;
+  - the Trivy and OPA images are pinned by digest;
+  - helm and kind are downloaded at pinned versions and verified by SHA-256.
+  - Trivy runs from its image, not through `aquasecurity/trivy-action`.
+- **Quality gates (`eval/gates.py`), with no LLM calls:**
+  1. *Retrieval regression:* `eval.run_retrieval_eval --corpus synthetic` scores the
+     questions a clean clone can answer: 19 with gold documents in the synthetic corpus,
+     plus 20 leak and abstention checks, of 63. The build fails if any gated value, overall
+     or per source type, is more than `RETRIEVAL_TOLERANCE` (0.02) below the baseline, if
+     any mode leaks, or if the question set changed.
+  2. *Routing replay:* the code's default routing is replayed on the 19 synthetic replay
+     records (document recall@10) and may lose at most `REPLAY_TOLERANCE`.
+  3. *Prompt gate:* replaying a prompt calls the paid model, so CI does not do it. Instead,
+     a seed prompt whose text differs from the accepted one fails the build unless a
+     PASSING prompt replay report for exactly that text (matched by SHA-256, now recorded
+     in every report) is committed.
+- **Baselines** (`eval/baselines/`) are copied by `python -m eval.gates accept ...` from
+  real runs made in a clean clone on 2026-11-21: `20261121-125420_retrieval_synthetic` and
+  `20261121-125450_routing_replay_synthetic`. The gate refuses a baseline that no longer
+  matches its run, so none can be typed by hand.
+- **Synthetic runs are a separate run type** (`retrieval_synthetic`). They never mix with
+  the full-corpus figures in `/metrics/quality` or the report.
+- **`docs/OPERATIONS.md`:**
+  - start and stop, deploy (images, Helm, kind, CI/CD) and the gates;
+  - back up and restore, keys and secrets, adding a source, rollback;
+  - dashboards and alerts with what to do, and troubleshooting;
+  - each procedure marked *tested*, *run once* or *procedure* (written down, not yet
+    exercised).
+- **`README.md`** (new) links the documentation. `.env.example` gained `LLM_MODE` and
+  `RETRIEVAL_TOLERANCE`.
+
+### Problems CI found, and the fixes
+- **Trivy failed the first run, as it should.**
+  - Frontend: 57 fixable HIGH or CRITICAL findings in the pinned nginx base's Alpine
+    packages (brotli, curl, expat, OpenSSL, musl and others). The final stage now runs
+    `apk upgrade`, then returns to the unprivileged user.
+  - API and worker: an old zlib, setuptools 78.1.0 (with its vendored jaraco.context and
+    wheel), and pip 26.2.2, which vendors vulnerable copies of urllib3 and msgpack. The
+    image now applies the OS security updates, uses setuptools 84.2.1 (the version the
+    laptop's tests already use) and contains NO pip: nothing installs packages at run
+    time.
+  - Placing these steps after the model download kept that 1.5 GB layer cached.
+  - All three rebuilt images scan clean, and the read-only API container still passes the
+    smoke test.
+- **pip-audit failed:** the runner's bundled pip (26.1.x) has PYSEC-2026-3721. CI now
+  installs pip 26.3 first.
+- **Two tests depended on the caller's environment.** CI sets `LLM_MODE=mock`, and two
+  tests expected the default `live` mode. They now set the mode explicitly. Found by
+  running the whole suite in a local clean clone before pushing.
+- **The first lint found one real gap:** a string type annotation (`"httpx.Client"`) with
+  no import. It was harmless at run time, and is now a `TYPE_CHECKING` import. The rest:
+  four unused imports, one unused variable, one ambiguous name and one misplaced import.
+
+### Why it matters
+- Every push is now checked the same way, on a machine that has only what is in git: the
+  tests, the access-control policy, known vulnerabilities in dependencies and images, and
+  retrieval quality against a recorded baseline.
+- A change that makes retrieval worse, alters a prompt without replay, or ships a
+  vulnerable package fails the build, before it can reach staging.
+
+### Likely viva questions
+- *Why does CI run on synthetic data only?*
+  - The ICAI chapters are licensed and never in git. CI can therefore only measure what a
+    clean clone holds.
+  - The full-corpus evaluations still run on the laptop and are the figures in the
+    report.
+  - The gate's job is to catch regressions, not to report quality.
+- *Recall is 1.0 on the synthetic set. Is the gate useful?*
+  - Recall is saturated on 19 questions, so the gate mostly watches MRR, nDCG and
+    superseded ordering.
+  - M18 adds at least 10 questions per source type, then re-baselines, which sharpens it.
+- *Why not replay prompts in CI?* That needs paid model calls on every push. The hash
+  rule gives the same guarantee for free: no changed prompt text passes without a passing
+  replay report. The running system also keeps a changed seed inactive until replay
+  passes.
+- *Why remove pip from the image?* It was the only source of two vulnerable libraries
+  and is not needed at run time. Smaller attack surface, same behaviour, and the smoke
+  test proves it.
+- *Can CI leak a secret?* It has none stored. The passwords are random per run and
+  masked, and images are pushed with GitHub's built-in short-lived token.
+
+### Status
+- **CI on GitHub:** run 44884117578 (commit `0caf994`, 2026-11-21):
+  https://github.com/Asin-1311/Enterprises-Fabric-AI/actions/runs/44884117578
+  - All eight CI jobs succeeded, and so did both release jobs: images published to GHCR,
+    then staging on kind with `helm test`.
+  - The release ran for the development branch by a temporary condition, which was
+    removed before this commit. On `phase2` it runs after every merge.
+  - The three earlier runs failed on the real findings described above.
+  - Test counts on GitHub are in the runs' JUnit artifacts. They need a signed-in
+    `gh` to download, which was not available during this milestone; the job results
+    above come from GitHub's public API.
+- **Met:**
+  - R-14: CI/CD with scans, gates and staging, plus M17a's dashboards and M17b's images
+    and Helm (`tests/test_ci.py::test_ci_runs_every_required_check`).
+  - R-ops-clone: the fresh-clone CI job
+    (`tests/test_ci.py::test_the_fresh_clone_job_indexes_the_synthetic_corpus_without_secrets`).
+- **Not met → Partial:** R-13.1-sets. The regression gate and an injected-regression test
+  exist; the per-source question files are M18.
+- **Advanced:** R-13.3-replay (routing replay and prompt gate in CI) and R-15-docs
+  (`docs/OPERATIONS.md`, `README.md`; ARCHITECTURE.md is M19).
+- **COMPLIANCE.md:** 43 requirements; 33 Met, 9 Partial, 1 Not met (R-13.3-load, M18).
+- **Tests on the laptop (2026-11-21):**
+  - default suite: 590 passed, 0 skipped (13 new; counts from pytest's JUnit report);
+  - the same suite in a local clean clone with CI's settings: all passed after the two
+    environment fixes, with the three ICAI-dependent tests skipped as designed;
+  - integration with `full` up: 24 passed, 4 skipped (the kind release, and the three
+    observability tests whose stack cannot run beside `full`);
+  - frontend: 47 passed;
+  - `check_compliance.py --run --run-integration`: passes;
+  - ruff and actionlint: clean.
+- **Tools installed this milestone:** GitHub CLI 2.105.0 (winget; sign-in still to do),
+  and ruff 0.17.6 and pip-audit 2.10.1 in a scratch environment only. In CI they are
+  installed pinned and are not in `requirements.txt`.
