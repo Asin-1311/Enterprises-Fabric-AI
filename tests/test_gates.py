@@ -125,9 +125,23 @@ def test_synthetic_mode_scores_only_what_the_committed_corpus_can_answer() -> No
     assert [q["id"] for q in kept] == ["a", "b"] and excluded == 1
 
 
-def test_only_synthetic_runs_can_become_the_ci_baseline(tmp_path: Path) -> None:
-    run = tmp_path / "20261121-000000_retrieval"
-    run.mkdir()
-    (run / "metrics.json").write_text(json.dumps({"corpus": "full"}), encoding="utf-8")
-    with pytest.raises(SystemExit, match="synthetic"):
-        gates.accept_retrieval(run)
+def test_a_run_becomes_the_baseline_of_its_own_corpus(tmp_path: Path, monkeypatch) -> None:
+    """A synthetic run can only replace the CI baseline, a full-corpus run only the laptop's
+    (eval/baselines/retrieval.json); a run from before the per-source sets is refused."""
+    targets = {"synthetic": tmp_path / "ci.json", "full": tmp_path / "laptop.json"}
+    monkeypatch.setattr(gates, "RETRIEVAL_BASELINES", targets)
+    source = _source_metrics(_baseline())
+    old = tmp_path / "20261121-000000_retrieval"
+    old.mkdir()
+    (old / "metrics.json").write_text(json.dumps({"corpus": "full"}), encoding="utf-8")
+    with pytest.raises(SystemExit, match="current question sets"):
+        gates.accept_retrieval(old)
+
+    full = tmp_path / "20261121-000100_retrieval"
+    full.mkdir()
+    (full / "metrics.json").write_text(json.dumps({**source, "corpus": "full", "questions_by_set": {"general": 1}}),
+                                       encoding="utf-8")
+    (full / "per_question.csv").write_text("id\nq001\n", encoding="utf-8")
+    gates.accept_retrieval(full)
+    assert json.loads(targets["full"].read_text(encoding="utf-8"))["corpus"] == "full"
+    assert not targets["synthetic"].exists()

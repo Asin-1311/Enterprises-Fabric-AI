@@ -105,6 +105,22 @@ them in the `staging` namespace on a kind cluster and runs the smoke test.
 | Retrieval regression | `python -m eval.run_retrieval_eval --corpus synthetic` then `python -m eval.gates retrieval` | any metric (overall or per source type) drops more than `RETRIEVAL_TOLERANCE` (0.02) below `eval/baselines/retrieval_synthetic.json`; any leak; the question set changed |
 | Routing replay | `python -m eval.gates routing-replay` | the code's routing loses more than `REPLAY_TOLERANCE` (0.02) on `eval/replay/routing_replay.jsonl` |
 | Prompt replay | `python -m eval.gates prompts` | a seed prompt in the code changed and there is no PASSING `*_prompt_replay` report for exactly that text |
+| Retrieval regression, full corpus (laptop, nightly Prefect job) | `python -m eval.run_retrieval_eval` then `python -m eval.gates retrieval --corpus full` | the same rules against `eval/baselines/retrieval.json`, with the licensed ICAI chapters indexed |
+
+The questions are the general set `eval/questions.jsonl` plus one file per source type,
+`eval/questions/<source_type>.jsonl` (`eval/question_sets.py` validates them; at least 10
+per type). Every question starts with `"reviewed": false`, and only the author sets it to
+true.
+
+### Weekly human review [tested]
+`python -m scripts.sample_weekly_review draw` (Prefect: Mondays 09:00) writes 5%
+(`REVIEW_SAMPLE_FRACTION`) of last week's answers to `data/review/<week>/sample.csv`. This
+folder is git-ignored because it holds answer text.
+1. Fill in `human_label` (`correct`, `partially_correct` or `incorrect`), `reviewer` and
+   `notes`.
+2. The answer-evaluation judge fills `judge_label`.
+3. `python -m scripts.sample_weekly_review drift` then writes the weekly agreement and
+   Cohen's kappa to `eval/results/<ts>_review/`, with no answer text.
 
 The gates need an index of the committed synthetic documents only, which is what a clean
 clone builds. On the laptop the licensed ICAI chapters are present, so run the gates in a
