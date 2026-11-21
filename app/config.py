@@ -44,6 +44,12 @@ class Settings(BaseSettings):
     effort_light: str = "low"
     effort_synth: str = "medium"
     effort_verify: str = "medium"
+    # Evaluation only (M18b): the answer-evaluation judge, from a DIFFERENT model family than
+    # MODEL_VERIFY so it does not share the verifier's blind spots (CLAUDE.md section 3).
+    # Called through an OpenAI-compatible API (eval/judge_client.py; OpenRouter by default).
+    model_judge: str | None = None
+    judge_base_url: str | None = None  # default: LLM_BASE_URL + "/v1"
+    effort_judge: str = "medium"       # reasoning effort: low | medium | high
 
     # --- Local models (sentence-transformers, CPU) -----------------------
     embedding_model: str = "BAAI/bge-small-en-v1.5"
@@ -191,6 +197,9 @@ class Settings(BaseSettings):
     retrieval_tolerance: float = 0.02
     # Share of each week's answers drawn for human review (M18a; scripts/sample_weekly_review.py).
     review_sample_fraction: float = 0.05
+    # Trace replay (M18b; eval/trace_replay.py): the share of recorded traces reproduced may
+    # fall at most this much below the baseline (0.05 is one trace in twenty).
+    trace_replay_tolerance: float = 0.05
     # A new prompt version may score at most this much below the active one on replay
     # (M15c). Wider than for routing: model outputs vary between runs and one record of
     # ~20 is 0.05. A starting value, to be revisited with run-to-run spread in M18.
@@ -249,12 +258,26 @@ class Settings(BaseSettings):
         for name in ("effort_light", "effort_synth", "effort_verify"):
             if getattr(self, name) not in allowed:
                 raise ValueError(f"{name.upper()} must be one of {sorted(allowed)}")
+        if self.effort_judge not in {"low", "medium", "high"}:
+            raise ValueError("EFFORT_JUDGE must be one of ['high', 'low', 'medium']")
+        if (self.llm_mode == "live" and self.model_judge
+                and model_family(self.model_judge) == model_family(self.model_verify)):
+            raise ValueError("MODEL_JUDGE must be from a different model family than MODEL_VERIFY")
         return self
 
     @property
     def sqlite_url(self) -> str:
         """SQLAlchemy URL for the SQLite database."""
         return f"sqlite:///{self.sqlite_path.as_posix()}"
+
+
+def model_family(model: str) -> str:
+    """The provider family of a model id: "anthropic/claude-x" and "claude-x" are anthropic,
+    "openai/gpt-x" is openai, "google/gemini-x" is google (used for MODEL_JUDGE, M18b)."""
+    name = model.lower()
+    if "claude" in name or name.startswith("anthropic/"):
+        return "anthropic"
+    return name.split("/", 1)[0] if "/" in name else name.split("-", 1)[0]
 
 
 @lru_cache

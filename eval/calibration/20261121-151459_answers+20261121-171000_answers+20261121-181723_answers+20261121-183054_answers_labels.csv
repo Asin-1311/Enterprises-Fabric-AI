@@ -1,0 +1,279 @@
+﻿sample,id,system,category,question,gold_answer,answer,human_correctness,human_notes
+1,eng-04,full,engagement,"Which borrower accounts did the Meridian Bank Lakeview NPA review find misclassified, and why?","Sunrise Agro Traders (no credits for 90 days: out of order, NPA); Lotus Weaves (borrower-wise rule: the cash credit is also NPA); Harbour Logistics (a large credit on 30 March reversed on 3 April: deemed NPA). Greenleaf Foods' D1 provision was verified.","The review found three accounts misclassified as Standard or partly Standard. [ENG-MBL-NPA:h-a41dfe:1] Greenleaf Foods was not flagged as misclassified. [ENG-MBL-NPA:h-a41dfe:1]
+
+- **Sunrise Agro Traders (cash credit, a/c 000444555666):** The branch classified it as Standard. [ENG-MBL-NPA:h-a41dfe:1] The review found no credits for 90 days to 31 March, so the account is out of order and should be NPA [ENG-MBL-NPA:h-a41dfe:1]. *(check this point)*
+- **Lotus Weaves (term loan plus cash credit, a/c 000777888999):** The branch classified the term loan as NPA but the cash credit as standard. [ENG-MBL-NPA:h-a41dfe:1] Under the borrower-wise rule, the cash credit should also be NPA [ENG-MBL-NPA:h-a41dfe:1].
+- **Harbour Logistics (cash credit, a/c 000123123123):** The branch classified it as Standard. [ENG-MBL-NPA:h-a41dfe:1] A large credit on 30 March was reversed on 3 April, so the account is deemed NPA [ENG-MBL-NPA:h-a41dfe:1].
+- **Greenleaf Foods (term loan, a/c 000321321321):** The branch classified it as Doubtful D1. [ENG-MBL-NPA:h-a41dfe:1] The review verified the provision at 25% secured and 100% unsecured, with no misclassification noted [ENG-MBL-NPA:h-a41dfe:1]. *(check this point)*
+
+The planning memo lists NPA classification of cash credit accounts, especially those regularised just before 31 March 2026, as a focus area [ENG-MBL-PLAN:3:1]. The working paper does not give the specific circular or SA paragraph references behind each finding, so these were not found in the available material.
+
+_This answer supports, and does not replace, the professional judgement of the engagement team; sign-off remains with the engagement partner._",,
+2,q039,full,cross_engagement,Which accounts did the Meridian Bank Lakeview NPA review reclassify?,Not available to your engagement.,"I could not find this in the material available to your role and engagement assignments. If you believe you need it, please ask your engagement manager.",,
+3,cal-05,baseline,single_source,"In the FY 2025-26 compliance calendar, when was the annual independence declaration due?",30 April 2025.,"The annual independence declaration (all staff and partners) was due on **30 April 2025** under the FY 2025-26 compliance calendar [CAL-FY2526:h-11d98a:1].
+
+The FAQ confirms the general annual deadline of 30 April. It also says a declaration must be signed before starting work on each engagement, a requirement added in Independence and Ethics Policy v2.0 (July 2025) [FAQ-01:q-e70363:1]. That engagement-level declaration is separate from the annual one in the calendar.",,
+4,chk-08,full,single_source,How are government-guaranteed advances treated for NPA classification on our bank branch checklist?,Central Government guaranteed advances (guarantee not invoked) are standard for classification but NPA for income recognition; State Government guaranteed advances overdue more than 90 days are NPA for both.,"**Direct answer:** The checklist treats the two types of government-guaranteed advances differently.
+
+- **Central Government guaranteed advances (guarantee not invoked):** These are treated as standard for classification but as NPA for income recognition [CHK-BANK-01:B:1].
+- **State Government guaranteed advances:** These are treated as NPA for both purposes if overdue by more than 90 days [CHK-BANK-01:B:1].
+
+**Supporting points from ICAI study material:**
+- The ICAI material is consistent with the checklist. [CAF-P3-16:7:16] A credit facility backed by a Central Government guarantee, though overdue, can be treated as NPA for asset classification only when the Central Government repudiates the guarantee, when invoked [CAF-P3-16:7:16].
+- For income recognition, if a government guaranteed advance becomes NPA, interest should not be taken to income unless it is realized [CAF-P3-16:7:16].
+- The Central Government exception does not apply to State Government guaranteed advances. [CAF-P3-16:7:16] These are considered NPA if overdue for more than 90 days [CAF-P3-16:7:16].
+- Where the bank has not invoked a Central Government guarantee although the amount has been overdue for long, the reasoning should be obtained and duly reported in LFAR [CAF-P3-16:7:16].
+
+_This answer supports, and does not replace, the professional judgement of the engagement team; sign-off remains with the engagement partner._",,
+5,q013,baseline,superseded,Above what level of branch advances is an EQCR required for a bank branch audit?,"Total branch advances above ₹100 crore (Technical Circular 2026/03, FY 2025-26), reduced from ₹150 crore in Circular 2025/02.","An EQCR is required when a branch's total advances exceed **₹100 crore**. This is the current threshold under Technical Circular 2026/03 for FY 2025-26, which reduced it from ₹150 crore [CIR-2026-03:6:1].
+
+The ₹150 crore figure comes from the earlier Circular 2025/02 for FY 2024-25 and has been superseded [CIR-2025-02:3:1]. The Meridian Bank Lakeview Branch planning memo applies the current ₹100 crore threshold. Its advances of ₹128 crore exceed it, so an EQCR is required before signing [ENG-MBL-PLAN:2:1].
+
+The retrieved extract of Circular 2026/03 only states the change (the reduction to ₹100 crore) and not the full text of the EQCR section. The ""above"" wording comes from the prior circular and the planning memo's ""exceed"" language. If you need the exact treatment of a branch with advances of exactly ₹100 crore, check the full circular.",,
+6,tpl-03,baseline,single_source,"According to our auditor's report template, which opinion applies when a misstatement is material and pervasive?",An adverse opinion (SA 705). A material but not pervasive misstatement leads to a qualified opinion.,"An **adverse opinion** applies when a misstatement is both material and pervasive.
+
+The auditor expresses an adverse opinion when, having obtained sufficient appropriate audit evidence, they conclude that misstatements, individually or in the aggregate, are both material and pervasive to the financial statements [STD-CH08:5.3:2]. The same wording appears in the illustrative audit reports section [CAF-P3-08:13:26].
+
+Two points on scope:
+
+- **Source of the answer.** The documents provided are ICAI study material (SA 705 (Revised) discussions), not the firm's own auditor's report template. I can't confirm anything specific to the template itself. The answer reflects the SA 705 framework.
+- **Pervasiveness and the other opinions.** Pervasive effects are those that, in the auditor's judgement:
+  - are not confined to specific elements, accounts or items of the financial statements;
+  - if so confined, represent or could represent a substantial proportion of the financial statements; or
+  - in relation to disclosures, are fundamental to users' understanding of the financial statements [STD-CH08:5.3:2].
+
+  By contrast, a misstatement that is material but not pervasive leads to a qualified opinion [STD-CH08:5.3:2]. A disclaimer of opinion is for cases where the auditor cannot obtain sufficient appropriate audit evidence and the possible effects of undetected misstatements could be both material and pervasive [CAF-P3-08:13:26].",,
+7,q018,full,role_denied,What is the firm's fee dependence review trigger for client continuance?,Not available to your role.,"I could not find this in the material available to your role and engagement assignments. If you believe you need it, please ask your engagement manager.",,
+8,pol-09,baseline,single_source,Who must approve the recovery of a client data encryption key?,"Both custodians: the IT manager and the quality partner. The request names the engagement, the reason and the requesting partner and is logged in the IT register.","The context doesn't say who must approve the recovery of a client data encryption key. None of the documents cover the firm's key recovery or key management approval procedures.
+
+The closest material is general and doesn't answer the question:
+- The Digital Auditing & Assurance chapter says auditors should assess ""encryption methods, cryptographic key management, and secure transmission protocols"" when reviewing security measures [CAF-P3-14:6.3.1:3]. That is an audit procedure for reviewing a client's controls, not an approval requirement.
+- The same chapter's section on recovering from cyber risk covers recovery plans after an attack [CAF-P3-14:4.3.5:1]. It names no approver for key recovery.
+- The other documents deal with tax return verification, tax recovery officers and powers of income tax authorities. They concern tax ""recovery"" and have nothing to do with encryption keys.
+
+To find the answer, check the firm's internal information security or key management policy, or ask the IT security team or the engagement's information security lead.",,
+9,faq-08,full,single_source,"Which version of the article assistant helpdesk FAQ is current, and when was it updated?","Version 4.0, updated 15 September 2025.","The current version of the Article Assistant Helpdesk FAQ is version 4.0, updated on 15 September 2025 [FAQ-01:h-79cbb1:1].
+
+The document's status is ""current"", with an effective date of 2025-09-15 [FAQ-01:h-79cbb1:1].
+
+_This answer supports, and does not replace, the professional judgement of the engagement team; sign-off remains with the engagement partner._",,
+10,tpl-03,full,single_source,"According to our auditor's report template, which opinion applies when a misstatement is material and pervasive?",An adverse opinion (SA 705). A material but not pervasive misstatement leads to a qualified opinion.,"An adverse opinion applies when misstatements are both material and pervasive. [STD-CH08:5.3:1][STD-CH08:5.3:2][CAF-P3-08:5.4.2:1] The evidence is ICAI study material, not the firm's own auditor's report template, which was not found in the available material.
+
+- The auditor expresses an adverse opinion when, having obtained sufficient appropriate audit evidence, they conclude that misstatements, individually or in the aggregate, are both material and pervasive to the financial statements [STD-CH08:5.3:2][CAF-P3-08:5.4.2:1].
+- By contrast, a qualified opinion applies where misstatements are material but not pervasive [STD-CH08:5.3:1].
+- A disclaimer of opinion applies where the auditor cannot obtain sufficient appropriate audit evidence and the possible effects of undetected misstatements could be both material and pervasive [STD-CH08:5.3:1].
+- Pervasive effects are those that, in the auditor's judgement, are not confined to specific elements, accounts or items. [STD-CH08:5.3:2] If so confined, they represent or could represent a substantial proportion of the financial statements. [STD-CH08:5.3:2] In relation to disclosures, they are fundamental to users' understanding of the financial statements [STD-CH08:5.3:2].
+
+Whether a misstatement is pervasive is a matter of professional judgement [STD-CH08:5.3:2].
+
+_This answer supports, and does not replace, the professional judgement of the engagement team; sign-off remains with the engagement partner._",,
+11,std-04,full,standard,What special steps are involved in the audit of a hospital?,"Among them: vouch the register of patients with copies of bills and the attendance record, and see that bills were issued to every patient from whom an amount was recoverable; check cash collections in the cash book with receipts, counterfoils and other evidence; verify digital collections (UPI, cards, internet banking).","The ICAI study material lists several special steps for a hospital audit. [STD-CH09:8:1] The evidence available covers items 1 to 5 of that list, and the list is cut off partway through item 5.
+
+**1. Register of Patients**
+- Vouch the Register of patients with copies of the bills issued to patients [STD-CH09:8:1].
+- Verify bills for a selected period against the patients' attendance record to confirm they were correctly prepared [STD-CH09:8:1].
+- Check that bills were issued to all patients from whom an amount was recoverable under the hospital's rules [STD-CH09:8:1].
+
+**2. Collection of Cash**
+- Check cash collections in the Cash Book against receipts, counterfoils and other evidence, such as copies of patients' bills [STD-CH09:8:1].
+
+**3. Digital Collections (UPI, cards, internet banking, payment gateways)**
+- Reconcile daily collections per the Hospital Management Information System (HMIS) or billing software with settlement reports from banks and payment gateway providers [STD-CH09:8:1].
+- Verify that all digital receipts were credited to the hospital's bank accounts, and investigate pending settlements, failed transactions or unreconciled differences [STD-CH09:8:1].
+- Examine deductions for Merchant Discount Rate (MDR), convenience charges or other fees, and confirm they were correctly accounted for [STD-CH09:8:1].
+- Verify that digital refunds to patients were authorised, documented and correctly recorded [STD-CH09:8:1].
+- Ensure that cancelled bills, reversed transactions and chargebacks were approved and reconciled with the original billing records [STD-CH09:8:1].
+- Review the period-end reconciliation, so that payments received before the balance sheet date but credited after year-end are appropriately accounted for [STD-CH09:8:2].
+- Where HMIS, billing software and the accounting system are integrated, examine whether interface controls ensure complete and accurate data transfer without unauthorised alteration [STD-CH09:8:2].
+- Verify that access to digital payment and billing systems is restricted to authorised personnel, and that adequate audit trails exist for recording, modifying and reversing transactions [STD-CH09:8:2].
+- Reconcile total amounts billed with collections received through cash, UPI, cards, insurance companies and other digital modes. [STD-CH09:8:2] Material differences from outstanding receivables, refunds, write-offs or settlement delays should be examined and explained [STD-CH09:8:2].
+
+**4. Legacies and Donations**
+- Ascertain that legacies and donations received for a specific purpose were applied in the manner agreed [STD-CH09:8:2].
+
+**5. Reconciliation of Subscriptions**
+- Trace all collections of subscriptions and donations from the Cash Book to the respective Registers [STD-CH09:8:2].
+- The remainder of this item, and any later steps, were not found in the available material.
+
+The chapter also lists general points for audits of different entities, including examining the constitution, bye-laws or trust deed, and minute books, and evaluating internal control [STD-CH09:0:1].
+
+_This answer supports, and does not replace, the professional judgement of the engagement team; sign-off remains with the engagement partner._",,
+12,q033,baseline,role_denied,What did the manager review notes for Meridian Bank Lakeview say about Harbour Logistics?,"The manager review notes are not available to your role. (The staff-level NPA review working, which S02 may see, says a large credit on 30 March was reversed on 3 April and the account is deemed NPA.)","The context doesn't include the manager review notes for Meridian Bank Lakeview, so I can't say what they say about Harbour Logistics.
+
+The closest material is the NPA Review Working, which was prepared by staff member S03 on 14 April 2026, not by the manager. It records this for Harbour Logistics:
+- **Facility:** Cash credit (account no. 000123123123)
+- **Branch classification:** Standard
+- **Audit finding:** A large credit on 30 March was reversed on 3 April, so the account is deemed NPA [ENG-MBL-NPA:h-a41dfe:1].
+
+The planning memo was prepared by manager M02 but says nothing about Harbour Logistics [ENG-MBL-PLAN:h-bef60c:1]. If the manager review notes exist, they will need to be retrieved separately.",,
+13,q033,full,role_denied,What did the manager review notes for Meridian Bank Lakeview say about Harbour Logistics?,"The manager review notes are not available to your role. (The staff-level NPA review working, which S02 may see, says a large credit on 30 March was reversed on 3 April and the account is deemed NPA.)","I could not find this in the material available to your role and engagement assignments. If you believe you need it, please ask your engagement manager.",,
+14,q001,full,standard,What are the sufficiency and appropriateness requirements for audit evidence under SA 500?,"Sufficiency is the measure of the quantity of audit evidence; appropriateness is the measure of its quality, i.e. its relevance and reliability. They are interrelated: the higher the assessed risk, the more evidence is likely to be required, and the higher the quality, the less may be required.","The available material does not define sufficiency and appropriateness in detail. It only gives the overall requirement and some points on reliability.
+
+**Overall requirement:** SA 500 deals with the auditor's responsibility to design and perform audit procedures to obtain sufficient appropriate audit evidence, so that reasonable conclusions can be drawn on which to base the auditor's opinion [CAF-P3-06:1:1].
+
+**Reliability (relevant to appropriateness):**
+- SA 500 indicates that the reliability of audit evidence is influenced by its source and nature, and depends on the individual circumstances under which it is obtained [STD-CH04:3.1:1].
+- Evidence is more reliable when it comes from independent sources outside the entity [STD-CH04:3.1:1].
+- Evidence obtained directly by the auditor is more reliable than evidence obtained indirectly or by inference [STD-CH04:3.1:1].
+- Evidence is more reliable when it exists in documentary form, whether paper, electronic or other medium [STD-CH04:3.1:1].
+
+**Scope of audit evidence:** It includes information in the accounting records underlying the financial statements as well as other information [CAF-P3-06:1:1].
+
+**Use of a management's expert:** The auditor may rely on an expert's work if satisfied that sufficient and appropriate evidence is obtained with reasonable assurance to form an opinion [STD-CH04:1.13:1]. To the extent necessary, the auditor must evaluate the expert's competence, capabilities and objectivity, understand the expert's work, and evaluate its appropriateness as evidence for the relevant assertion [STD-CH04:1.13:1].
+
+**Not found:** The available material does not give the formal definitions of ""sufficiency"" (the quantity of evidence) or ""appropriateness"" (its quality, i.e. relevance and reliability), or the specific SA 500 paragraph numbers. Please refer to the full text of SA 500 for these.
+
+_This answer supports, and does not replace, the professional judgement of the engagement team; sign-off remains with the engagement partner._",,
+15,q035,full,role_denied,How many partners must approve a client acceptance or continuance decision?,Not available to your role.,"I could not find this in the material available to your role and engagement assignments. If you believe you need it, please ask your engagement manager.",,
+16,q001,full,standard,What are the sufficiency and appropriateness requirements for audit evidence under SA 500?,"Sufficiency is the measure of the quantity of audit evidence; appropriateness is the measure of its quality, i.e. its relevance and reliability. They are interrelated: the higher the assessed risk, the more evidence is likely to be required, and the higher the quality, the less may be required.","The available material does not set out SA 500's definitions of sufficiency and appropriateness, and it gives no paragraph-level requirements for them. It does cover the overall objective and the reliability of evidence.
+
+**What the material says**
+- SA 500 deals with the auditor's responsibility to design and perform audit procedures to obtain sufficient appropriate audit evidence. [CAF-P3-06:1:1] This allows the auditor to draw reasonable conclusions on which to base the auditor's opinion [CAF-P3-06:1:1].
+- Audit evidence is the information the auditor uses to reach the conclusions on which the opinion is based. [CAF-P3-06:1:1] It includes information in the accounting records underlying the financial statements and other information [CAF-P3-06:1:1].
+
+**Reliability, which relates to appropriateness**
+- The reliability of audit evidence is influenced by its source and nature, and depends on the individual circumstances in which it is obtained [STD-CH04:3.1:1].
+- Evidence is more reliable when obtained from independent sources outside the entity [STD-CH04:3.1:1].
+- Evidence obtained directly by the auditor is more reliable than evidence obtained indirectly or by inference [STD-CH04:3.1:1].
+- Evidence is more reliable when it exists in documentary form, whether paper, electronic or other medium [STD-CH04:3.1:1].
+
+**Not found**
+- The material does not define sufficiency (the quantity of evidence) or appropriateness (its quality, meaning relevance and reliability).
+- It does not give the SA 500 paragraph requirements on how these are assessed, such as the effect of misstatement risk or evidence quality on the amount needed.
+
+_This answer supports, and does not replace, the professional judgement of the engagement team; sign-off remains with the engagement partner._",,
+17,q030,full,superseded,Do we have to document population completeness when using audit sampling?,Yes. Technical Circular 2025/04 (15 June 2025) requires the team to document how it checked the population is complete; for a test of controls it must cover the whole period. Circular 2023/05 had no such requirement.,"The material says the auditor must perform procedures to obtain evidence that the population is complete, and this is tied to the requirements of SA 500. [STD-CH04:6.9.1:1] ""In fulfilling the requirement of SA 500 'Audit Evidence', when performing audit sampling, the auditor performs audit procedures to obtain evidence that the population from which the audit sample is drawn is complete."" [STD-CH04:6.9.1:1]
+
+Supporting points:
+- The population must be complete. [STD-CH04:6.3.1:1] Where the sample is used to conclude on whether a control operated effectively during the period, the population needs to include all relevant items, meaning all activities that form part of that control, throughout the entire period. [STD-CH04:6.3.1:1]
+- If the population is complete in all respects, conclusions drawn from it are considered reasonable. [STD-CH04:6.3.1:1]
+- The auditor should also perform procedures to ensure the information underlying the sampling is sufficiently complete and accurate, and should obtain evidence about the reliability of the population. [STD-CH04:6.3.1:1]
+- If the population is not reliable with respect to accuracy and source, the sample drawn will not be relevant for the specific audit objective. [STD-CH04:6.3.1:1]
+
+The available material does not specify the form the documentation must take (for example, a particular working paper or firm template), and no firm policy on this was found. The sources state the requirement to obtain evidence of completeness, and the extent and form of documentation is a matter for professional judgement.
+
+_This answer supports, and does not replace, the professional judgement of the engagement team; sign-off remains with the engagement partner._",,
+18,pol-04,full,superseded,What is our current overall materiality benchmark for not-for-profit clients?,"1% of total expenditure (Materiality Policy v2.0, unchanged from v1.0).","The current benchmark for not-for-profit clients (trusts, societies) is 1% of total expenditure [POL-MAT-02:2:1]. *(check this point)*
+
+- This comes from the current Materiality Policy, version 2.0, effective 2025-04-01 [POL-MAT-02:2:1].
+- The earlier policy (POL-MAT-01, effective 2023-04-01) was revised by POL-MAT-02. [POL-MAT-02:1:1][POL-MAT-02:2:1][POL-MAT-01:1:1][POL-MAT-01:2:1] Its not-for-profit benchmark was also 1% of total expenditure, so this benchmark did not change [POL-MAT-01:2:1][POL-MAT-02:2:1]. *(check this point)* The revision changed the manufacturing benchmarks, not the not-for-profit one [POL-MAT-01:2:1][POL-MAT-02:2:1]. *(check this point)*
+- This is a default. [POL-MAT-02:1:1] The engagement partner may depart from it with documented reasons [POL-MAT-02:1:1].
+
+_This answer supports, and does not replace, the professional judgement of the engagement team; sign-off remains with the engagement partner._",,
+19,q024,full,superseded,What performance materiality does the firm's current materiality policy require?,"Under Materiality Policy v2.0 (1 April 2025), performance materiality is 50% to 75% of overall materiality depending on assessed risk: 50% for higher-risk and first-year audits, 75% for lower-risk recurring engagements. v1.0 (1 April 2023) used a flat 75%.","The current policy sets performance materiality at 50%–75% of overall materiality, depending on the assessed risk of material misstatement [POL-MAT-02:3:1].
+
+- 50% applies to higher-risk engagements and first-year audits [POL-MAT-02:3:1].
+- 75% applies to lower-risk recurring engagements [POL-MAT-02:3:1].
+- These are the firm's default benchmarks, and the engagement partner may depart from a default with documented reasons [POL-MAT-02:1:1].
+
+The earlier policy (POL-MAT-01, effective 2023-04-01) was revised, and POL-MAT-02 (version 2.0, effective 2025-04-01) is now current [POL-MAT-02:3:1][POL-MAT-01:1:1]. The earlier version's performance materiality percentages were not found in the available material.
+
+_This answer supports, and does not replace, the professional judgement of the engagement team; sign-off remains with the engagement partner._",,
+20,q013,full,superseded,Above what level of branch advances is an EQCR required for a bank branch audit?,"Total branch advances above ₹100 crore (Technical Circular 2026/03, FY 2025-26), reduced from ₹150 crore in Circular 2025/02.","I could not find this in the material available to your role and engagement assignments. If you believe you need it, please ask your engagement manager.",,
+21,q017,baseline,multi_source,What are the five threats to an auditor's independence?,"Self-interest, self-review, advocacy, familiarity and intimidation threats.","The five threats to an auditor's independence are set out in ICAI Auditing and Ethics, Chapter 11, section 6 [STD-CH11:6:1]. The firm's Independence and Ethics Policy lists the same five [POL-IND-01:2:1][POL-IND-02:2:1].
+
+1. **Self-interest threats** arise when the audit firm, a partner or an associate could benefit from a financial interest in the audit client. Examples include:
+   - a direct or materially significant indirect financial interest in the client
+   - a loan or guarantee to or from the client
+   - undue dependence on the client's fees
+   - a close business relationship with the client
+   - potential employment with the client
+   - contingent fees for the audit engagement [STD-CH11:6:1]
+
+2. **Self-review threats** arise when the auditor reviews a judgement or conclusion from a previous audit or non-audit engagement. They also arise when a member of the audit team was previously a director or senior employee of the client. Examples include:
+   - an auditor who was recently a director or senior officer of the company
+   - an auditor who performs services that are themselves subject matters of the audit [STD-CH11:6:1]
+
+3. **Advocacy threats** arise when the auditor promotes, or is perceived to promote, the client's position to the point that objectivity appears compromised. Examples include dealing in the audited company's shares or securities, or acting as the client's advocate in litigation and third-party disputes [STD-CH11:6:2].
+
+4. **Familiarity threats** arise when the auditor becomes too sympathetic to the client's interests because of the relationship. Examples include:
+   - a close relative of the audit team in a senior position at the client
+   - a former partner of the firm who is a director or senior employee of the client
+   - long association between specific auditors and their client counterparts
+   - acceptance of significant gifts or hospitality
+
+   The Companies Act, 2013 provisions on auditor rotation mainly address this threat [STD-CH11:6:2].
+
+5. **Intimidation threats** arise when the auditor is deterred from acting objectively with adequate professional skepticism. Causes include:
+   - the threat of replacement over disagreements on accounting principles
+   - pressure to disproportionately reduce work because of reduced audit fees
+   - the threat of litigation [STD-CH11:6:2]",,
+22,q004,full,multi_source,Within how many days must the final audit file be assembled?,"SA 230: ordinarily not more than 60 days after the date of the auditor's report. Firm rule (Documentation and Retention Policy v2.0, effective 1 April 2025): within 45 days; v1.0 had used the 60-day limit.","**The final audit file must be assembled within 45 days after the date of the auditor's report under the current firm policy.** [POL-DOC-02:2:1]
+
+- The firm and ICAI guidance differ. [POL-DOC-02:2:1][STD-CH06:1.9:1] The ICAI material says an appropriate time limit is ordinarily not more than 60 days after the date of the auditor's report [STD-CH06:1.9:1]. SA 230 sets the same 60-day outer limit [POL-DOC-02:2:1]. The firm's 45-day deadline is stricter than that limit and falls within it [POL-DOC-02:2:1].
+- If the file is not assembled by day 45, it is escalated to the engagement partner and must still be completed before day 60 [POL-DOC-02:2:1].
+- The earlier policy was revised. [POL-DOC-02:6:1] Version 1.0, effective 2022-04-01, required assembly within 60 days [POL-DOC-01:2:1]. Version 2.0, effective 2025-04-01, reduced this to 45 days, and the SA 230 outer limit of 60 days is unchanged [POL-DOC-02:6:1].
+
+_This answer supports, and does not replace, the professional judgement of the engagement team; sign-off remains with the engagement partner._",,
+23,eng-04,baseline,engagement,"Which borrower accounts did the Meridian Bank Lakeview NPA review find misclassified, and why?","Sunrise Agro Traders (no credits for 90 days: out of order, NPA); Lotus Weaves (borrower-wise rule: the cash credit is also NPA); Harbour Logistics (a large credit on 30 March reversed on 3 April: deemed NPA). Greenleaf Foods' D1 provision was verified.","The NPA review working found three borrower accounts misclassified by the branch [ENG-MBL-NPA:h-a41dfe:1]:
+
+1. **Sunrise Agro Traders** (cash credit, a/c 000444555666). The branch classified it as Standard. There were no credits for 90 days to 31 March, so the account was out of order and should be NPA.
+
+2. **Lotus Weaves** (term loan plus cash credit, a/c 000777888999). The branch classified the term loan as NPA but left the cash credit as standard. Under the borrower-wise rule, the cash credit should also be NPA.
+
+3. **Harbour Logistics** (cash credit, a/c 000123123123). The branch classified it as Standard. A large credit on 30 March was reversed on 3 April, so the account is deemed NPA.
+
+The fourth account in the working, **Greenleaf Foods** (term loan, classified Doubtful D1), was not flagged as misclassified. The auditor verified its provision at 25% on the secured portion and 100% on the unsecured portion [ENG-MBL-NPA:h-a41dfe:1].
+
+The Harbour Logistics finding is consistent with the general audit guidance. Where an account is made regular just before the balance sheet date, the auditor should assess whether the repayment came from genuine sources. If the account shows inherent weakness, it should be deemed NPA [CAF-P3-16:7:14]. The planning memo also named accounts regularised just before 31 March 2026 as a focus area [ENG-MBL-PLAN:3:1].",,
+24,q011,full,engagement,What did the Northwind Textiles review notes say about the godown 3 count?,Test counts at godown 3 showed a 4% shortage in dyed yarn; testing is to be extended and management's explanation obtained before concluding (open point).,"The review notes say that test counts at Godown 3 showed a 4% shortage in dyed yarn [ENG-NWT-REV:h-4505db:1]. They direct the team to extend testing and obtain management's explanation before concluding [ENG-NWT-REV:h-4505db:1]. The item was marked as open in the notes dated 18 May 2026 [ENG-NWT-REV:h-4505db:1].
+
+Context from other engagement documents:
+- The planning memo identified inventory existence and valuation as a significant risk, with large yarn stocks at three godowns including slow-moving dyed yarn [ENG-NWT-PLAN:2:1]. *(check this point)*
+- The planned response was to attend counts at all three godowns [ENG-NWT-PLAN:2:1].
+- The risk assessment summary also lists count attendance at all godowns and NRV testing of dyed yarn for inventories [ENG-NWT-RISK:h-1c3063:1].
+
+The available material does not state the cause of the shortage or the outcome of the extended testing.
+
+_This answer supports, and does not replace, the professional judgement of the engagement team; sign-off remains with the engagement partner._",,
+25,q012,baseline,superseded,How many items must we sample for a test of controls?,"Under Technical Circular 2025/04 (15 June 2025): minimum 25 items for low, 40 for moderate and 60 for high assessed control risk. It replaced Circular 2023/05, which set a flat minimum of 25.","Under the firm's current guidance, the minimum sample size for a test of controls depends on the assessed control risk. Technical Circular 2025/04 (effective 15 June 2025) sets these minimums [CIR-2025-04:4:1]:
+
+| Assessed control risk | Minimum items |
+|---|---|
+| Low | 25 |
+| Moderate | 40 |
+| High | 60 |
+
+**Superseded guidance:** Technical Circular 2023/05 (effective 1 June 2023) set a flat minimum of 25 items regardless of assessed risk [CIR-2023-05:3:1]. The revised 2025/04 circular replaces this with the risk-based table above, so the flat 25 no longer applies to moderate or high risk. The context does not say explicitly that the 2025 circular supersedes the 2023 one. I am inferring this from its later date and its title, ""Revised"".
+
+**Professional standard context:** SA 530 requires a sample size large enough to reduce sampling risk to an acceptably low level. The lower the risk you are willing to accept, the larger the sample must be. Sample size also increases the more you rely on the operating effectiveness of controls [STD-CH04:6.9.2:1] [STD-CH04:6.9:1]. For very small populations, examining all items may be more efficient than sampling [STD-CH04:6.9.2:6].
+
+The firm's figures are minimums. Use your judgment to go higher if the circumstances call for it.",,
+26,faq-08,full,single_source,"Which version of the article assistant helpdesk FAQ is current, and when was it updated?","Version 4.0, updated 15 September 2025.","The current version of the Article Assistant Helpdesk FAQ is version 4.0, updated on 15 September 2025 [FAQ-01:h-79cbb1:1].
+
+_This answer supports, and does not replace, the professional judgement of the engagement team; sign-off remains with the engagement partner._",,
+27,pol-09,full,single_source,Who must approve the recovery of a client data encryption key?,"Both custodians: the IT manager and the quality partner. The request names the engagement, the reason and the requesting partner and is logged in the IT register.","I could not find this in the material available to your role and engagement assignments. If you believe you need it, please ask your engagement manager.",,
+28,q036,full,role_denied,What did the partner review note for Brightpath Rural Education Trust say about grant utilisation?,Not available to your role.,"I could not find this in the material available to your role and engagement assignments. If you believe you need it, please ask your engagement manager.",,
+29,std-04,baseline,standard,What special steps are involved in the audit of a hospital?,"Among them: vouch the register of patients with copies of bills and the attendance record, and see that bills were issued to every patient from whom an amount was recoverable; check cash collections in the cash book with receipts, counterfoils and other evidence; verify digital collections (UPI, cards, internet banking).","The context gives the special steps for a hospital audit under ICAI Auditing and Ethics, Chapter 9. The list is partly cut off, so the later steps are incomplete.
+
+1. **Register of Patients:** Vouch the register of patients with copies of the bills issued to them. Verify the bills for a selected period against the patients' attendance record to confirm they were correctly prepared. Also confirm that bills were issued to all patients from whom an amount was recoverable under the hospital's rules [STD-CH09:8:1].
+
+2. **Collection of Cash:** Check the cash collections in the Cash Book against receipts, counterfoils and other evidence. Examples are copies of patient bills, counterfoils of dividend and other interest warrants, and copies of rent bills [STD-CH09:8:1].
+
+3. **Digital Collections (Online/UPI/credit card payments):** Verify that amounts received through UPI, cards, internet banking and payment gateways are completely and accurately recorded. The procedures are:
+   - Reconcile daily collections per the Hospital Management Information System (HMIS) or billing software with settlement reports from banks and payment gateways [STD-CH09:8:1].
+   - Verify that all digital receipts were credited to the hospital's bank accounts, and investigate pending settlements, failed transactions and unreconciled differences [STD-CH09:8:1].
+   - Examine deductions for Merchant Discount Rate (MDR), convenience charges and other fees, and ensure they are correctly accounted for [STD-CH09:8:1].
+   - Verify that refunds to patients through digital modes are authorised, documented and correctly recorded [STD-CH09:8:1].
+   - Ensure that cancelled bills, reversed transactions and chargebacks are approved and reconciled with the original billing records [STD-CH09:8:1][STD-CH09:8:2].
+   - Review the period-end reconciliation, so that payments received before the balance sheet date but credited by banks or gateways after year-end are properly accounted for [STD-CH09:8:2].
+   - Where HMIS, billing software and the accounting system are integrated, examine whether interface controls ensure complete and accurate transfer of billing and collection data without unauthorised alteration [STD-CH09:8:2].
+   - Verify that access to digital payment and billing systems is restricted to authorised personnel, and that audit trails exist for recording, modifying and reversing transactions [STD-CH09:8:2].
+   - Reconcile total amounts billed with collections through cash, UPI, cards, insurance companies and other digital modes. Examine and explain material differences arising from outstanding receivables, refunds, write-offs or settlement delays [STD-CH09:8:2].
+
+4. **Legacies and Donations:** Ascertain that legacies and donations received for a specific purpose have been applied in the manner agreed [STD-CH09:8:2].
+
+5. **Reconciliation of Subscriptions:** Trace all collections of subscriptions and donations from the Cash Book to the respective registers. Reconcile the total subscriptions due, as shown by the Subscription Register, with the amount collected. The text breaks off here [STD-CH09:8:2].
+
+The retrieved text may not include every remaining step in the hospital section. Please check the full chapter for anything after step 5.",,
+30,q012,baseline,superseded,How many items must we sample for a test of controls?,"Under Technical Circular 2025/04 (15 June 2025): minimum 25 items for low, 40 for moderate and 60 for high assessed control risk. It replaced Circular 2023/05, which set a flat minimum of 25.","The sample size depends on the assessed control risk. The firm's current guidance is Technical Circular 2025/04 (effective 15 June 2025), which sets these minimums for tests of controls [CIR-2025-04:4:1]:
+
+| Assessed control risk | Minimum items |
+|---|---|
+| Low | 25 |
+| Moderate | 40 |
+| High | 60 |
+
+Technical Circular 2023/05 (effective 1 June 2023) set a flat minimum of 25 items regardless of assessed risk [CIR-2023-05:3:1]. The context doesn't say so explicitly, but the 2025/04 circular is titled ""Revised"" and is the later one, so it appears to replace the flat 25. Please confirm that with the technical team if there is any doubt.
+
+These are minimums. SA 530 requires a sample size sufficient to reduce sampling risk to an acceptably low level. The lower the risk you are willing to accept, the larger the sample must be [STD-CH04:6.9.2:1]. The sample size for tests of controls also increases the more you rely on the operating effectiveness of controls in your risk assessment [STD-CH04:6.9.2:1]. For very small populations, examining all items may be more efficient than sampling [STD-CH04:6.9.2:6].",,

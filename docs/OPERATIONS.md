@@ -105,12 +105,41 @@ them in the `staging` namespace on a kind cluster and runs the smoke test.
 | Retrieval regression | `python -m eval.run_retrieval_eval --corpus synthetic` then `python -m eval.gates retrieval` | any metric (overall or per source type) drops more than `RETRIEVAL_TOLERANCE` (0.02) below `eval/baselines/retrieval_synthetic.json`; any leak; the question set changed |
 | Routing replay | `python -m eval.gates routing-replay` | the code's routing loses more than `REPLAY_TOLERANCE` (0.02) on `eval/replay/routing_replay.jsonl` |
 | Prompt replay | `python -m eval.gates prompts` | a seed prompt in the code changed and there is no PASSING `*_prompt_replay` report for exactly that text |
+| Trace replay | `python -m eval.trace_replay check` | the recorded answer traces (`eval/replay/answer_traces.jsonl`: inputs, retrieved chunks, model responses) reproduce less often than `eval/baselines/trace_replay.json` allows (TRACE_REPLAY_TOLERANCE 0.05); no model call |
 | Retrieval regression, full corpus (laptop, nightly Prefect job) | `python -m eval.run_retrieval_eval` then `python -m eval.gates retrieval --corpus full` | the same rules against `eval/baselines/retrieval.json`, with the licensed ICAI chapters indexed |
 
 The questions are the general set `eval/questions.jsonl` plus one file per source type,
 `eval/questions/<source_type>.jsonl` (`eval/question_sets.py` validates them; at least 10
 per type). Every question starts with `"reviewed": false`, and only the author sets it to
 true.
+
+### Answer evaluation and judge calibration (paid) [run once, 2026-11-21]
+These steps call the real models, so they cost money.
+- **Before a run:** set `MODEL_JUDGE` in `.env`. It must come from a different model
+  family than `MODEL_VERIFY`; the config refuses one that does not.
+- **Run:** `python -m eval.run_answer_eval` answers every question with the full system and
+  with the single-pass baseline, and the judge grades both.
+  - `--sample` uses the fixed stratified sample of 12 questions (`eval/question_sets.py`,
+    one per source type plus four general cases), about 15 minutes per run. This is what
+    M18b ran, by the author's decision. Without it, every question is asked: 147
+    questions, several hours.
+  - Progress is saved after each answer.
+  - `--resume <run>` continues an interrupted run.
+  - `--resume <run> --retry-errors` asks again the answers that failed, for example
+    during a network outage.
+  - Every run turns off degradation and the response cache, so the runs are independent.
+    Run it at least twice and report the spread.
+- **Calibrate the judge:**
+  1. `python -m eval.export_calibration --run <run>` writes a stratified sheet of 30
+     answers, at least 8 of them judged not fully correct, to `eval/calibration/`.
+  2. Label `human_correctness` without opening the `_judge_key.json` file.
+  3. `python -m eval.run_judge_calibration --run <run>` reports agreement and kappa. The
+     judge is "validated" only at kappa ≥ 0.6.
+- **Re-record the replay traces** after an intended change to the pipeline:
+  1. In a clean clone, run `python -m eval.trace_replay record --confirm-paid`.
+  2. Run `check`.
+  3. Commit the trace file and the run.
+  4. `python -m eval.gates accept trace-replay --run <run>`.
 
 ### Weekly human review [tested]
 `python -m scripts.sample_weekly_review draw` (Prefect: Mondays 09:00) writes 5%

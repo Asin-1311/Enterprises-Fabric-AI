@@ -1,5 +1,5 @@
 {
-  "source_run": "20261121-144722_retrieval",
+  "source_run": "20261121-153910_retrieval",
   "corpus": "full",
   "mode": "adaptive",
   "question_ids": [
@@ -152,10 +152,10 @@
     "tpl-11"
   ],
   "values": {
-    "adaptive.recall@5": 0.9573333333333334,
-    "adaptive.recall@10": 0.976,
-    "adaptive.mrr": 0.8301333333333333,
-    "adaptive.ndcg@10": 0.8586168896021641,
+    "adaptive.recall@5": 0.9733333333333334,
+    "adaptive.recall@10": 0.992,
+    "adaptive.mrr": 0.8461333333333333,
+    "adaptive.ndcg@10": 0.8746168896021641,
     "adaptive.superseded_order_accuracy": 1.0,
     "adaptive.calendar.recall@5": 1.0,
     "adaptive.calendar.recall@10": 1.0,
@@ -163,12 +163,12 @@
     "adaptive.checklists.recall@10": 0.9583333333333334,
     "adaptive.circulars.recall@5": 0.9523809523809523,
     "adaptive.circulars.recall@10": 1.0,
-    "adaptive.engagement.recall@5": 0.9473684210526315,
-    "adaptive.engagement.recall@10": 0.9473684210526315,
+    "adaptive.engagement.recall@5": 1.0,
+    "adaptive.engagement.recall@10": 1.0,
     "adaptive.faq.recall@5": 1.0,
     "adaptive.faq.recall@10": 1.0,
-    "adaptive.firm_policy.recall@5": 0.92,
-    "adaptive.firm_policy.recall@10": 0.92,
+    "adaptive.firm_policy.recall@5": 0.96,
+    "adaptive.firm_policy.recall@10": 0.96,
     "adaptive.standards.recall@5": 0.9705882352941176,
     "adaptive.standards.recall@10": 1.0,
     "adaptive.templates.recall@5": 1.0,

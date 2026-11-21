@@ -3630,3 +3630,140 @@ Branch `m17a-observability`, made from `phase2` after M16c was merged.
   - ruff: clean;
   - `check_compliance.py --run --run-integration`: passes.
 - **No paid calls** in this part.
+
+## M18b — Answer evaluation with an independent judge, calibration sheet, trace replay (2026-11-21)
+
+### What was built
+- **A judge from another model family:** `MODEL_JUDGE` = `openai/gpt-5.6-terra`.
+  - It is called through OpenRouter's OpenAI-compatible API (`eval/judge_client.py`): a
+    strict JSON schema, no sampling parameters, reasoning effort `EFFORT_JUDGE`.
+  - The config refuses a judge from the verifier's family.
+  - The judge sits behind the same model router as the system, so no restricted text can
+    reach it.
+  - Before M18b the judge was the verifier's own model.
+- **Answer relevance:** judged separately from correctness (relevant, partially relevant,
+  not relevant).
+- **TTFT** is now the first draft token, as the spec defines it, because the full system
+  streams its draft since M14. Answers that stream no draft (refusals, abstentions) have no
+  TTFT; the full-answer time covers every answer.
+- **Independent runs:** each answer run turns off degradation and the response cache, so
+  runs neither degrade part-way nor reuse each other's answers. `degraded` is recorded per
+  answer as a check.
+- **`--retry-errors`** re-asks answers that failed, for example during the network outage
+  below. Every attempt stays in `progress.jsonl`, and the outputs use the latest one.
+- **Baseline refusals:** a refusal of restricted text is now recorded as the baseline's
+  answer (`restricted_unavailable`), not as an error.
+- **The question sample (author's decision):** the paid runs use a fixed, stratified
+  sample of 12 questions, so each run takes about 15 minutes. That is one gold-labelled
+  question per source type, plus a multi-source, a superseded, a role-denied and a
+  cross-engagement case.
+- **Stratified calibration sheet:** 30 answers, at least 8 of them judged not fully
+  correct, which can be pooled from several runs. The judge's labels are kept in a
+  separate key file.
+- **Trace replay (`eval/trace_replay.py`):**
+  - 20 answers were recorded with the live model in a clean clone. Each trace holds the
+    inputs, every chunk id retrieved, and every model request (purpose and SHA-256) with
+    its response.
+  - CI re-runs the whole pipeline with those responses and no model. A trace counts as
+    reproduced only if every request matches and the outcome is identical.
+  - Two local replays reproduced 20/20; this is now a CI gate.
+
+### Measured (from the run folders)
+- **Two runs of the same 12-question sample:** `20261121-181723_answers` and
+  `20261121-183054_answers`.
+
+  | | Correctness | Relevance | Faithfulness (micro) | Citation precision | TTFT p95 | Full answer p95 | Leaks |
+  |---|---|---|---|---|---|---|---|
+  | Full system, run 1 / run 2 | 1.000 / 1.000 | 1.000 / 1.000 | 0.835 / 0.756 | 1.000 / 0.973 | 51.7 / 73.3 s | 88.0 / 87.7 s | 0 |
+  | Baseline, run 1 / run 2 | 1.000 / 1.000 | 1.000 / 1.000 | 0.455 / 0.419 | 0.946 / 0.930 | 2.9 / 4.9 s | 8.2 / 7.6 s | 0 |
+
+  - Measured spend: $0.65 and $0.67. Together they took 32 minutes, against the half-hour
+    the author asked for: run 2 needed one retry.
+  - **Read with care:** 12 questions, and 0 of 147 reviewed by the author. Both systems
+    were judged correct on every sample question, so correctness does not separate them
+    here; faithfulness does, by about 0.35.
+  - The judge itself is not validated yet (calibration below).
+- **Latency targets are not met by the full system:** p95 TTFT about 52–73 s against
+  1.5 s, and the p95 full answer about 88 s against 8 s.
+  - Before the first draft token, the system runs query understanding, routing, parallel
+    retrieval, CPU re-ranking per sub-query and compression; then come verification by the
+    LLM plus the NLI model.
+  - The baseline, a single pass, gives its first token in 3–5 s.
+  - This is reported as measured; no timing was adjusted.
+- **Earlier pilot** (`20261121-151459_answers`, 5 questions, before the isolation settings):
+  - `cal-01`: asked "this year", the full system used last year's calendar.
+  - `q001`: the full system's compressed evidence lost the key definitions.
+  - Both are findings, not fixed in an evaluation milestone.
+- **A stopped run:** the first run over all 147 questions (`20261121-171000_answers`) was
+  stopped at the author's request after 36 questions. Its outputs were written from its
+  progress file by the evaluation's own end-of-session step and say `complete: false`.
+  `20261121-181631_answers` holds only the progress file of a 24-question sample run
+  that was stopped within its first minute.
+
+### Problems found
+- **Two restricted documents were missing from the laptop's index.** `POL-SEC-01` and
+  `ENG-NWT-ALLEG` (added in M13a) had never been synced, so the M18a full-corpus baseline
+  was made two documents short.
+  - The index was synced (8 chunks) and the full-corpus run repeated
+    (`20261121-153910_retrieval`: adaptive recall@5 0.973, recall@10 0.992, MRR 0.846).
+  - That run is the new laptop baseline. Its retrieval latency is inflated because a
+    trace recording ran at the same time; that latency is not gated.
+- **A network outage on the laptop** (DNS failures) turned five answers of the stopped
+  run into errors, and one call hung for 30 minutes. That led to `--retry-errors`.
+- **Trace replay first reproduced 18 of 20, for two reasons:**
+  - the wall-clock step budget had stopped one recorded run that was slowed by a
+    concurrent job;
+  - the router's refusal of restricted text was not reproduced when the replay bypassed
+    the router.
+  - Recording and replay now run without the wall-clock budget, behind a router with no
+    private model.
+  - The chunk order of parallel sub-queries varies, so retrieved chunks are compared as a
+    multiset.
+
+### Why it matters
+- The answer metrics come from a judge that does not share the verifier's model.
+- The run-to-run spread is reported.
+- The calibration sample is built so that kappa can mean something.
+- Any code change that alters what the pipeline sends to the model now fails CI, without
+  spending anything.
+
+### Likely viva questions
+- *Why is correctness 1.0 for both systems?* The sample is small, and these questions are
+  answerable from one or two documents. The difference shows in faithfulness and citation
+  precision: the full system's claims are supported far more often. A larger sample, or
+  the full set, is the way to separate correctness.
+- *Is the judge trustworthy?* Not yet established. It must reach kappa ≥ 0.6 against the
+  author's labels on the stratified sheet; until then every report says it is not
+  validated.
+- *Why not replay prompts in CI?* A new prompt means new requests, which only the paid
+  model can answer. The trace replay guards everything around the model for free; prompt
+  changes go through the paid prompt replay and the CI hash rule.
+
+### Status
+- **Met:** R-13.3-replay. Routing replay, the prompt gate and now the trace replay run in
+  CI; activation is gated on a passing replay
+  (`tests/test_trace_replay.py::test_the_trace_replay_gate`). This commit is the first
+  time CI runs the trace replay on Linux.
+- **Advanced, still Partial:**
+  - R-3-eval: two runs with their spread, and the reviewed count; kappa is pending the
+    author's labels.
+  - R-13.2-judge: relevance, a judge from another family and stratified calibration are
+    done; kappa is pending the labels.
+- **COMPLIANCE.md:** 43 requirements; 35 Met, 7 Partial, 1 Not met (R-13.3-load, M18c).
+- **Waiting for the author:**
+  1. Label the 30 answers in
+     `eval/calibration/20261121-151459_answers+20261121-171000_answers+20261121-181723_answers+20261121-183054_answers_labels.csv`
+     (column `human_correctness`; do not open the `_judge_key.json`).
+  2. Then run
+     `python -m eval.run_judge_calibration --run 20261121-151459_answers+20261121-171000_answers+20261121-181723_answers+20261121-183054_answers`.
+- **Paid spend in M18b (measured):** pilot $0.28, the two sample runs $0.65 and $0.67,
+  plus the stopped full run and two trace recordings. The total stayed well under the $30
+  cap; the balance readings are in each run's `progress.jsonl`.
+- **Tests (2026-11-21):**
+  - default suite: 692 passed, 0 skipped;
+  - integration with `full` up: 24 passed, 4 skipped (the kind release and the
+    observability stack). Docker Desktop had stopped during the first attempt and was
+    restarted;
+  - frontend: 47 passed;
+  - ruff and actionlint: clean;
+  - `check_compliance.py --run --run-integration`: passes.

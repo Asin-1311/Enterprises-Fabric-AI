@@ -13,6 +13,7 @@ a document its user is not allowed to see.
 """
 
 import json
+import random
 from collections import Counter
 from pathlib import Path
 
@@ -89,6 +90,33 @@ def problems(questions: list[dict], docs: dict, roles: dict, teams: dict) -> lis
     if sum(q.get("intent") == "time_sensitive" for q in questions) < MIN_TIME_SENSITIVE:
         found.append(f"fewer than {MIN_TIME_SENSITIVE} time-sensitive questions")
     return found
+
+
+# The paid answer evaluation runs on a fixed, stratified SAMPLE of the questions (M18b, the
+# author's decision: each run must take about 15 minutes): one gold-labelled question from
+# each per-source file, and one general question from each of four categories the
+# per-source files do not cover well. The retrieval evaluation (no cost) always uses every
+# question.
+SAMPLE_SEED = 18
+SAMPLE_PER_SOURCE = 1
+SAMPLE_GENERAL_CATEGORIES = ("multi_source", "superseded", "role_denied", "cross_engagement")
+
+
+def evaluation_sample(questions: list[dict], seed: int = SAMPLE_SEED,
+                      per_source: int = SAMPLE_PER_SOURCE) -> list[dict]:
+    """The fixed sample for the paid answer evaluation (12 questions with the defaults)."""
+    rng = random.Random(seed)
+    general = [q for q in questions if q["set"] == "general"]
+    picked = []
+    for category in SAMPLE_GENERAL_CATEGORIES:
+        pool = sorted((q for q in general if q.get("category") == category), key=lambda q: q["id"])
+        if pool:
+            picked.append(rng.choice(pool))
+    for source_type in SOURCE_TYPES:
+        pool = sorted((q for q in questions if q["set"] == source_type and q["gold_doc_ids"]),
+                      key=lambda q: q["id"])
+        picked += rng.sample(pool, min(per_source, len(pool)))
+    return picked
 
 
 def summary(questions: list[dict]) -> dict:
