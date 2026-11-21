@@ -3767,3 +3767,30 @@ Branch `m17a-observability`, made from `phase2` after M16c was merged.
   - frontend: 47 passed;
   - ruff and actionlint: clean;
   - `check_compliance.py --run --run-integration`: passes.
+
+### M18b addendum — judge calibration (2026-11-21)
+- **The labels:** the author labelled the stratified sheet: 30 answers pooled from four
+  runs, 8 of them judged partially correct or incorrect.
+- **The result** (`eval/results/20261121-192337_calibration`): exact agreement 0.733,
+  Cohen's kappa 0.0. **The judge is not validated** (that needs kappa ≥ 0.6).
+- **Why kappa is exactly 0:**
+  - All 30 human labels are `correct`. With one rater using a single label, there is no
+    agreement beyond chance to measure.
+  - Every disagreement is the judge being stricter: 3 `partially_correct` and 5
+    `incorrect`, where the author said `correct`.
+  - Before computing, I pointed out rows whose answers contradict the gold answer under
+    the rubric (for example `q001`, where the answer says the material does not define
+    sufficiency and appropriateness, and `pol-09`). The author chose to compute as
+    labelled. A relabel would be a new calibration run kept beside this one, never an
+    edit.
+- **Status:**
+  - R-13.2-judge is Met: relevance metric, kappa reported, review sampler, with "not
+    validated" stated.
+  - R-3-eval stays Partial: everything is reported, but an evaluation with an unvalidated
+    judge and 0 reviewed questions cannot yet be called trustworthy.
+  - COMPLIANCE.md: 43 requirements; 36 Met, 6 Partial, 1 Not met.
+- **Viva question:** *what does kappa 0 tell you?*
+  - Not that the judge is random. The human labels carry no variation to agree with.
+  - It does show that on these 8 answers the judge applies the gold-answer rubric more
+    strictly than the human labeller did. Which of the two is right is a question about
+    the rubric, and it decides whether the correctness numbers can be relied on.
