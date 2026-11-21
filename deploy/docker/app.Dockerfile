@@ -36,12 +36,10 @@ RUN python /tmp/fetch_models.py && rm /tmp/fetch_models.py
 # (a chmod over all of /opt/models would copy 1.5 GB of weights into a new layer).
 RUN chmod a+r /opt/models/hub/*/trees/*.json
 
-# Security (M17c, found by the Trivy scan in CI): the OS packages' security updates, a
-# setuptools without known vulnerabilities (torch declares it), and NO pip in the runtime
-# image (pip vendors its own copies of urllib3 and msgpack, and nothing at run time
-# installs packages). Placed after the model download so that layer stays cached.
+# Security (M17c, found by the Trivy scan in CI): the OS packages' security updates, and
+# NO pip in the runtime image (pip vendors its own copies of urllib3 and msgpack, and
+# nothing at run time installs packages). setuptools is pinned in requirements.txt.
 RUN apt-get update && apt-get upgrade -y --no-install-recommends && rm -rf /var/lib/apt/lists/* \
- && pip install --no-cache-dir setuptools==84.2.1 \
  && pip uninstall -y pip
 
 COPY alembic.ini ./
