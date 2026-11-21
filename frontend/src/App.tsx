@@ -1,13 +1,20 @@
+import * as Tooltip from "@radix-ui/react-tooltip";
 import { ArrowUp, Square } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
-import { getHistory, getHistoryAnswer, getMe, logout, setSessionEndedHandler, streamQuery } from "./api";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { BrowserRouter, Route, Routes } from "react-router";
+import { getHistory, getHistoryAnswer, getMe, logout, sendSignal, setSessionEndedHandler, streamQuery } from "./api";
 import { AnswerCard, type Turn } from "./components/AnswerCard";
 import { LoginScreen } from "./components/LoginScreen";
 import { Sidebar } from "./components/Sidebar";
 import { SourcePanel } from "./components/SourcePanel";
 import { ThinkingDots } from "./components/ThinkingDots";
+import { endOidcSession, finishSignIn, hasOidcSession } from "./lib/oidc";
 import { clearToken, currentToken, saveToken } from "./lib/session";
+import { type LastAnswer, SignalSender, signalForNextQuestion } from "./lib/signals";
 import type { Citation, HistoryItem, SessionInfo, User } from "./types";
+
+// The admin console is loaded only when an administrator opens it (a separate bundle).
+const AdminConsole = lazy(() => import("./admin/AdminConsole").then((m) => ({ default: m.AdminConsole })));
 
 const SUGGESTIONS = [
   "Within how many days must the final audit file be assembled?",
@@ -23,7 +30,11 @@ function resetTokenFromUrl(): string | null {
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
-  const [restoring, setRestoring] = useState(() => currentToken() !== null);
+  // A stored token, or Keycloak's redirect back after single sign-on (?code=...), is
+  // checked with the API before the app is shown.
+  const [restoring, setRestoring] = useState(
+    () => currentToken() !== null || new URLSearchParams(window.location.search).has("code"));
+  const [signInError, setSignInError] = useState<string | null>(null);
   const [resetToken] = useState(resetTokenFromUrl);
   const [history, setHistory] = useState<HistoryItem[] | null>(null);
   const [activeQueryId, setActiveQueryId] = useState<number | null>(null);
@@ -32,6 +43,9 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [panel, setPanel] = useState<{ citations: Citation[]; activeId: string } | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  // Implicit signals (M16b): the last answer of this conversation, and one sender per session.
+  const lastAnswerRef = useRef<LastAnswer | null>(null);
+  const signalsRef = useRef(new SignalSender(sendSignal));
   const bottomRef = useRef<HTMLDivElement | null>(null);
 
   function endSession() {
@@ -50,11 +64,23 @@ export default function App() {
   // A stored token (same tab, page reloaded) is checked with the API before it is trusted.
   useEffect(() => {
     setSessionEndedHandler(endSession);
-    if (currentToken() === null) return;
-    getMe()
-      .then(setUser)
-      .catch(() => clearToken())
-      .finally(() => setRestoring(false));
+    void (async () => {
+      try {
+        const next = await finishSignIn(); // null unless this page is the sign-in redirect
+        if (next !== null) window.history.replaceState(null, "", next);
+      } catch (err) {
+        setSignInError((err as Error).message);
+        window.history.replaceState(null, "", "/");
+      }
+      if (currentToken() === null) {
+        setRestoring(false);
+        return;
+      }
+      getMe()
+        .then(setUser)
+        .catch(() => clearToken())
+        .finally(() => setRestoring(false));
+    })();
   }, []);
 
   useEffect(() => {
@@ -71,6 +97,12 @@ export default function App() {
   }
 
   async function signOut() {
+    if (hasOidcSession()) { // single sign-on: also end the identity provider's session
+      const url = endOidcSession();
+      endSession();
+      if (url) window.location.assign(url);
+      return;
+    }
     endSession();
     await logout().catch(() => undefined);
   }
@@ -80,6 +112,7 @@ export default function App() {
   }
 
   function newConversation() {
+    lastAnswerRef.current = null;
     setTurns([]);
     setActiveQueryId(null);
     setPanel(null);
@@ -89,9 +122,10 @@ export default function App() {
   async function openHistory(item: HistoryItem) {
     if (busy) return;
     const id = `history-${item.query_id}`;
+    lastAnswerRef.current = null; // a reopened answer starts no follow-up
     setActiveQueryId(item.query_id);
     setPanel(null);
-    setTurns([{ id, question: item.question, steps: [], text: "", final: null, error: null }]);
+    setTurns([{ id, question: item.question, steps: [], draft: "", verdicts: [], text: "", final: null, error: null }]);
     try {
       const final = await getHistoryAnswer(item.query_id);
       updateTurn(id, (t) => ({ ...t, final }));
@@ -104,7 +138,9 @@ export default function App() {
     const text = question.trim();
     if (!text || busy) return;
     const id = crypto.randomUUID();
-    setTurns((all) => [...all, { id, question: text, steps: [], text: "", final: null, error: null }]);
+    const said = signalForNextQuestion(lastAnswerRef.current, text, Date.now());
+    if (said) signalsRef.current.send(said.answerId, said.kind);
+    setTurns((all) => [...all, { id, question: text, steps: [], draft: "", verdicts: [], text: "", final: null, error: null }]);
     setInput("");
     setBusy(true);
     setPanel(null);
@@ -113,8 +149,11 @@ export default function App() {
     try {
       await streamQuery(text, (event) => {
         if (event.event === "progress") updateTurn(id, (t) => ({ ...t, steps: [...t.steps, event.data.step] }));
+        else if (event.event === "draft_token") updateTurn(id, (t) => ({ ...t, draft: t.draft + event.data.text }));
+        else if (event.event === "claim_verdict") updateTurn(id, (t) => ({ ...t, verdicts: [...t.verdicts, event.data] }));
         else if (event.event === "token") updateTurn(id, (t) => ({ ...t, text: t.text + event.data.text }));
         else if (event.event === "final") {
+          lastAnswerRef.current = { answerId: event.data.answer_id, question: text, answeredAt: Date.now() };
           updateTurn(id, (t) => ({ ...t, final: event.data }));
           setActiveQueryId(event.data.query_id);
           refreshHistory(); // the new question now heads the History list
@@ -138,9 +177,9 @@ export default function App() {
     );
   }
 
-  if (!user) return <LoginScreen onSignedIn={signedIn} resetToken={resetToken} />;
+  if (!user) return <LoginScreen onSignedIn={signedIn} resetToken={resetToken} initialError={signInError} />;
 
-  return (
+  const chat = (
     <div className="flex h-screen bg-slate-50 text-slate-900">
       <Sidebar
         user={user}
@@ -179,7 +218,9 @@ export default function App() {
             )}
 
             {turns.map((t) => (
-              <AnswerCard key={t.id} turn={t} onOpenSource={(activeId, citations) => setPanel({ activeId, citations })} />
+              <AnswerCard key={t.id} turn={t}
+                onOpenSource={(activeId, citations) => setPanel({ activeId, citations })}
+                onSignal={(answerId, kind) => signalsRef.current.send(answerId, kind)} />
             ))}
             <div ref={bottomRef} />
           </div>
@@ -228,5 +269,19 @@ export default function App() {
         />
       )}
     </div>
+  );
+
+  return (
+    <BrowserRouter>
+      <Tooltip.Provider delayDuration={200}>
+        <Routes>
+          <Route path="/admin/*" element={
+            <Suspense fallback={<div className="grid h-screen place-items-center"><ThinkingDots label="Opening the admin console" /></div>}>
+              <AdminConsole user={user} />
+            </Suspense>} />
+          <Route path="*" element={chat} />
+        </Routes>
+      </Tooltip.Provider>
+    </BrowserRouter>
   );
 }

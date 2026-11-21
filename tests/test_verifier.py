@@ -98,6 +98,14 @@ def test_abbreviations_and_mid_sentence_citations_do_not_split() -> None:
                                         "Next point [B:0002]."]
 
 
+def test_sentences_split_after_stable_citation_ids_too() -> None:
+    """M12b: a citation ending a sentence ends the claim for both id forms."""
+    _, claims = extract_claims("Assemble within 60 days. [STD-CH06:1.9:1] It applies to all "
+                               "files [POL-2:2:12]. Old form. [POL-2:0003] Then more [A:0:1].")
+    assert [c.citations for c in claims] == [["STD-CH06:1.9:1"], ["POL-2:2:12"],
+                                             ["POL-2:0003"], ["A:0:1"]]
+
+
 def test_no_factual_claims_means_zero_confidence() -> None:
     lines, claims = extract_claims("The evidence does not say.")
     assert apply_verdicts(lines, claims, _verdicts(c1="n")).confidence == 0.0
@@ -108,7 +116,7 @@ def test_prompt_contains_only_cited_chunks_in_full() -> None:
     from types import SimpleNamespace
 
     _, claims = extract_claims(ANSWER)
-    chunks = {cid: SimpleNamespace(text=f"FULL TEXT OF {cid}", title="t")
+    chunks = {cid: SimpleNamespace(text=f"FULL TEXT OF {cid}", title="t", classification="public_internal")
               for cid in ("POL-2:0003", "STD-6:0012", "POL-2:0007", "OTHER:0001")}
     prompt = build_prompt("q", claims, chunks)
     assert "FULL TEXT OF STD-6:0012" in prompt and "OTHER:0001" not in prompt

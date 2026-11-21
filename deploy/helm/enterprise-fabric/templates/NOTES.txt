@@ -1,0 +1,12 @@
+Enterprise Fabric AI ({{ .Values.profile }} profile, LLM mode {{ .Values.llm.mode }}) is installed.
+SYNTHETIC demonstration: fictional firm, clients and people.
+
+  Smoke test:   helm test {{ .Release.Name }}
+  The UI:       kubectl port-forward svc/{{ include "ef.name" . }}-frontend 8080:{{ .Values.frontend.port }}
+                then open http://127.0.0.1:8080
+  The API:      kubectl port-forward svc/{{ include "ef.name" . }}-api 8000:{{ .Values.api.port }}
+{{- if eq .Values.llm.mode "mock" }}
+
+NOTE: llm.mode=mock gives extractive stand-in answers (no AI, no key, no cost): for smoke
+tests only. Use llm.mode=live with LLM_AUTH_TOKEN or ANTHROPIC_API_KEY in the Secret.
+{{- end }}

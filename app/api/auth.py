@@ -7,7 +7,10 @@ How it works:
   protected endpoint uses it, so the user is never taken from the request body.
 - POST /auth/register creates a STAFF account with NO engagements. Nobody can make
   themselves a manager or partner, or join a client team; roles and teams stay in
-  data/users.csv and data/engagements.csv.
+  data/users.csv and data/engagements.csv. Registration is OFF unless
+  ALLOW_SELF_REGISTRATION=true, and then only firm-domain addresses are accepted (M9).
+- Every /auth/* route is rate-limited per IP, and 10 failed sign-ins in 15 minutes lock
+  the IP out for a while (app/api/ratelimit.py, M9). Both give HTTP 429 + Retry-After.
 - POST /auth/forgot-password always gives the same answer, so it does not reveal which
   emails have accounts. If the account exists, a one-time link valid for a few minutes
   is written to the API console (there is no email server in this project).
@@ -15,6 +18,10 @@ How it works:
   out everywhere.
 Tokens are stored only as SHA-256 digests. Every action is written to audit_log by user
 id; emails and passwords are never logged.
+
+Full profile (M13b): users sign in at Keycloak and the Bearer token is a JWT, validated in
+app/api/oidc.py. The email/password routes above are then switched off (404): there is
+one way to sign in per profile.
 """
 
 import logging
@@ -23,12 +30,16 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.schemas import (
+    AuthConfigOut,
     ForgotPasswordRequest,
+    MessageOut,
+    PasswordResetOut,
+    SignedOutOut,
     LoginRequest,
     RegisterRequest,
     ResetPasswordRequest,
@@ -36,6 +47,8 @@ from app.api.schemas import (
     UserOut,
 )
 from app.db.models import AuthSession, Engagement, EngagementMember, PasswordReset, User
+from app.api.ratelimit import retry_after_header
+from app.ports import FailureLockout, RateLimiter
 from app.db.session import write_audit_log
 from app.security.passwords import (
     hash_password,
@@ -50,9 +63,42 @@ log = logging.getLogger("uvicorn.error")  # shown in the API window
 SIGN_IN_FAILED = "Incorrect email or password."
 RESET_SENT = "If an account exists for that email, a password reset link has been sent."
 RESET_INVALID = "This reset link is invalid or has expired. Request a new one."
+REGISTRATION_CLOSED = "Accounts are created by the firm administrator."
+TOO_MANY = "Too many requests. Please wait a moment and try again."
+LOCKED_OUT = "Too many failed sign-in attempts. Please try again later."
 
 router = APIRouter(prefix="/api/v1/auth", tags=["sign-in"])
 _bearer = HTTPBearer(auto_error=False)
+
+
+def _client_ip(request: Request) -> str:
+    return request.client.host if request.client else "unknown"
+
+
+def _limits(request: Request) -> tuple[RateLimiter, FailureLockout]:
+    """The app's sign-in limiter, created on first use from the settings: in memory (lite)
+    or in Redis, shared by every API worker (full) (M16a)."""
+    state = request.app.state
+    if getattr(state, "auth_limits", None) is None:
+        from app.adapters import open_failure_lockout, open_rate_limiter
+
+        s = state.services.settings
+        state.auth_limits = (open_rate_limiter(s, "auth", s.auth_rate_per_minute),
+                             open_failure_lockout(s, "auth", s.auth_lockout_failures,
+                                                  s.auth_lockout_minutes))
+    return state.auth_limits
+
+
+def guard_auth_route(request: Request) -> None:
+    """Dependency on every /auth/* route that takes credentials or sends links."""
+    bucket, lockout = _limits(request)
+    ip = _client_ip(request)
+    wait = lockout.locked_for(ip)
+    if wait:
+        raise HTTPException(429, LOCKED_OUT, headers=retry_after_header(wait))
+    wait = bucket.take(ip)
+    if wait:
+        raise HTTPException(429, TOO_MANY, headers=retry_after_header(wait))
 
 
 def utc_now() -> datetime:
@@ -74,14 +120,69 @@ def user_out(s: Session, user: User) -> UserOut:
             .join(EngagementMember, EngagementMember.engagement_id == Engagement.engagement_id)
             .where(EngagementMember.user_id == user.user_id)))
     return UserOut(user_id=user.user_id, name=user.name, role=user.role, email=user.email,
+                   is_admin=bool(user.is_admin),
                    engagements=engagements)
+
+
+SIGN_IN_ELSEWHERE = "Sign-in is handled by the firm's identity provider."
+NOT_SET_UP = "Your account is not set up in this application. Contact the administrator."
+TOKEN_INVALID = "Your sign-in is not valid. Sign in again."
+
+
+def _oidc(request: Request):
+    """The app's token validator, created on first use from the settings (M13b)."""
+    state = request.app.state
+    if getattr(state, "oidc_validator", None) is None:
+        from app.api.oidc import OidcValidator
+
+        s = state.services.settings
+        state.oidc_validator = OidcValidator(s.oidc_issuer, s.oidc_audience, s.oidc_jwks_url,
+                                             s.oidc_leeway_seconds)
+    return state.oidc_validator
+
+
+def _oidc_user(request: Request, token: str) -> User:
+    """The user a valid Keycloak token names; role and admin flag synced from the token."""
+    from app.api.oidc import IdentityProviderUnavailable, TokenRejected
+
+    try:
+        identity = _oidc(request).validate(token)
+    except TokenRejected as exc:
+        log.warning("Rejected token: %s", exc)
+        raise HTTPException(401, TOKEN_INVALID, headers={"WWW-Authenticate": "Bearer"}) from None
+    except IdentityProviderUnavailable as exc:
+        log.error("Identity provider unreachable: %s", exc)
+        raise HTTPException(503, "Sign-in is temporarily unavailable.") from None
+    with _sessions(request)() as s:
+        user = s.scalars(select(User).where(func.upper(User.user_id) == identity.user_id)).first()
+        if user is None:
+            write_audit_log(s, identity.user_id, "token_user_unknown", identity.subject)
+            raise HTTPException(403, NOT_SET_UP)
+        if (user.role, bool(user.is_admin)) != (identity.role, identity.is_admin):
+            change = (f"role {user.role} -> {identity.role}, admin {bool(user.is_admin)} -> "
+                      f"{identity.is_admin} (from the identity provider)")
+            user.role, user.is_admin = identity.role, identity.is_admin
+            s.commit()
+            write_audit_log(s, "keycloak", "identity_synced", f"{user.user_id}: {change}")
+        s.refresh(user)
+        s.expunge(user)
+    return user
+
+
+def require_session_mode(request: Request) -> None:
+    """The email/password routes exist only where Keycloak is not used (lite)."""
+    if request.app.state.services.settings.uses_oidc:
+        raise HTTPException(404, SIGN_IN_ELSEWHERE)
 
 
 def current_user(request: Request,
                  creds: HTTPAuthorizationCredentials | None = Depends(_bearer)) -> User:
-    """The signed-in user, from the Bearer token. 401 if missing, unknown or expired."""
+    """The signed-in user, from the Bearer token. 401 if missing, unknown or expired.
+    Full profile: a Keycloak JWT (app/api/oidc.py); lite: a session token."""
     if creds is None:
         raise HTTPException(401, "Sign in required.", headers={"WWW-Authenticate": "Bearer"})
+    if request.app.state.services.settings.uses_oidc:
+        return _oidc_user(request, creds.credentials)
     with _sessions(request)() as s:
         row = s.get(AuthSession, token_digest(creds.credentials))
         user = s.get(User, row.user_id) if row and row.expires_at > utc_now() else None
@@ -114,26 +215,48 @@ def _next_user_id(s: Session) -> str:
 
 # --------------------------------------------------------------------------- routes
 
-@router.post("/login", response_model=SessionOut)
+@router.get("/config", response_model=AuthConfigOut)
+def auth_config(request: Request) -> dict:
+    """What the sign-in screen may offer (public: no secrets, no user data). In the full
+    profile it names the identity provider the browser signs in with (M13b/M16)."""
+    settings = request.app.state.services.settings
+    if settings.uses_oidc:
+        return {"self_registration": False, "mode": "oidc", "oidc_issuer": settings.oidc_issuer,
+                "oidc_client_id": settings.oidc_ui_client_id}
+    return {"self_registration": settings.allow_self_registration, "mode": "session"}
+
+
+@router.post("/login", response_model=SessionOut,
+             dependencies=[Depends(require_session_mode), Depends(guard_auth_route)])
 def login(req: LoginRequest, request: Request) -> SessionOut:
     """Check email and password; on success return a session token."""
     settings = request.app.state.services.settings
     with _sessions(request)() as s:
         user = s.scalars(select(User).where(User.email == req.email)).first()
         if not verify_password(req.password, user.password_hash if user else None):
-            write_audit_log(s, user.user_id if user else "unknown", "sign_in_failed", None)
+            actor = user.user_id if user else "unknown"
+            write_audit_log(s, actor, "sign_in_failed", None)
+            _, lockout = _limits(request)
+            lockout.record_failure(_client_ip(request))
+            if lockout.locked_for(_client_ip(request)):
+                write_audit_log(s, actor, "sign_in_locked_out", None)
             raise HTTPException(401, SIGN_IN_FAILED)
         write_audit_log(s, user.user_id, "signed_in", user.user_id)
         return _start_session(s, user, settings.session_hours)
 
 
-@router.post("/register", response_model=SessionOut, status_code=201)
+@router.post("/register", response_model=SessionOut, status_code=201,
+             dependencies=[Depends(require_session_mode), Depends(guard_auth_route)])
 def register(req: RegisterRequest, request: Request) -> SessionOut:
-    """Create a staff account with no engagements, and sign it in."""
+    """Create a staff account with no engagements, and sign it in. Off by default."""
+    settings = request.app.state.services.settings
+    if not settings.allow_self_registration:
+        raise HTTPException(403, REGISTRATION_CLOSED)
+    if not req.email.endswith("@" + settings.self_registration_domain.lower()):
+        raise HTTPException(422, f"Use your firm email address (@{settings.self_registration_domain}).")
     problem = password_problem(req.password)
     if problem:
         raise HTTPException(422, problem)
-    settings = request.app.state.services.settings
     with _sessions(request)() as s:
         if s.scalars(select(User).where(User.email == req.email)).first():
             raise HTTPException(409, "An account with this email already exists. Sign in instead.")
@@ -156,7 +279,7 @@ def me(request: Request, user: User = Depends(current_user)) -> UserOut:
         return user_out(s, user)
 
 
-@router.post("/logout")
+@router.post("/logout", response_model=SignedOutOut, dependencies=[Depends(require_session_mode)])
 def logout(request: Request, creds: HTTPAuthorizationCredentials | None = Depends(_bearer),
            user: User = Depends(current_user)) -> dict:
     """End this session (the token stops working immediately)."""
@@ -167,7 +290,8 @@ def logout(request: Request, creds: HTTPAuthorizationCredentials | None = Depend
     return {"signed_out": True}
 
 
-@router.post("/forgot-password")
+@router.post("/forgot-password", response_model=MessageOut,
+             dependencies=[Depends(require_session_mode), Depends(guard_auth_route)])
 def forgot_password(req: ForgotPasswordRequest, request: Request) -> dict:
     """Same reply whether or not the email exists. If it does, the one-time link is
     written to the API console (no email server in this project)."""
@@ -187,7 +311,8 @@ def forgot_password(req: ForgotPasswordRequest, request: Request) -> dict:
     return {"message": RESET_SENT}
 
 
-@router.post("/reset-password")
+@router.post("/reset-password", response_model=PasswordResetOut,
+             dependencies=[Depends(require_session_mode), Depends(guard_auth_route)])
 def reset_password(req: ResetPasswordRequest, request: Request) -> dict:
     """Set a new password with a valid, unused link; sign the user out everywhere."""
     problem = password_problem(req.password)

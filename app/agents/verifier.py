@@ -15,6 +15,15 @@
    recomputes the citation list, and computes
        confidence = supported factual claims / factual claims   (0.0 if there are none).
 
+4. M14b, the second opinion (app/agents/nli.py): every claim the LLM accepted is also
+   checked by a small NLI model against the evidence sentences of the chunks it cites.
+     LLM supported + NLI entailment     -> kept; the entailing sentences are its span
+     LLM supported + NLI contradiction  -> kept but FLAGGED "check this point"
+     LLM supported + NLI neutral        -> kept (the LLM's verdict stands)
+     LLM unsupported                    -> removed, whatever NLI says
+   A flagged claim still counts as supported in the confidence: the flag tells the reader
+   to look, it does not overrule the verifier.
+
 The graph (graph.py) loops back to retrieval once if confidence < 0.6, and abstains if it
 is still low.
 """
@@ -23,9 +32,10 @@ import re
 from dataclasses import dataclass, field
 
 from app.agents.llm import LLMCaller, LLMResult
+from app.agents.nli import ClaimCheck, NliScorer, check_claims
 from app.agents.synthesizer import CITATION, DocInfo, document_attributes
 from app.retrieval.hybrid import RetrievedChunk
-from app.security.injection import UNTRUSTED_DATA_RULE, wrap_document
+from app.security.injection import UNTRUSTED_DATA_RULE, restricted_attributes, wrap_document
 
 # Sentence boundary: . ! or ? then a space, not after a common abbreviation, and not when
 # the next token is a citation (citations stay with their sentence).
@@ -34,7 +44,8 @@ from app.security.injection import UNTRUSTED_DATA_RULE, wrap_document
 _SENTENCE = re.compile(
     r"(?:(?<!\bvs\.)(?<!\be\.g\.)(?<!\bi\.e\.)(?<!\bpp\.)(?<!\bp\.)(?<!\bno\.)(?<!\bNo\.)(?<!\bviz\.)"
     r"(?<=[.!?])\s+(?=[^\[\s])"
-    r"|(?<=:\d{4}\])\s+(?=[A-Z*(]))")
+    # After a citation: ":" + 1-4 digits + "]" ends both id forms (fixed-width lookbehinds).
+    r"|(?:(?<=:\d\])|(?<=:\d\d\])|(?<=:\d\d\d\])|(?<=:\d{4}\]))\s+(?=[A-Z*(]))")
 _BULLET = re.compile(r"^(\s*(?:[-*•]|\d+[.)])\s+)(.*)$")
 
 SCHEMA = {
@@ -107,6 +118,14 @@ class Verification:
     factual: int = 0
     supported: int = 0
     repaired: list[str] = field(default_factory=list)  # uncited claims given a checked citation
+    # M14b: claims the LLM accepted but NLI found contradicted (kept, marked in the text),
+    # every claim's NLI check, and each cited chunk's entailing sentences (its span).
+    flagged: list[dict] = field(default_factory=list)
+    nli: dict[int, ClaimCheck] = field(default_factory=dict)
+    support: dict[str, list[str]] = field(default_factory=dict)
+
+
+FLAG_MARK = " *(check this point)*"
 
 
 def _is_heading(line: str) -> bool:
@@ -152,7 +171,7 @@ def build_prompt(question: str, claims: list[Claim], chunks: dict[str, Retrieved
     for cid in cited:
         c = chunks[cid]
         attrs = (document_attributes(cid, c, docs[c.doc_id]) if docs and c.doc_id in docs
-                 else {"cite": cid, "title": c.title})
+                 else {"cite": cid, "title": c.title, **restricted_attributes(c.classification)})
         blocks.append(wrap_document(c.text, **attrs))
     body = "\n\n".join(blocks) or "(none)"
     return f"Question: {question}\n\nClaims:\n{listed}\n\nCited documents:\n{body}"
@@ -218,11 +237,43 @@ def apply_verdicts(lines: list[_Line], claims: list[Claim], verdicts: dict[int, 
                         len(factual), len(supported), repaired)
 
 
+def _second_opinion(claims: list[Claim], verdicts: dict[int, dict],
+                    chunks: dict[str, RetrievedChunk], evidence: dict[str, list[str]],
+                    nli: NliScorer, entail_at: float, contradict_at: float
+                    ) -> tuple[dict[int, ClaimCheck], list[dict]]:
+    """NLI over the claims the LLM accepted; mark the contradicted ones (see module doc)."""
+    from app.retrieval.compress import split_sentences
+
+    accepted = [c for c in claims if c.citations
+                and verdicts.get(c.id, {}).get("verdict") == "supported"
+                and verdicts.get(c.id, {}).get("type", "factual") == "factual"]
+    sentences: dict[str, list[str]] = {}
+    for cid in {cid for c in accepted for cid in c.citations}:
+        if evidence.get(cid):
+            sentences[cid] = evidence[cid]
+        elif cid in chunks:  # cited without compressed evidence: the chunk's own sentences
+            sentences[cid] = split_sentences(chunks[cid].text.partition("\n")[2])
+    checks = check_claims([(c.id, c.text, c.citations) for c in accepted], sentences, nli,
+                          entail_at, contradict_at)
+    flagged = []
+    for c in accepted:
+        check = checks.get(c.id)
+        if check is not None and check.label == "contradiction":
+            flagged.append({"claim": c.text, "entailment": round(check.entailment, 3),
+                            "contradiction": round(check.contradiction, 3)})
+            c.text = c.text.rstrip() + FLAG_MARK
+    return checks, flagged
+
+
 def verify(question: str, answer_text: str, chunks: dict[str, RetrievedChunk],
            llm: LLMCaller, docs: dict[str, DocInfo] | None = None,
-           evidence_ids: list[str] | None = None) -> tuple[Verification, LLMResult | None]:
+           evidence_ids: list[str] | None = None, *, nli: NliScorer | None = None,
+           evidence: dict[str, list[str]] | None = None, entail_at: float = 0.5,
+           contradict_at: float = 0.5) -> tuple[Verification, LLMResult | None]:
     """Verify every claim of `answer_text` (without the judgement note). `evidence_ids` are
-    the chunks the synthesiser was given; only these may be attached by citation repair."""
+    the chunks the synthesiser was given; only these may be attached by citation repair.
+    With `nli`, the accepted claims get the NLI second opinion (M14b); `evidence` holds the
+    compressed sentences of each evidence chunk."""
     lines, claims = extract_claims(answer_text)
     allowed = set(evidence_ids or []) & set(chunks)
     if not claims:
@@ -232,4 +283,14 @@ def verify(question: str, answer_text: str, chunks: dict[str, RetrievedChunk],
                       max_tokens=4000, schema=SCHEMA)
     verdicts = {int(v["id"]): v for v in (result.data or {}).get("claims", [])
                 if isinstance(v.get("id"), int)}
-    return apply_verdicts(lines, claims, verdicts, allowed), result
+    checks, flagged = ({}, []) if nli is None else _second_opinion(
+        claims, verdicts, chunks, evidence or {}, nli, entail_at, contradict_at)
+    v = apply_verdicts(lines, claims, verdicts, allowed)
+    v.flagged, v.nli = flagged, checks
+    kept = {c.id for c in claims if verdicts.get(c.id, {}).get("verdict") == "supported"}
+    for claim_id, check in checks.items():
+        if claim_id in kept:
+            for cid, found in check.support.items():
+                v.support.setdefault(cid, [])
+                v.support[cid] += [x for x in found if x not in v.support[cid]]
+    return v, result

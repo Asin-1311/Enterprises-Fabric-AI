@@ -1,0 +1,5 @@
+{
+  "light": "anthropic/claude-haiku-5.5",
+  "synth": "anthropic/claude-sonnet-5.5",
+  "verify": "anthropic/claude-opus-5.5"
+}

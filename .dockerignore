@@ -1,0 +1,41 @@
+# What never goes into an image (M17b). Images are built from the repository root.
+# Secrets
+.env
+.env.*
+**/*.pem
+**/*.key
+# Local state, indexes, backups, learning data and models
+data/*.db
+data/*.db-journal
+data/qdrant/
+data/landing/
+data/backups/
+data/connectors/
+data/sources/
+data/learning/
+models/
+# ICAI material: licensed, never redistributed (also outside git)
+data/corpus/standards/
+data/tyk_candidates/
+data/ca_final_not_indexed/
+*.pdf
+ICAI_CA_Final_All_Papers_Chapter_Wise_Latest/
+Tax_Law/
+Standards_Acts/
+# Development files
+.git/
+.venv/
+.venv-flows/
+**/__pycache__/
+**/*.pyc
+.pytest_cache/
+.vscode/
+frontend/node_modules/
+frontend/dist/
+eval/results/
+docs/
+tests/
+deploy/
+!deploy/docker/
+loadtest/
+.github/

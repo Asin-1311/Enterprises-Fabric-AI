@@ -3,6 +3,7 @@
 For every question, both systems answer; an LLM judge (eval/judge.py) grades each answer.
 Reported per system, overall and per category:
 - answer correctness vs gold (correct 1, partial 0.5, incorrect 0),
+- answer relevance (M18b): does the answer address the question (1 / 0.5 / 0),
 - faithfulness (judge, per claim) and citation precision (judge, per claim-citation pair),
 - access-leak and cross-engagement-leak rates over every chunk RETRIEVED or CITED, using
   the independent access rule from eval/run_retrieval_eval.py (must be 0),
@@ -10,18 +11,41 @@ Reported per system, overall and per category:
 - latency p50/p95: time to first token and to the full answer, against the project
   document's targets (p95 TTFT < 1.5 s, full answer < 8 s).
 
-Note on TTFT for the full system: it streams only the VERIFIED answer (M6 decision), so its
-first token can only be sent once verification is complete; TTFT is therefore the time to
-the verified answer. The time to the first DRAFT token is recorded separately for context.
+TTFT (M18b): since M14 the full system streams its draft while it is being written, so TTFT
+is the time to the first DRAFT token, as CLAUDE.md section 13.3 defines it. Answers that
+stream no draft (refusals, abstentions, greetings) have no TTFT and are left out of it; the
+full-answer time covers every answer. Runs before M18b reported the verified-answer time as
+TTFT (the M6 design then); their files keep that meaning.
+
+The judge (M18b) is MODEL_JUDGE, from another model family, behind the same ModelRouter as
+the system: an answer citing a restricted chunk is judged only by the private model, or not
+at all ("judge_skipped") if there is none. Nothing restricted reaches an external judge.
+
+Questions: the general set and the per-source files (eval/question_sets.py); --set limits
+the run to some of them.
+
+Isolation (M18b): every run sets DEGRADATION_ENABLED=false and RESPONSE_CACHE_ENABLED=false
+(recorded in config.json).
+- Every full-system answer here takes longer than the 8 s target, so the latency window
+  would otherwise switch on reduced checking for low-risk questions part-way through. The
+  quality would then be measured on a partly degraded system. Degradation has its own
+  tests, and the load tests (M18c) measure the system under load.
+- A cached answer from an earlier run would hide the run-to-run variance the evaluation
+  must report.
+`degraded` is still recorded per answer, as a check.
 
 Progress is saved after EVERY answer to progress.jsonl in the run folder, so an interrupted
-run loses nothing that was already paid for and can be resumed. The OpenRouter balance is
+run loses nothing that was already paid for and can be resumed. --retry-errors (M18b) asks
+again the answers that ended in an error (for example a lost network connection). The
+progress file keeps every attempt, and the outputs use the latest attempt for each
+question and system. The OpenRouter balance is
 recorded after every question, so the measured spend of an interrupted session is known too.
 
 Run from the project root (makes billed LLM calls):
     .venv\\Scripts\\python.exe -m eval.run_answer_eval --limit 5                     # pilot
     .venv\\Scripts\\python.exe -m eval.run_answer_eval                               # full run
     .venv\\Scripts\\python.exe -m eval.run_answer_eval --resume 20261113-101500_answers
+    .venv\\Scripts\\python.exe -m eval.run_answer_eval --resume <run> --retry-errors
 
 Writes eval/results/<timestamp>_answers/: metrics.json, per_question.csv, answers.jsonl,
 config.json, model_ids.json (rewritten at the end of every session, with "complete" saying
@@ -45,6 +69,7 @@ from app.retrieval.acl import load_user
 from eval.costs import estimate_usd, openrouter_balance
 from eval.judge import judge_answer
 from eval.metrics import mean
+from eval.question_sets import SAMPLE_SEED, evaluation_sample, load_questions
 from eval.run_retrieval_eval import SECRET_FIELDS, leak_flags, load_ground_truth
 
 SYSTEMS = ("full", "baseline")
@@ -73,6 +98,9 @@ def summarise(rows: list[dict]) -> dict:
         "questions": len(rows), "errors": len(rows) - len(ok), "judged": len(judged),
         "correctness": mean([r["score"] for r in judged]),
         "correct_rate": mean([float(r["correctness"] == "correct") for r in judged]),
+        "answer_relevance": mean([r["relevance_score"] for r in judged
+                                  if r.get("relevance_score") is not None]),
+        "judge_skipped": sum(1 for r in ok if r.get("judge_skipped")),
         "faithfulness_macro": mean(faith),
         "faithfulness_micro": sup / fact if fact else None,
         "citation_precision": good / pairs if pairs else None,
@@ -81,6 +109,7 @@ def summarise(rows: list[dict]) -> dict:
         "content_leak_rate": mean([float(r["content_leak"]) for r in ok
                                    if r["category"] in ("role_denied", "cross_engagement")]),
         "status_counts": dict(Counter(r["status"] for r in ok)),
+        "ttft_measured": sum(1 for r in ok if r["ttft_s"] is not None),
         "ttft_s_p50": percentile([r["ttft_s"] for r in ok if r["ttft_s"] is not None], 0.5),
         "ttft_s_p95": percentile([r["ttft_s"] for r in ok if r["ttft_s"] is not None], 0.95),
         "full_answer_s_p50": percentile([r["seconds"] for r in ok], 0.5),
@@ -142,16 +171,30 @@ def measured_spend(records: list[dict]) -> tuple[float | None, int]:
 
 # ---------------------------------------------------------------------------- run
 
-def run(questions: list[dict], use_judge: bool = True, resume: Path | None = None) -> Path:
+def latest_results(records: list[dict]) -> dict[tuple[str, str], dict]:
+    """The latest result record for each (question, system): a retry replaces an error."""
+    latest: dict[tuple[str, str], dict] = {}
+    for r in records:
+        if r.get("kind") == "result":
+            latest[(r["row"]["id"], r["row"]["system"])] = r
+    return latest
+
+
+def run(questions: list[dict], use_judge: bool = True, resume: Path | None = None,
+        retry_errors: bool = False, selection: str = "all") -> Path:
     from app.agents.graph import build_assistant
+    from app.agents.model_router import (RESTRICTED_UNAVAILABLE_MESSAGE, ModelRouter,
+                                         PrivateModelUnavailable)
     from app.baseline.single_pass_rag import SinglePassRAG
+    from eval.judge_client import OpenAICompatibleJudge
 
     settings = get_settings()
     out = resume or RESULTS / f"{datetime.now():%Y%m%d-%H%M%S}_answers"
     out.mkdir(parents=True, exist_ok=True)
     progress = out / "progress.jsonl"
     records = load_progress(progress)
-    done = {(r["row"]["id"], r["row"]["system"]) for r in records if r.get("kind") == "result"}
+    done = {key for key, r in latest_results(records).items()
+            if not (retry_errors and r["row"]["error"])}
     session = datetime.now().strftime("%Y%m%d-%H%M%S")
 
     def note_balance(after: str) -> None:
@@ -163,6 +206,8 @@ def run(questions: list[dict], use_judge: bool = True, resume: Path | None = Non
     assistant = build_assistant(settings)
     searcher, llm, sessions = assistant.deps.searcher, assistant.deps.llm, assistant.deps.sessions
     baseline = SinglePassRAG(searcher, llm)
+    judge_llm = (ModelRouter(OpenAICompatibleJudge.from_settings(settings), getattr(llm, "private", None))
+                 if use_judge else None)
     docs, roles, teams = load_ground_truth()
 
     # Record every chunk any retrieval returns, for the leak checks.
@@ -175,6 +220,13 @@ def run(questions: list[dict], use_judge: bool = True, resume: Path | None = Non
         return hits
 
     searcher.search = recording_search  # type: ignore[method-assign]
+
+    def restricted_of(ids: list[str]) -> frozenset[str]:
+        """Cited chunks classified restricted: the router keeps them from the external judge."""
+        with sessions() as s:
+            return frozenset(s.scalars(select(Chunk.chunk_id).join(
+                Document, Document.doc_id == Chunk.doc_id).where(
+                Chunk.chunk_id.in_(ids), Document.classification == "restricted")))
 
     def chunk_texts(ids: list[str]) -> dict[str, str]:
         """Full chunk text, prefixed with the document facts the synthesiser saw (title,
@@ -210,8 +262,8 @@ def run(questions: list[dict], use_judge: bool = True, resume: Path | None = Non
                 row = {"id": q["id"], "category": q.get("category", ""), "user_id": q["user_id"],
                        "system": system, "reviewed": q.get("reviewed", False), "error": "",
                        "status": "", "confidence": None, "seconds": None, "ttft_s": None,
-                       "draft_ttft_s": None, "tokens_in": 0, "tokens_out": 0, "est_cost_usd": 0.0,
-                       "judge_cost_usd": 0.0}
+                       "verified_s": None, "tokens_in": 0, "tokens_out": 0, "est_cost_usd": 0.0,
+                       "judge_cost_usd": 0.0, "judge_skipped": ""}
                 text, cited = "", []
                 start = time.perf_counter()
                 try:
@@ -219,10 +271,10 @@ def run(questions: list[dict], use_judge: bool = True, resume: Path | None = Non
                         first: list[float] = []
                         res = assistant.ask(q["question"], q["user_id"],
                                             on_token=lambda _t: first or first.append(time.perf_counter() - start))
-                        row["seconds"] = time.perf_counter() - start
-                        row["ttft_s"] = row["seconds"]  # verified-only streaming (see docstring)
-                        row["draft_ttft_s"] = first[0] if first else None
+                        row["seconds"] = row["verified_s"] = time.perf_counter() - start
+                        row["ttft_s"] = first[0] if first else None  # first DRAFT token (docstring)
                         row["status"], row["confidence"] = res.status, res.confidence
+                        row["degraded"], row["flagged_claims"] = res.degraded, len(res.flagged_claims)
                         text, cited = res.text, [c.chunk_id for c in res.citations]
                         with sessions() as s:
                             for t in s.scalars(select(Trace).where(Trace.query_id == res.query_id)):
@@ -232,12 +284,19 @@ def run(questions: list[dict], use_judge: bool = True, resume: Path | None = Non
                                     row["est_cost_usd"] += estimate_usd(t.model.split(",")[0],
                                                                         t.tokens_in, t.tokens_out or 0)
                     else:
-                        b = baseline.ask(q["question"], user)
-                        row["seconds"], row["ttft_s"] = b.seconds, b.seconds_to_first_token
-                        row["status"] = "answered"
-                        text, cited = b.text, b.cited_chunk_ids
-                        row["tokens_in"], row["tokens_out"] = b.llm.tokens_in, b.llm.tokens_out
-                        row["est_cost_usd"] = estimate_usd(b.llm.model, b.llm.tokens_in, b.llm.tokens_out)
+                        try:
+                            b = baseline.ask(q["question"], user)
+                        except PrivateModelUnavailable:
+                            # The router refused restricted text, as for the full system:
+                            # that is the baseline's answer, not an error (M18b).
+                            row["seconds"] = time.perf_counter() - start
+                            row["status"], text = "restricted_unavailable", RESTRICTED_UNAVAILABLE_MESSAGE
+                        else:
+                            row["seconds"], row["ttft_s"] = b.seconds, b.seconds_to_first_token
+                            row["status"] = "answered"
+                            text, cited = b.text, b.cited_chunk_ids
+                            row["tokens_in"], row["tokens_out"] = b.llm.tokens_in, b.llm.tokens_out
+                            row["est_cost_usd"] = estimate_usd(b.llm.model, b.llm.tokens_in, b.llm.tokens_out)
                 except Exception as exc:  # noqa: BLE001 - record and continue
                     row["error"] = f"{type(exc).__name__}: {exc}"[:300]
 
@@ -247,19 +306,24 @@ def run(questions: list[dict], use_judge: bool = True, resume: Path | None = Non
                 row["cross_engagement_leak"] = any(c for _, c in flags)
                 row["content_leak"] = any(f.lower() in text.lower() for f in q.get("forbidden_facts", []))
 
-                row.update(correctness=None, score=None, faithfulness=None, factual_claims=None,
+                row.update(correctness=None, score=None, relevance=None, relevance_score=None,
+                           faithfulness=None, factual_claims=None,
                            supported_claims=None, citation_pairs=None, supporting_citations=None)
                 judge_raw = None
                 if use_judge and not row["error"]:
                     try:
                         j, jres = judge_answer(question=q, answer_text=text,
-                                               cited_texts=chunk_texts(cited), llm=llm)
+                                               cited_texts=chunk_texts(cited), llm=judge_llm,
+                                               restricted=restricted_of(cited))
                         row["judge_cost_usd"] = estimate_usd(jres.model, jres.tokens_in, jres.tokens_out)
-                        row.update(correctness=j.correctness, score=j.score, faithfulness=j.faithfulness,
+                        row.update(correctness=j.correctness, score=j.score, relevance=j.relevance,
+                                   relevance_score=j.relevance_score, faithfulness=j.faithfulness,
                                    factual_claims=j.factual_claims, supported_claims=j.supported_claims,
                                    citation_pairs=j.citation_pairs,
                                    supporting_citations=j.supporting_citations)
                         judge_raw = j.raw
+                    except PrivateModelUnavailable:
+                        row["judge_skipped"] = "restricted: no private model to judge it"
                     except Exception as exc:  # noqa: BLE001
                         row["error"] = f"judge {type(exc).__name__}: {exc}"[:300]
                 answer = {"id": q["id"], "system": system, "user_id": q["user_id"],
@@ -275,17 +339,17 @@ def run(questions: list[dict], use_judge: bool = True, resume: Path | None = Non
             print(f"[{n}/{len(todo)}] {q['id']}  " + "  ".join(summary), flush=True)
     finally:
         searcher.search = original_search  # type: ignore[method-assign]
-        write_outputs(out, questions, use_judge)
+        write_outputs(out, questions, use_judge, selection)
     return out
 
 
-def write_outputs(out: Path, questions: list[dict], use_judge: bool) -> None:
+def write_outputs(out: Path, questions: list[dict], use_judge: bool, selection: str = "all") -> None:
     """(Re)write metrics.json, per_question.csv, answers.jsonl, config and model ids from
     everything in progress.jsonl. Called at the end of every session, even an interrupted one."""
     settings = get_settings()
     records = load_progress(out / "progress.jsonl")
     wanted = {q["id"] for q in questions}
-    results = [r for r in records if r.get("kind") == "result" and r["row"]["id"] in wanted]
+    results = [r for key, r in latest_results(records).items() if key[0] in wanted]
     rows = [r["row"] for r in results]
     answers = [r["answer"] for r in results]
     spend, sessions_counted = measured_spend(records)
@@ -295,7 +359,9 @@ def write_outputs(out: Path, questions: list[dict], use_judge: bool) -> None:
         "n_questions": len(questions),
         "n_answered_pairs": len(rows),
         "n_reviewed": sum(1 for q in questions if q.get("reviewed")),
-        "judge_model": settings.model_verify if use_judge else None,
+        "question_selection": selection,
+        "judge_model": settings.model_judge if use_judge else None,
+        "ttft_definition": "first draft token (M18b)",
         "targets": TARGETS,
         "systems": {},
         "estimated_judge_cost_usd": round(sum(r.get("judge_cost_usd", 0.0) for r in rows), 4),
@@ -320,43 +386,69 @@ def write_outputs(out: Path, questions: list[dict], use_judge: bool) -> None:
         for a in answers:
             f.write(json.dumps(a, ensure_ascii=False) + "\n")
     config = settings.model_dump(exclude=SECRET_FIELDS)
-    config |= {"question_ids": [q["id"] for q in questions], "judge": use_judge}
+    config |= {"question_ids": [q["id"] for q in questions], "judge": use_judge,
+               "question_selection": selection}
     (out / "config.json").write_text(json.dumps(config, indent=2, default=str), encoding="utf-8")
     (out / "model_ids.json").write_text(json.dumps({
         "light": settings.model_light, "synth": settings.model_synth,
-        "verify": settings.model_verify, "judge": settings.model_verify if use_judge else None,
+        "verify": settings.model_verify, "judge": settings.model_judge if use_judge else None,
         "embedding": settings.embedding_model, "reranker": settings.reranker_model,
         "baseline_synth": settings.model_synth}, indent=2), encoding="utf-8")
 
 
+ISOLATION = {"DEGRADATION_ENABLED": "false", "RESPONSE_CACHE_ENABLED": "false"}
+
+
+def isolate() -> None:
+    """Quality runs measure the full pipeline, independently of each other (docstring)."""
+    import os
+
+    os.environ.update(ISOLATION)
+    get_settings.cache_clear()
+    settings = get_settings()
+    assert not settings.degradation_enabled and not settings.response_cache_enabled
+
+
 def main() -> int:
+    isolate()
     parser = argparse.ArgumentParser(description="Answer evaluation: full system vs baseline.")
     parser.add_argument("--limit", type=int, help="only the first N questions (pilot)")
     parser.add_argument("--ids", help="comma-separated question ids")
     parser.add_argument("--no-judge", action="store_true", help="skip the LLM judge")
     parser.add_argument("--resume", help="continue an interrupted run (folder name in eval/results)")
+    parser.add_argument("--set", help="comma-separated question sets (general, calendar, ...); default all")
+    parser.add_argument("--sample", action="store_true",
+                        help="the fixed stratified sample (eval/question_sets.py), not every question")
+    parser.add_argument("--retry-errors", action="store_true",
+                        help="with --resume: ask again the answers that ended in an error")
     args = parser.parse_args()
-    questions = [json.loads(line) for line in (PROJECT_ROOT / "eval" / "questions.jsonl")
-                 .read_text(encoding="utf-8").splitlines() if line.strip()]
-    resume = None
+    questions = load_questions()
+    if args.set:
+        sets = set(args.set.split(","))
+        questions = [q for q in questions if q["set"] in sets]
+    resume, selection = None, "all"
+    if args.sample:
+        questions, selection = evaluation_sample(questions), f"stratified sample (seed {SAMPLE_SEED})"
     if args.resume:
         resume = RESULTS / args.resume
         if not (resume / "progress.jsonl").exists():
             raise SystemExit(f"No progress.jsonl in {resume}; nothing to resume.")
         previous = json.loads((resume / "config.json").read_text(encoding="utf-8"))
         ids = set(previous["question_ids"])
-        questions = [q for q in questions if q["id"] in ids]  # same questions as the original run
+        questions = [q for q in load_questions() if q["id"] in ids]  # the original run's questions
+        selection = previous.get("question_selection", "all")
     else:
         if args.ids:
             wanted = set(args.ids.split(","))
             questions = [q for q in questions if q["id"] in wanted]
         if args.limit:
             questions = questions[: args.limit]
-    out = run(questions, use_judge=not args.no_judge, resume=resume)
+    out = run(questions, use_judge=not args.no_judge, resume=resume, retry_errors=args.retry_errors,
+              selection=selection)
     m = json.loads((out / "metrics.json").read_text(encoding="utf-8"))
     print(f"\nResults: {out.relative_to(PROJECT_ROOT)}  complete={m['complete']}  "
           f"questions={m['n_questions']}  reviewed={m['n_reviewed']}  measured spend=${m['measured_spend_usd']}")
-    keys = ["correctness", "faithfulness_micro", "citation_precision", "access_leak_rate",
+    keys = ["correctness", "answer_relevance", "faithfulness_micro", "citation_precision", "access_leak_rate",
             "cross_engagement_leak_rate", "content_leak_rate", "ttft_s_p95", "full_answer_s_p95"]
     print(f"{'system':<10}" + "".join(f"{k[:18]:>20}" for k in keys))
     for system, s in m["systems"].items():

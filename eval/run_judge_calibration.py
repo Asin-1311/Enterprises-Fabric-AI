@@ -61,6 +61,9 @@ def main() -> int:
     n = len(pairs)
     metrics = {
         "answers_run": args.run, "labelled": n, "exported": len(rows),
+        "strata": key.get("_strata"),
+        # CLAUDE.md section 13.2: the judge is "validated" only with kappa >= 0.6.
+        "validated": (kappa := cohens_kappa(pairs)) is not None and kappa >= 0.6,
         "exact_agreement": sum(1 for h, j in pairs if h == j) / n,
         "cohens_kappa": cohens_kappa(pairs),
         "binary_agreement_correct_vs_not": sum(

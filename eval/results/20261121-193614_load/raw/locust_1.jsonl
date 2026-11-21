@@ -1,0 +1,2 @@
+{"tool": "locust", "user": 0, "question": "How should the management representation letter be dated relative to the auditor's report?", "ttft_s": 55.35137180000311, "full_s": 64.13614550000057, "status": "answered", "degraded": false, "error": "", "started_at": 1795270108.5002}
+{"tool": "locust", "user": 0, "question": "How many items must we sample for a test of controls?", "ttft_s": 24.00597120000748, "full_s": 34.53680139998323, "status": "answered", "degraded": false, "error": "", "started_at": 1795270144.286038}

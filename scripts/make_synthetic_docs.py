@@ -9,6 +9,8 @@ Outputs:
     data/users.csv                    synthetic users
     data/engagements.csv              synthetic engagements and team members
     data/manifest.csv                 one row per document, ICAI chapters included
+    data/manifest.synthetic.csv       the synthetic rows only (indexable from a clean clone,
+                                      where the licensed ICAI PDFs are absent)
 
 The script is deterministic: the same code always writes the same files. Manifest rows for
 documents the author added by hand (doc_ids this script does not generate) are kept.
@@ -23,23 +25,13 @@ from app.config import PROJECT_ROOT
 from app.ingest.md_loader import SYNTHETIC_BANNER
 from scripts.synthetic import SynthDoc
 from scripts.synthetic import calendar_docs, checklists, circulars, engagement, faq, firm_policy, templates
-from scripts.synthetic.people import ENGAGEMENTS, USERS, demo_email
+from app.ingest import manifest as manifest_module
+from scripts.synthetic.people import ADMINS, ENGAGEMENTS, USERS, demo_email, governance
 
 DATA = PROJECT_ROOT / "data"
 CORPUS = DATA / "corpus"
 
-MANIFEST_COLUMNS = [
-    "doc_id",
-    "path",
-    "source_type",
-    "title",
-    "version",
-    "effective_date",
-    "supersedes",
-    "access_level",
-    "engagement_id",
-    "synthetic",
-]
+MANIFEST_COLUMNS = list(manifest_module.MANIFEST_COLUMNS)  # incl. the M12a governance columns
 
 # ICAI chapters (real, not synthetic). effective_date is a PLACEHOLDER: the author
 # should replace it with the edition date printed on the study material.
@@ -99,6 +91,7 @@ def manifest_rows(docs: list[SynthDoc]) -> list[dict[str, str]]:
         }
         for doc_id, filename, title in STANDARDS
     ]
+    rows = [r | governance(r) for r in rows]
     rows += [
         {
             "doc_id": d.doc_id,
@@ -114,7 +107,10 @@ def manifest_rows(docs: list[SynthDoc]) -> list[dict[str, str]]:
         }
         for d in docs
     ]
-    return rows
+    overrides = {d.doc_id: d.classification for d in docs if d.classification}
+    return [r if "source_id" in r else
+            r | governance(r) | ({"classification": overrides[r["doc_id"]]} if r["doc_id"] in overrides else {})
+            for r in rows]
 
 
 def author_rows(generated: list[dict[str, str]]) -> list[dict[str, str]]:
@@ -125,8 +121,10 @@ def author_rows(generated: list[dict[str, str]]) -> list[dict[str, str]]:
         return []
     ours = {r["doc_id"] for r in generated}
     with path.open(newline="", encoding="utf-8") as f:
-        return [{c: (row.get(c) or "") for c in MANIFEST_COLUMNS}
+        kept = [{c: (row.get(c) or "") for c in MANIFEST_COLUMNS}
                 for row in csv.DictReader(f) if row.get("doc_id") and row["doc_id"] not in ours]
+    # Rows written before the governance columns existed get them filled by the same rule.
+    return [r if r["source_id"] else r | governance(r) for r in kept]
 
 
 def write_csv(path: Path, header: list[str], rows: list[list[str]] | list[dict[str, str]]) -> None:
@@ -150,7 +148,8 @@ def main(argv: list[str] | None = None) -> int:
 
     docs = all_synthetic_docs()
     targets = [doc_path(d) for d in docs] + [
-        DATA / "users.csv", DATA / "engagements.csv", DATA / "manifest.csv"
+        DATA / "users.csv", DATA / "engagements.csv", DATA / "manifest.csv",
+        DATA / "manifest.synthetic.csv",
     ]
     existing = [p for p in targets if p.exists()]
     if existing and not args.force:
@@ -163,13 +162,17 @@ def main(argv: list[str] | None = None) -> int:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(f"{SYNTHETIC_BANNER}\n\n{d.body.strip()}\n", encoding="utf-8")
 
-    write_csv(DATA / "users.csv", ["user_id", "name", "role", "synthetic", "email"],
-              [[uid, name, role, "true", demo_email(name)] for uid, name, role in USERS])
+    write_csv(DATA / "users.csv", ["user_id", "name", "role", "synthetic", "email", "is_admin"],
+              [[uid, name, role, "true", demo_email(name), str(uid in ADMINS).lower()]
+               for uid, name, role in USERS])
     write_csv(DATA / "engagements.csv",
               ["engagement_id", "client_name", "industry", "fy", "partner_id", "member_ids"],
               [[e, c, i, fy, p, ";".join(m)] for e, c, i, fy, p, m in ENGAGEMENTS])
     generated = manifest_rows(docs)
-    write_csv(DATA / "manifest.csv", MANIFEST_COLUMNS, generated + author_rows(generated))
+    every_row = generated + author_rows(generated)
+    write_csv(DATA / "manifest.csv", MANIFEST_COLUMNS, every_row)
+    write_csv(DATA / "manifest.synthetic.csv", MANIFEST_COLUMNS,
+              [r for r in every_row if r["synthetic"] == "true"])
 
     print(f"Wrote {len(docs)} synthetic documents, {len(USERS)} users, "
           f"{len(ENGAGEMENTS)} engagements and {len(docs) + len(STANDARDS)} manifest rows.")

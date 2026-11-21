@@ -6,8 +6,10 @@ model IDs have no defaults, so a missing `.env` fails loudly instead of
 silently using the wrong model.
 """
 
+import os
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -31,6 +33,9 @@ class Settings(BaseSettings):
     llm_base_url: str | None = None  # e.g. https://openrouter.ai/api
     llm_auth_token: str | None = None  # sent as "Authorization: Bearer ..."
     anthropic_api_key: str | None = None  # direct Anthropic API instead
+    # "mock" (M17b): a deterministic stand-in (app/agents/mock_llm.py) for deployment smoke
+    # tests and CI, with no key and no paid calls. Never for answering real questions.
+    llm_mode: Literal["live", "mock"] = "live"
     model_light: str  # query understanding, routing tie-breaks, compression
     model_synth: str  # synthesis
     model_verify: str  # verification; must differ from model_synth
@@ -39,15 +44,57 @@ class Settings(BaseSettings):
     effort_light: str = "low"
     effort_synth: str = "medium"
     effort_verify: str = "medium"
+    # Evaluation only (M18b): the answer-evaluation judge, from a DIFFERENT model family than
+    # MODEL_VERIFY so it does not share the verifier's blind spots (CLAUDE.md section 3).
+    # Called through an OpenAI-compatible API (eval/judge_client.py; OpenRouter by default).
+    model_judge: str | None = None
+    judge_base_url: str | None = None  # default: LLM_BASE_URL + "/v1"
+    effort_judge: str = "medium"       # reasoning effort: low | medium | high
 
     # --- Local models (sentence-transformers, CPU) -----------------------
     embedding_model: str = "BAAI/bge-small-en-v1.5"
     reranker_model: str = "BAAI/bge-reranker-base"
+    # M14b: the NLI model that gives verification its second opinion (author's choice).
+    # Empty: no NLI (claims are checked by the LLM verifier only).
+    nli_model: str = "cross-encoder/nli-deberta-v3-xsmall"
+    nli_entailment_threshold: float = 0.5
+    nli_contradiction_threshold: float = 0.5
+
+    # --- Run profile (CLAUDE.md section 2) --------------------------------------
+    # lite: SQLite, embedded Qdrant, rank_bm25, in-process cache and event bus (laptop,
+    #       tests, clean clone). full: the specified servers in deploy/compose.yaml.
+    profile: Literal["lite", "full"] = "lite"
+    # Server addresses for the full profile (no defaults: credentials stay in .env).
+    database_url: str | None = None       # postgresql+psycopg://user:password@host:5432/db
+    qdrant_url: str | None = None         # http://localhost:6333
+    opensearch_url: str | None = None     # http://localhost:9200
+    opensearch_index: str = "chunks"
+    redis_url: str | None = None          # redis://localhost:6379/0
+    kafka_bootstrap: str | None = None    # localhost:9092
+
+    # --- Observability (M17a) -------------------------------------------------
+    # OTLP/HTTP traces endpoint; unset = no traces exported. In the observability profile:
+    # Langfuse, http://127.0.0.1:3000/api/public/otel/v1/traces
+    otel_exporter_otlp_endpoint: str | None = None
+    otel_service_name: str = "enterprise-fabric-api"
+    otel_include_content: bool = True     # masked step input/output on model-call spans
+    otel_content_max_chars: int = 4000
+    # Where the Langfuse project keys are (references, never the values): sent as Basic
+    # auth with the OTLP traces when both are set in .env.
+    langfuse_public_key_ref: str = "env:LANGFUSE_PUBLIC_KEY"
+    langfuse_secret_key_ref: str = "env:LANGFUSE_SECRET_KEY"
+    # Prometheus HTTP API; when set, the admin console's performance figures come from it
+    # (otherwise from the stored traces). e.g. http://127.0.0.1:9090
+    prometheus_url: str | None = None
+    # The ingestion worker's own /metrics port (full profile: a separate process); 0 = off.
+    worker_metrics_port: int = 9464
 
     # --- Paths -------------------------------------------------------------
     data_dir: Path = PROJECT_ROOT / "data"
     corpus_dir: Path = PROJECT_ROOT / "data" / "corpus"
     manifest_path: Path = PROJECT_ROOT / "data" / "manifest.csv"
+    # The committed synthetic documents only; used when the ICAI PDFs are absent (clean clone).
+    synthetic_manifest_path: Path = PROJECT_ROOT / "data" / "manifest.synthetic.csv"
     users_path: Path = PROJECT_ROOT / "data" / "users.csv"
     engagements_path: Path = PROJECT_ROOT / "data" / "engagements.csv"
     qdrant_path: Path = PROJECT_ROOT / "data" / "qdrant"
@@ -62,6 +109,33 @@ class Settings(BaseSettings):
     embed_batch_size: int = 32
     watcher_debounce_seconds: float = 1.5
     api_watch_corpus: bool = True  # the API process also runs the folder watcher
+    # The API process also runs the ingestion worker (M12a). Right for lite (in-process
+    # event bus). In the full profile the worker usually runs as its own process
+    # (python -m app.ingest.worker), so set API_RUN_WORKER=false there.
+    api_run_worker: bool = True
+    # M12d: a batch that keeps failing is retried this many times (pauses 5, 10, 20, 40 s),
+    # then applied event by event; events that still fail go to the dead-letter topic.
+    worker_max_attempts: int = 5
+    # Push connectors (the webhook) store received content here for the worker.
+    landing_dir: Path = PROJECT_ROOT / "data" / "landing"
+    # Polling connectors (M12c: git, s3, confluence, jira, sharepoint): how often each active
+    # source is checked, and whether the API process runs the poller (lite). In the full
+    # profile it usually runs as its own process: python -m app.connectors.runner
+    connector_poll_seconds: float = 30.0
+    api_run_connectors: bool = True
+    # Working copies kept by connectors (the git connector's local mirror); git-ignored.
+    connectors_dir: Path = PROJECT_ROOT / "data" / "connectors"
+
+    # --- Policy and data handling (M13) ----------------------------------------
+    # Who decides per-chunk access after retrieval: OPA (full) or the same rules in code.
+    policy_engine: Literal["auto", "code", "opa"] = "auto"
+    opa_url: str = "http://127.0.0.1:8181"
+    # Traces and retrieval records older than this are purged (audit_log never is).
+    trace_retention_days: int = 90
+    # The private model for documents classified "restricted" (Ollama). Empty: none, and
+    # restricted content is refused rather than sent to an external model.
+    private_model: str = ""
+    ollama_url: str = "http://127.0.0.1:11434"
 
     # --- Chunking -----------------------------------------------------------
     chunk_max_tokens: int = 400
@@ -71,11 +145,65 @@ class Settings(BaseSettings):
     rrf_k: int = 60
     retrieval_top_k: int = 20  # candidates per sub-query, per retriever
     rerank_top_n: int = 5  # kept after cross-encoder re-ranking
+    # M14a: the light path (simple factual questions) searches fewer candidates and skips
+    # compression; exploratory questions (comparison, analytical, open-ended) add at most
+    # this many section chunks around their best chunks (small-to-big).
+    light_top_k: int = 20  # M15a: was 10; 10 candidates measurably lost recall (see precise_top_k)
+    parent_expansion_max: int = 6
+    # M14a step budgets per question (CLAUDE.md section 7): a run that would pass one ends
+    # with the best verified answer so far, or an abstention. Starting points, tuned in M18.
+    budget_max_llm_calls: int = 12
+    budget_max_tokens: int = 60_000
+    budget_max_seconds: float = 90.0
+    budget_max_retrieval_rounds: int = 3  # first search, one follow-up, one retry
     min_good_chunks: int = 3  # "N" in CLAUDE.md section 7.3
     good_chunk_threshold: float = 0.3  # re-ranker score counted as "good"
     superseded_weight: float = 0.5  # multiplier for superseded documents
     recency_weight: float = 0.2  # strength of the time_sensitive recency boost
     recency_half_life_days: float = 365.0  # freshness halves every year
+    # M15a: boost (time-sensitive questions only) for documents whose source changed
+    # recently; it falls to nothing over the window (app/retrieval/recency.py).
+    source_freshness_weight: float = 0.1
+    source_freshness_window_days: float = 30.0
+    # M15a: retrieval by question type (CLAUDE.md section 8). Starting points to be tuned on
+    # the evaluation set, not facts. "Precise" = factual and procedural questions:
+    # keyword search counts more and fewer candidates are searched; "exploratory" =
+    # comparison, analytical and open-ended: dense search counts more, more candidates.
+    # Other intents (time_sensitive) use equal weights and RETRIEVAL_TOP_K.
+    precise_dense_weight: float = 0.4
+    precise_keyword_weight: float = 0.6
+    # 20, not the spec's starting value of 10: on the evaluation set 10 candidates lost
+    # recall (runs 20261120-150532 vs 20261120-150853; author's decision, M15a).
+    precise_top_k: int = 20
+    exploratory_dense_weight: float = 0.6
+    exploratory_keyword_weight: float = 0.4
+    exploratory_top_k: int = 30
+    # M15a: degradation under load. When the p95 of full-answer time over the last
+    # LATENCY_WINDOW_SIZE answers is above LATENCY_TARGET_SECONDS (and at least
+    # LATENCY_MIN_SAMPLES answers are known), fewer candidates are searched, compression is
+    # skipped, and verification is skipped for LOW-RISK questions only, with a notice.
+    degradation_enabled: bool = True
+    latency_target_seconds: float = 8.0
+    latency_window_size: int = 100
+    latency_min_samples: int = 20
+    degraded_candidate_factor: float = 0.5
+    # M15b: learned routing. A fixed seed makes Thompson sampling repeatable (tests); unset
+    # in normal use. Rewards count only answers at least this old (the feedback window).
+    bandit_seed: int | None = None
+    reward_window_hours: float = 24.0
+    replay_tolerance: float = 0.02  # a new routing policy may lose at most this much
+    # CI retrieval regression gate (M17c, eval/gates.py): any gated metric may drop at most
+    # this much (absolute) below the accepted baseline. CLAUDE.md section 13.1.
+    retrieval_tolerance: float = 0.02
+    # Share of each week's answers drawn for human review (M18a; scripts/sample_weekly_review.py).
+    review_sample_fraction: float = 0.05
+    # Trace replay (M18b; eval/trace_replay.py): the share of recorded traces reproduced may
+    # fall at most this much below the baseline (0.05 is one trace in twenty).
+    trace_replay_tolerance: float = 0.05
+    # A new prompt version may score at most this much below the active one on replay
+    # (M15c). Wider than for routing: model outputs vary between runs and one record of
+    # ~20 is 0.05. A starting value, to be revisited with run-to-run spread in M18.
+    prompt_replay_tolerance: float = 0.05
 
     # --- Verification -------------------------------------------------------
     confidence_threshold: float = 0.6
@@ -90,18 +218,51 @@ class Settings(BaseSettings):
     demo_password: str | None = None
     session_hours: float = 8.0  # a sign-in token is valid this long
     reset_link_minutes: float = 15.0  # a password-reset link is valid this long
+    # Open self-registration is OFF by default (audit finding). When switched on, only
+    # addresses at the firm's (synthetic) domain may register.
+    allow_self_registration: bool = False
+    self_registration_domain: str = "example-associates.test"
+    # Sign-in protection, per client IP (CLAUDE.md section 10): calls per minute to the
+    # /auth/* routes, and a lockout after repeated failed sign-ins.
+    auth_rate_per_minute: float = 5.0
+    auth_lockout_failures: int = 10
+    auth_lockout_minutes: float = 15.0
+    # /query: questions per minute per user (M16a; CLAUDE.md section 10).
+    query_rate_per_minute: float = 10.0
+    # Response cache (M16a): a verified answer is reused only for the same normalised
+    # question, the same access fingerprint (role + engagements), the same index version
+    # and the same active prompt and routing-policy versions, on the same day.
+    response_cache_enabled: bool = True
+    response_cache_ttl_seconds: float = 3600.0
+    # M13b: who signs users in. "session" = the email/password sign-in above (lite only);
+    # "oidc" = Keycloak-issued JWTs (full). "auto" picks by PROFILE.
+    auth_mode: Literal["auto", "session", "oidc"] = "auto"
+    oidc_issuer: str = "http://127.0.0.1:8180/realms/fabric"
+    oidc_audience: str = "fabric-api"
+    oidc_jwks_url: str | None = None  # default: <issuer>/protocol/openid-connect/certs
+    oidc_ui_client_id: str = "fabric-ui"  # for the browser sign-in (M16)
+    oidc_leeway_seconds: int = 30  # clock difference tolerated on exp/iat/nbf
+
+    @property
+    def uses_oidc(self) -> bool:
+        return self.auth_mode == "oidc" or (self.auth_mode == "auto" and self.profile == "full")
 
     @model_validator(mode="after")
     def _check_llm_settings(self) -> "Settings":
         """Verifier differs from synthesiser; a credential exists; efforts are valid."""
         if self.model_verify == self.model_synth:
             raise ValueError("MODEL_VERIFY must differ from MODEL_SYNTH")
-        if not (self.llm_auth_token or self.anthropic_api_key):
+        if self.llm_mode == "live" and not (self.llm_auth_token or self.anthropic_api_key):
             raise ValueError("set LLM_AUTH_TOKEN (OpenRouter) or ANTHROPIC_API_KEY")
         allowed = {"low", "medium", "high", "xhigh", "max"}
         for name in ("effort_light", "effort_synth", "effort_verify"):
             if getattr(self, name) not in allowed:
                 raise ValueError(f"{name.upper()} must be one of {sorted(allowed)}")
+        if self.effort_judge not in {"low", "medium", "high"}:
+            raise ValueError("EFFORT_JUDGE must be one of ['high', 'low', 'medium']")
+        if (self.llm_mode == "live" and self.model_judge
+                and model_family(self.model_judge) == model_family(self.model_verify)):
+            raise ValueError("MODEL_JUDGE must be from a different model family than MODEL_VERIFY")
         return self
 
     @property
@@ -110,7 +271,34 @@ class Settings(BaseSettings):
         return f"sqlite:///{self.sqlite_path.as_posix()}"
 
 
+def model_family(model: str) -> str:
+    """The provider family of a model id: "anthropic/claude-x" and "claude-x" are anthropic,
+    "openai/gpt-x" is openai, "google/gemini-x" is google (used for MODEL_JUDGE, M18b)."""
+    name = model.lower()
+    if "claude" in name or name.startswith("anthropic/"):
+        return "anthropic"
+    return name.split("/", 1)[0] if "/" in name else name.split("-", 1)[0]
+
+
 @lru_cache
 def get_settings() -> Settings:
     """Return the cached settings object (read `.env` once per process)."""
     return Settings()
+
+
+@lru_cache
+def _dotenv_values() -> dict[str, str | None]:
+    from dotenv import dotenv_values
+
+    path = PROJECT_ROOT / ".env"
+    return dict(dotenv_values(path)) if path.is_file() else {}
+
+
+def env_reference(ref: object) -> str | None:
+    """The value behind an "env:NAME" reference (how connector and webhook settings point at
+    secrets): the process environment first, then the `.env` file. None if `ref` is not a
+    reference or the name is not set. Read once per process, like the settings."""
+    if not (isinstance(ref, str) and ref.startswith("env:")):
+        return None
+    name = ref.removeprefix("env:")
+    return os.environ.get(name) or _dotenv_values().get(name) or None

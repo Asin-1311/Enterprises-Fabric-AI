@@ -3,6 +3,7 @@
 
 # Python
 .venv/
+.venv-flows/
 __pycache__/
 *.pyc
 .pytest_cache/
@@ -28,3 +29,20 @@ frontend/dist/
 .vscode/
 Thumbs.db
 /Standards_Acts/
+
+# Content received by the webhook, waiting for the ingestion worker (M12a)
+data/landing/
+# Backups made by scripts (e.g. scripts/migrate_chunk_ids.py); they hold the local index.
+data/backups/
+# Working copies kept by connectors (e.g. the git connector mirror) and the synthetic
+# enterprise systems made by scripts (M12c).
+data/connectors/
+data/sources/
+
+# Learning data exported from the logs (M15c): masked questions and firm text.
+/data/learning/
+# Fine-tuned models (M15c), large and rebuilt from data/learning/.
+/models/
+# Weekly human-review samples (M18a): real answer text, kept local; only aggregate
+# drift figures go to eval/results/.
+data/review/

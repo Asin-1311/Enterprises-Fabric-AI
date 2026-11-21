@@ -14,7 +14,7 @@ import re
 from dataclasses import dataclass
 
 from app.agents.llm import LLMCaller, LLMResult
-from app.security.injection import UNTRUSTED_DATA_RULE, wrap_document
+from app.security.injection import UNTRUSTED_DATA_RULE, restricted_attributes, wrap_document
 
 _SENTENCE_END = re.compile(r"(?<=[.;:?!])\s+(?=[A-Z(\-\d₹\"'])")
 FALLBACK_SENTENCES = 3
@@ -44,7 +44,9 @@ SYSTEM = (
     "explain how two things relate (e.g. 'the higher the risk, the more evidence'). Keep "
     "every item of a relevant list. When in doubt, keep the sentence: a missing fact is "
     "worse than an extra one. Return an empty list only for a document with no relevant "
-    "sentence at all. Do not answer the question. " + UNTRUSTED_DATA_RULE
+    "sentence at all. When a document names a sub_query (one part of the question, e.g. "
+    "one side of a comparison), keep the sentences relevant to that sub-query, so every "
+    "part of the question keeps its evidence. Do not answer the question. " + UNTRUSTED_DATA_RULE
 )
 # Chunks this short (checklist groups, FAQ answers, short policy sections) are kept whole:
 # dropping one of their few sentences risks losing a key condition (found in M4 and in the
@@ -77,13 +79,20 @@ def _parts(text: str) -> tuple[str, list[str]]:
     return heading, split_sentences(body)
 
 
-def compress(question: str, chunks: list[tuple[str, str]], llm: LLMCaller) -> tuple[list[CompressedChunk], LLMResult]:
-    """Compress (chunk_id, text) pairs, in rank order. Returns kept chunks and the LLM result."""
+def compress(question: str, chunks: list[tuple[str, str]], llm: LLMCaller,
+             restricted: frozenset[str] = frozenset(),
+             sub_queries: dict[str, str] | None = None) -> tuple[list[CompressedChunk], LLMResult]:
+    """Compress (chunk_id, text) pairs, in rank order. Returns kept chunks and the LLM result.
+    Chunks in `restricted` are marked, so only the private model reads them (M13a). A chunk
+    with an entry in `sub_queries` names the sub-query it was found for (M14a)."""
+    sub_queries = sub_queries or {}
     parsed = {cid: _parts(text) for cid, text in chunks}
     blocks = []
     for cid, (heading, sentences) in parsed.items():
         numbered = "\n".join(f"[{i}] {s}" for i, s in enumerate(sentences, 1))
-        blocks.append(wrap_document(f"{heading}\n{numbered}", chunk_id=cid))
+        extra = {"sub_query": sub_queries[cid]} if cid in sub_queries else {}
+        blocks.append(wrap_document(f"{heading}\n{numbered}", chunk_id=cid, **extra,
+                                    **restricted_attributes("restricted" if cid in restricted else None)))
     user = f"Question: {question}\n\n" + "\n\n".join(blocks)
     result = llm.call(purpose="compress", role="light", system=SYSTEM, user=user,
                       max_tokens=2000, schema=SCHEMA)

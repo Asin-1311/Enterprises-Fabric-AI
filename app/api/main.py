@@ -5,16 +5,25 @@ Run from the project root:
 Interactive docs: http://127.0.0.1:8000/docs
 
 One process holds the models, the single local Qdrant client, the assistant and (by
-default) the folder watcher. They share one BM25 index and one lock, so a re-index is
-visible to the next search and two requests never use Qdrant at the same time.
+default) the folder watcher. They share one BM25 index and one readers-writer lock
+(app/concurrency.py): any number of questions are answered at the same time, while a
+re-index or watcher update waits for them and runs alone. (Phase 1 held a single lock
+for the whole of every question; removed in M9, audit finding R-5-par.)
 
 Streaming (POST /query, Server-Sent Events):
-    event: progress   {"step": "retrieving", ...}   live, one per agent step
-    event: token      {"text": "..."}                the VERIFIED answer, in pieces
-    event: final      FinalPayload                   status, confidence, citations
-    event: error      {"message": "..."}
-Only verified text is streamed: verification can remove sentences from the draft, so
-the draft itself is never sent (author's choice, M6).
+    event: progress       {"step": "retrieving", ...}  live, one per agent step
+    event: draft_token    {"text": "..."}               the DRAFT, as the model writes it (M14b)
+    event: claim_verdict  {"claim_id", "text", "citations", "verdict"}  one per claim,
+                          verdict = supported | removed | flagged ("check this point")
+    event: token          {"text": "..."}               the VERIFIED answer, in pieces
+    event: final          FinalPayload                  status, confidence, citations, flags
+    event: error          {"message": "..."}
+The draft is shown as it is written, marked as being checked (CLAUDE.md sections 10 and
+11; this replaces the M6 choice of sending verified text only). Verification may remove
+sentences from it, so the client must replace the draft with the verified text: the
+claim_verdict events say which sentences stay, and `final` carries the verified answer.
+A retry after low confidence writes a new draft: each "synthesizing" progress event
+starts one.
 
 Sign-in (app/api/auth.py, added 2026-11-14 at the author's request): every endpoint
 except /health and /auth/login|register|forgot-password|reset-password needs
@@ -31,8 +40,9 @@ import logging
 import re
 import threading
 import time
+import uuid
 from collections.abc import Callable
-from datetime import timezone
+from datetime import datetime, timezone
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Any
@@ -40,23 +50,40 @@ from typing import Any
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query as Q, Request
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func, select
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from sse_starlette.sse import EventSourceResponse
 
 from app.agents.graph import AnswerResult, AuditAssistant
+from app.agents.versions import ensure_active_versions
 from app.api.auth import current_user, seed_demo_passwords, user_out
+from app.api.cache import ResponseCache
+from app.api.ratelimit import retry_after_header
+from app.api.admin import require_admin
+from app.api.admin import router as admin_router
 from app.api.auth import router as auth_router
+from app.api.webhooks import router as webhook_router
 from app.api.schemas import (
     CitationOut,
+    FeedbackOut,
     FeedbackRequest,
     FinalPayload,
+    HealthOut,
     HistoryItem,
+    QualityMetricsOut,
     QueryDetail,
     QueryRequest,
+    ReindexOut,
+    ReindexRequest,
+    SignalOut,
+    SignalRequest,
+    SourceTypeStatus,
     TraceRow,
     UserOut,
 )
+from app.concurrency import ReadWriteLock
 from app.config import PROJECT_ROOT, Settings, get_settings
 from app.db.models import (
     Answer,
@@ -64,16 +91,33 @@ from app.db.models import (
     Citation,
     Document,
     Feedback,
+    FeedbackSignal,
     Query,
+    Source,
     Trace,
     User,
 )
 from app.db.session import write_audit_log
+from app.quality_runs import QUALITY_TYPES, quality_runs
 from app.ingest.indexer import Indexer, ManifestError
+from app.observability import metrics, otel
+from app.ports import EventBus
+from app.retrieval.acl import load_user
 from app.retrieval.dense import QdrantInUseError
 from app.security.masking import mask_text
 
 PREVIEW_CHARS = 700
+log = logging.getLogger("uvicorn.error")
+
+# Errors shown to clients are generic; the details stay in the server log under the same
+# reference, so support can find them without exposing internals (audit finding, M9).
+GENERIC_ERROR = ("Something went wrong while answering. Please try again; if it keeps "
+                 "happening, quote reference {ref}.")
+
+
+def error_reference() -> str:
+    """A short random id that links a client-visible error to its server log entry."""
+    return uuid.uuid4().hex[:8]
 
 
 @dataclass
@@ -83,8 +127,10 @@ class Services:
     settings: Settings
     assistant: AuditAssistant
     indexer: Indexer | None
-    lock: threading.RLock
+    lock: ReadWriteLock
     stop: Callable[[], None] = lambda: None
+    bus: EventBus | None = None  # change events (M12a): the watcher and webhook publish here
+    response_cache: ResponseCache | None = None  # M16a; None = every question runs afresh
 
     @property
     def sessions(self):
@@ -92,27 +138,51 @@ class Services:
 
 
 def build_services(settings: Settings) -> Services:
-    """Real services: models, indexes, LLM client, and the folder watcher."""
+    """Real services: models, indexes, LLM client, event bus, ingestion worker and the
+    folder watcher."""
+    from app.adapters import open_event_bus
     from app.agents.graph import build_assistant
     from app.ingest.indexer import build_indexer
     from app.ingest.watcher import DebouncedCorpusHandler, start_observer
+    from app.ingest.worker import IngestWorker, start_in_background
 
     assistant = build_assistant(settings)
     searcher = assistant.deps.searcher
-    indexer = build_indexer(settings, embedder=searcher.embedder,
-                            qdrant_client=searcher.store.client, bm25=searcher.bm25)
-    lock = threading.RLock()
-    indexer.lock = lock  # watcher, re-index and queries take turns
-    stop: Callable[[], None] = lambda: None
+    # Share the searcher's backends, so a re-index is visible to the next search.
+    indexer = build_indexer(settings, embedder=searcher.embedder, store=searcher.store,
+                            bm25=searcher.bm25, sessions=searcher.sessions)
+    lock = ReadWriteLock()
+    indexer.lock = lock.writer  # index writes run alone; questions share the read side
+    bus = open_event_bus(settings)
+    response_cache = None
+    if settings.response_cache_enabled:
+        from app.adapters import open_cache
+
+        response_cache = ResponseCache(open_cache(settings), searcher.sessions,
+                                       settings.response_cache_ttl_seconds)
+    stoppers: list[Callable[[], None]] = []
+    if settings.api_run_worker:
+        worker = IngestWorker(indexer, bus, max_attempts=settings.worker_max_attempts)
+        thread, stop_worker = start_in_background(worker)
+        stoppers.append(lambda: (stop_worker.set(), thread.join(timeout=10), worker.close()))
     if settings.api_watch_corpus:
         handler = DebouncedCorpusHandler(indexer, settings.corpus_dir, settings.manifest_path,
-                                         settings.watcher_debounce_seconds)
+                                         settings.watcher_debounce_seconds, bus=bus)
         observer = start_observer(handler)
+        stoppers.append(lambda: (observer.stop(), observer.join(timeout=5)))
+    if settings.api_run_connectors:  # M12c: poll git, s3, confluence, jira, sharepoint sources
+        from app.connectors.runner import ConnectorRunner
+        from app.connectors.runner import start_in_background as start_runner
 
-        def stop() -> None:
-            observer.stop()
-            observer.join(timeout=5)
-    return Services(settings, assistant, indexer, lock, stop)
+        runner_thread, stop_runner = start_runner(ConnectorRunner(indexer.sessions, bus, settings))
+        stoppers.append(lambda: (stop_runner.set(), runner_thread.join(timeout=10)))
+
+    def stop() -> None:
+        for stopper in reversed(stoppers):
+            stopper()
+        bus.close()
+
+    return Services(settings, assistant, indexer, lock, stop, bus, response_cache)
 
 
 # --------------------------------------------------------------------------- helpers
@@ -121,30 +191,61 @@ def _services(request: Request) -> Services:
     return request.app.state.services
 
 
-def _preview(text: str) -> str:
-    """Chunk text without its heading-path line, shortened for display."""
+def cited_text(text: str, start: int | None, end: int | None) -> str | None:
+    """The supporting passage of a citation (M11 span), spaces normalised, or None."""
+    if start is None or end is None or not 0 <= start < end <= len(text):
+        return None
+    return " ".join(text[start:end].split()) or None
+
+
+def preview(text: str, cited: str | None = None) -> str:
+    """Chunk text without its heading-path line, shortened for display. When the cited
+    passage lies beyond the first PREVIEW_CHARS characters, the preview is a window that
+    contains it (M16b: the UI highlights the passage inside the preview)."""
     body = text.split("\n", 1)[1] if "\n" in text else text
     body = " ".join(body.split())
-    return body if len(body) <= PREVIEW_CHARS else body[:PREVIEW_CHARS].rsplit(" ", 1)[0] + " …"
+    if len(body) <= PREVIEW_CHARS:
+        return body
+    at = body.find(cited) if cited else -1
+    if at < 0 or at + len(cited or "") <= PREVIEW_CHARS:
+        return body[:PREVIEW_CHARS].rsplit(" ", 1)[0] + " …"
+    start = max(0, at - PREVIEW_CHARS // 5)
+    if start:  # begin at a word, never inside the passage
+        space = body.find(" ", start)
+        start = space + 1 if -1 < space < at else at
+    end = max(at + len(cited), start + PREVIEW_CHARS)
+    if end < len(body):  # end at a word, never inside the passage
+        space = body.find(" ", end)
+        end = space if space != -1 else len(body)
+    return ("… " if start else "") + body[start:end] + (" …" if end < len(body) else "")
 
 
-def _citations(svc: Services, chunk_ids: list[str]) -> list[CitationOut]:
-    """Resolve chunk ids to title, section, page and a preview."""
-    if not chunk_ids:
+def _citations(svc: Services, cited: list[tuple[str, int | None, int | None]]) -> list[CitationOut]:
+    """Resolve (chunk id, span start, span end) to title, section, page, a preview and
+    the supporting span."""
+    if not cited:
         return []
+    chunk_ids = [cid for cid, _, _ in cited]
     with svc.sessions() as s:
         superseded = {d for d in s.scalars(select(Document.supersedes)) if d}
-        rows = {c.chunk_id: (c, d) for c, d in s.execute(
+        found = s.execute(
             select(Chunk, Document).join(Document, Document.doc_id == Chunk.doc_id)
-            .where(Chunk.chunk_id.in_(chunk_ids))).all()}
+            .where(Chunk.chunk_id.in_(chunk_ids) | Chunk.legacy_chunk_id.in_(chunk_ids))).all()
+    # An answer written before M12b cites Phase 1 ids ("STD-CH06:0004"); they resolve to
+    # the chunk that had that id and still has the same text (legacy_chunk_id).
+    rows = {c.legacy_chunk_id: (c, d) for c, d in found if c.legacy_chunk_id}
+    rows |= {c.chunk_id: (c, d) for c, d in found}
     out = []
-    for cid in chunk_ids:
+    for cid, span_start, span_end in cited:
         if cid in rows:
             c, d = rows[cid]
             out.append(CitationOut(
                 chunk_id=cid, doc_id=d.doc_id, title=d.title, section=c.section,
                 section_title=c.section_title, page_start=c.page_start, page_end=c.page_end,
-                superseded=d.doc_id in superseded, preview=_preview(c.text)))
+                superseded=d.doc_id in superseded,
+                preview=preview(c.text, cited_text(c.text, span_start, span_end)),
+                cited_text=cited_text(c.text, span_start, span_end),
+                span_start=span_start, span_end=span_end))
     return out
 
 
@@ -155,8 +256,9 @@ def _final(svc: Services, r: AnswerResult, seconds: float) -> FinalPayload:
         claims_factual=r.claims_factual, removed_claims=len(r.removed_claims),
         superseded_involved=r.superseded_involved,
         injection_flagged_chunks=len(r.injection_hits),
-        citations=_citations(svc, [c.chunk_id for c in r.citations]),
-        seconds_to_answer=round(seconds, 2))
+        citations=_citations(svc, [(c.chunk_id, c.span_start, c.span_end) for c in r.citations]),
+        seconds_to_answer=round(seconds, 2),
+        flagged_claims=[f["claim"] for f in r.flagged_claims], degraded=r.degraded)
 
 
 def stream_pieces(text: str) -> list[str]:
@@ -171,32 +273,99 @@ def _load_json(text: str | None) -> object:
         return text
 
 
+TOO_MANY_QUESTIONS = "Too many questions in a short time. Please wait a moment and try again."
+
+
+def guard_query(request: Request, user: User = Depends(current_user)) -> User:
+    """/query rate limit: QUERY_RATE_PER_MINUTE per user, in memory (lite) or Redis (full,
+    shared by every API worker). Over the limit: HTTP 429 with Retry-After (M16a)."""
+    state = request.app.state
+    if getattr(state, "query_limiter", None) is None:
+        from app.adapters import open_rate_limiter
+
+        s = state.services.settings
+        state.query_limiter = open_rate_limiter(s, "query", s.query_rate_per_minute)
+    wait = state.query_limiter.take(f"user:{user.user_id}")
+    if wait:
+        raise HTTPException(429, TOO_MANY_QUESTIONS, headers=retry_after_header(wait))
+    return user
+
+
+def _from_cache(svc: Services, question: str, user_id: str) -> tuple[str | None, AnswerResult | None]:
+    """(cache key, the cached answer served as this user's own, or None). A cache that
+    fails (e.g. Redis down) is logged and skipped: the question is answered afresh."""
+    if svc.response_cache is None:
+        return None, None
+    try:
+        with svc.sessions() as s:
+            user = load_user(s, user_id)
+        key = svc.response_cache.key(question, user)
+        hit = svc.response_cache.serve(key, question, user)
+        metrics.CACHE.labels("hit" if hit is not None else "miss").inc()
+        return key, hit
+    except Exception:  # noqa: BLE001 - the cache is an optimisation, never a failure
+        log.exception("Response cache lookup failed; answering without it")
+        return None, None
+
+
+def _to_cache(svc: Services, key: str | None, result: AnswerResult) -> None:
+    if svc.response_cache is None or key is None:
+        return
+    try:
+        with svc.sessions() as s:
+            q = s.get(Query, result.query_id)
+        svc.response_cache.store(key, result, q.intent if q else None)
+    except Exception:  # noqa: BLE001
+        log.exception("Response cache store failed; the answer was still returned")
+
+
 # ---------------------------------------------------------------------------- routes
 
 router = APIRouter(prefix="/api/v1")
 
 
-@router.post("/query")
+@router.post("/query", response_class=EventSourceResponse, responses={200: {
+    "description": "Server-Sent Events: `progress` (agent steps), `draft_token` (the draft as "
+                   "it is written), `claim_verdict` (one per claim), `token` (the verified "
+                   "answer in pieces), then `final` (a FinalPayload as JSON) or `error` "
+                   "(generic message and a reference).",
+    "content": {"text/event-stream": {"schema": {"type": "string"}}}}})
 async def query(req: QueryRequest, request: Request,
-                user: User = Depends(current_user)) -> EventSourceResponse:
+                user: User = Depends(guard_query)) -> EventSourceResponse:
     """Answer a question, streaming progress, then the verified answer, then citations."""
     svc = _services(request)
     loop = asyncio.get_running_loop()
     queue: asyncio.Queue[tuple[str, Any]] = asyncio.Queue()
 
+    asked = time.perf_counter()
+    first_draft = threading.Event()
+
     def emit(kind: str, data: Any) -> None:
+        if kind == "draft_token" and not first_draft.is_set():  # time to first token (M17a)
+            first_draft.set()
+            metrics.FIRST_DRAFT_SECONDS.observe(time.perf_counter() - asked)
         loop.call_soon_threadsafe(queue.put_nowait, (kind, data))
 
     def work() -> None:
         start = time.perf_counter()
         try:
-            with svc.lock:
-                result = svc.assistant.ask(
-                    req.text, user.user_id,
-                    on_event=lambda step, payload: emit("progress", {"step": step, **payload}))
+            with svc.lock.reading():  # many questions at once; never during an index write
+                key, result = _from_cache(svc, req.text, user.user_id)
+                if result is not None:
+                    emit("progress", {"step": "cache_hit"})
+                else:
+                    result = svc.assistant.ask(
+                        req.text, user.user_id,
+                        on_event=lambda step, payload: emit(
+                            "claim_verdict" if step == "claim_verdict" else "progress",
+                            payload if step == "claim_verdict" else {"step": step, **payload}),
+                        on_token=lambda text: emit("draft_token", {"text": text}))
+                    _to_cache(svc, key, result)
             emit("result", (result, time.perf_counter() - start))
-        except Exception as exc:  # noqa: BLE001 - reported to the client as an SSE error
-            emit("error", {"message": f"{type(exc).__name__}: {exc}"})
+        except Exception:  # noqa: BLE001 - details to the server log, generic text to the client
+            ref = error_reference()
+            log.exception("Query failed (reference %s, user %s)", ref, user.user_id)
+            emit("error", {"message": GENERIC_ERROR.format(ref=ref), "reference": ref})
         finally:
             emit("done", None)
 
@@ -205,8 +374,8 @@ async def query(req: QueryRequest, request: Request,
     async def events():
         while True:
             kind, data = await queue.get()
-            if kind == "progress":
-                yield {"event": "progress", "data": json.dumps(data, default=str)}
+            if kind in ("progress", "draft_token", "claim_verdict"):
+                yield {"event": kind, "data": json.dumps(data, default=str)}
             elif kind == "result":
                 result, seconds = data
                 for piece in stream_pieces(result.text):
@@ -232,7 +401,7 @@ def get_query(query_id: int, request: Request,
         if q.user_id != viewer.user_id and viewer.role != "partner":
             raise HTTPException(403, "only the person who asked, or a partner, may view this")
         answer = s.scalars(select(Answer).where(Answer.query_id == query_id)).first()
-        cited = [c.chunk_id for c in s.scalars(select(Citation).where(
+        cited = [(c.chunk_id, c.span_start, c.span_end) for c in s.scalars(select(Citation).where(
             Citation.answer_id == answer.id).order_by(Citation.id))] if answer else []
         traces = s.scalars(select(Trace).where(Trace.query_id == query_id).order_by(Trace.id)).all()
         trace = [TraceRow(agent=t.agent, model=t.model, effort=t.effort, tokens_in=t.tokens_in,
@@ -277,7 +446,7 @@ def history_answer(query_id: int, request: Request,
         answer = s.scalars(select(Answer).where(Answer.query_id == query_id)).first()
         if q is None or answer is None or q.user_id != user.user_id:
             raise HTTPException(404, "unknown query")  # same reply whether or not it exists
-        cited = [c.chunk_id for c in s.scalars(
+        cited = [(c.chunk_id, c.span_start, c.span_end) for c in s.scalars(
             select(Citation).where(Citation.answer_id == answer.id).order_by(Citation.id))]
         traces = s.scalars(select(Trace).where(Trace.query_id == query_id).order_by(Trace.id)).all()
     outputs: dict[str, dict] = {}  # agent -> its LAST output (a retry can verify twice)
@@ -298,29 +467,40 @@ def history_answer(query_id: int, request: Request,
         removed_claims=len(verification.get("removed") or []),
         superseded_involved=bool(synthesis.get("superseded_involved")) and answer.status == "answered",
         injection_flagged_chunks=len(flagged),
-        citations=_citations(svc, cited), seconds_to_answer=None)
+        citations=_citations(svc, cited), seconds_to_answer=None,
+        flagged_claims=[f.get("claim", "") for f in (answer.flagged_claims or [])],
+        degraded=bool(answer.degraded))
 
 
 @router.get("/traces/{query_id}", response_model=list[TraceRow])
 def get_traces(query_id: int, request: Request,
                viewer: User = Depends(current_user)) -> list[TraceRow]:
-    """Agent-by-agent trace of a query. Partners only."""
+    """Agent-by-agent trace of a query. Partners see everything. Administrators who are not
+    partners see how each step ran (model, tokens, timing, versions) but not its input or
+    output: those contain document text and draft answers, and the admin flag grants no
+    document access."""
     svc = _services(request)
-    if viewer.role != "partner":
-        raise HTTPException(403, "traces are available to partners only")
+    if viewer.role != "partner" and not viewer.is_admin:
+        raise HTTPException(403, "traces are available to partners and administrators only")
+    hide = viewer.role != "partner"
     with svc.sessions() as s:
         if s.get(Query, query_id) is None:
             raise HTTPException(404, "unknown query")
         rows = s.scalars(select(Trace).where(Trace.query_id == query_id).order_by(Trace.id)).all()
         return [TraceRow(agent=t.agent, model=t.model, effort=t.effort, tokens_in=t.tokens_in,
                          tokens_out=t.tokens_out, latency_ms=t.latency_ms,
-                         input=_load_json(t.input), output=_load_json(t.output)) for t in rows]
+                         input=None if hide else _load_json(t.input),
+                         output=None if hide else _load_json(t.output),
+                         prompt_version_id=t.prompt_version_id,
+                         policy_version_id=t.policy_version_id, content_hidden=hide)
+                for t in rows]
 
 
-@router.post("/feedback")
+@router.post("/feedback", response_model=FeedbackOut)
 def feedback(req: FeedbackRequest, request: Request, user: User = Depends(current_user)) -> dict:
-    """Store helpful / not helpful plus an optional correction (masked). Stored only.
-    Only the person who asked may rate an answer."""
+    """Store helpful / not helpful plus an optional correction (masked). Only the person who
+    asked may rate an answer. "Not helpful" within 24 hours counts against the sources and
+    retrievers that produced the answer when the routing policy learns (M15b)."""
     svc = _services(request)
     with svc.sessions() as s:
         answer = s.get(Answer, req.answer_id)
@@ -333,26 +513,55 @@ def feedback(req: FeedbackRequest, request: Request, user: User = Depends(curren
         return {"feedback_id": row.id, "stored": True}
 
 
-@router.post("/documents/reindex")
-def reindex(request: Request, user: User = Depends(current_user)) -> dict:
-    """Manual full re-index (unchanged files are skipped). Partners only; logged."""
+@router.post("/feedback/signals", response_model=SignalOut, status_code=201)
+def feedback_signal(req: SignalRequest, request: Request,
+                    user: User = Depends(current_user)) -> SignalOut:
+    """Store an implicit signal (copy, citation click, follow-up, rephrase) about one of
+    the user's own answers. Stored only; the learning loop uses them from M15."""
+    with _services(request).sessions() as s:
+        answer = s.get(Answer, req.answer_id)
+        if answer is None or s.get(Query, answer.query_id).user_id != user.user_id:
+            raise HTTPException(404, "unknown answer")
+        row = FeedbackSignal(answer_id=req.answer_id, user_id=user.user_id, kind=req.kind)
+        s.add(row)
+        s.commit()
+        return SignalOut(signal_id=row.id, stored=True)
+
+
+@router.post("/documents/reindex", response_model=ReindexOut)
+def reindex(req: ReindexRequest, request: Request, user: User = Depends(require_admin)) -> ReindexOut:
+    """Re-index one document, one source, or everything (administrators; logged).
+
+    A document or a source is rebuilt from scratch even if unchanged, and nothing else is
+    touched. `all` brings every index in line with the manifest (unchanged files skipped)."""
     svc = _services(request)
-    if user.role != "partner":
-        raise HTTPException(403, "re-indexing is restricted to partners")
     if svc.indexer is None:
         raise HTTPException(503, "indexer not available")
+    scope, target = (("document", req.doc_id) if req.doc_id is not None else
+                     ("source", req.source_id) if req.source_id is not None else ("all", None))
     with svc.sessions() as s:
-        write_audit_log(s, user.user_id, "manual_reindex_requested", "all")
+        if scope == "source" and s.get(Source, target) is None:
+            raise HTTPException(404, "unknown source")
+        write_audit_log(s, user.user_id, "manual_reindex_requested", f"{scope}: {target or 'all'}")
     try:
-        with svc.lock:
-            report = svc.indexer.sync(actor=user.user_id)
+        with svc.lock.writing():
+            if scope == "document":
+                report = svc.indexer.reindex_document(target, actor=user.user_id)
+            elif scope == "source":
+                report = svc.indexer.reindex_source(target, actor=user.user_id)
+            else:
+                report = svc.indexer.sync(actor=user.user_id)
+    except KeyError:
+        raise HTTPException(404, "unknown document") from None
     except ManifestError as exc:
         raise HTTPException(422, {"manifest_errors": exc.errors}) from exc
-    return {"indexed": report.indexed, "metadata_updated": report.metadata_updated,
-            "unchanged": len(report.unchanged), "removed": report.removed}
+    return ReindexOut(scope=scope, target=target, indexed=report.indexed,
+                      metadata_updated=report.metadata_updated,
+                      unchanged=len(report.unchanged), removed=report.removed)
 
 
-@router.get("/sources/status", dependencies=[Depends(current_user)])
+@router.get("/sources/status", response_model=list[SourceTypeStatus],
+            dependencies=[Depends(current_user)])
 def sources_status(request: Request) -> list[dict]:
     """Document and chunk counts, and last indexed time, per source type."""
     svc = _services(request)
@@ -367,16 +576,42 @@ def sources_status(request: Request) -> list[dict]:
              "last_indexed_at": last.isoformat() if last else None} for st, n, last in docs]
 
 
-@router.get("/metrics/quality", dependencies=[Depends(current_user)])
-def metrics_quality(request: Request) -> dict:
-    """The latest metrics.json from eval/results/. Never computes or estimates numbers."""
-    results = _services(request).settings.eval_results_dir
-    runs = sorted(p for p in results.glob("*/metrics.json")) if results.exists() else []
+def _window_bound(value: str | None, name: str, end_of_day: bool) -> datetime | None:
+    """Parse `from`/`to`: a date (YYYY-MM-DD) or a date-time (YYYY-MM-DDTHH:MM[:SS])."""
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        raise HTTPException(422, f"'{name}' must be a date (YYYY-MM-DD) or date-time") from None
+    if end_of_day and len(value) == 10:  # a bare date includes the whole day
+        parsed = parsed.replace(hour=23, minute=59, second=59)
+    return parsed.replace(tzinfo=None)
+
+
+@router.get("/metrics/quality", response_model=QualityMetricsOut,
+            dependencies=[Depends(current_user)])
+def metrics_quality(request: Request, from_: str | None = Q(None, alias="from"),
+                    to: str | None = Q(None)) -> dict:
+    """Retrieval and answer-quality metrics, exactly as saved in eval/results/.
+
+    Only `retrieval` and `answers` runs count (calibration runs and known-invalid runs are
+    left out). With `from`/`to`, every such run started in that window is returned, newest
+    first; without them, the latest run of each type. Never computes or estimates."""
+    start = _window_bound(from_, "from", end_of_day=False)
+    end = _window_bound(to, "to", end_of_day=True)
+    if start and end and start > end:
+        raise HTTPException(422, "'from' is after 'to'")
+    runs = quality_runs(_services(request).settings.eval_results_dir, start, end)
+    if not (start or end):  # latest of each type
+        runs = [next(r for r in runs if r.type == t) for t in QUALITY_TYPES
+                if any(r.type == t for r in runs)]
     if not runs:
-        raise HTTPException(404, "no evaluation results yet")
-    latest = runs[-1]
-    return {"run": latest.parent.name,
-            "metrics": json.loads(latest.read_text(encoding="utf-8"))}
+        raise HTTPException(404, "no evaluation results in this window")
+    return {"from": start.isoformat() if start else None, "to": end.isoformat() if end else None,
+            "runs": [{"run": r.name, "type": r.type, "started_at": r.started_at.isoformat(),
+                      "metrics": json.loads((r.path / "metrics.json").read_text(encoding="utf-8"))}
+                     for r in runs]}
 
 
 @router.get("/users", response_model=list[UserOut])
@@ -388,7 +623,7 @@ def users(request: Request, viewer: User = Depends(current_user)) -> list[UserOu
         return [user_out(s, u) for u in s.scalars(select(User).order_by(User.user_id))]
 
 
-@router.get("/health")
+@router.get("/health", response_model=HealthOut)
 def health() -> dict:
     return {"status": "ok"}
 
@@ -396,6 +631,16 @@ def health() -> dict:
 # ------------------------------------------------------------------------- app factory
 
 FRONTEND_DIST = PROJECT_ROOT / "frontend" / "dist"
+
+
+def _start_tracing(app: FastAPI, settings: Settings) -> None:
+    """OpenTelemetry for the API (M17a): a span per HTTP request (FastAPI instrumentation)
+    plus the per-question spans of the agents; exported only when an endpoint is set."""
+    if otel.setup_tracing(settings) is None:
+        return
+    from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+
+    FastAPIInstrumentor.instrument_app(app, excluded_urls="metrics,api/v1/health")
 
 
 def create_app(services: Services | None = None, static_dir: Path | None = FRONTEND_DIST) -> FastAPI:
@@ -416,6 +661,7 @@ def create_app(services: Services | None = None, static_dir: Path | None = FRONT
         if svc.indexer is not None:
             svc.indexer.load_reference_data()  # picks up users.csv emails without a re-index
         seeded, missing = seed_demo_passwords(svc.sessions, svc.settings.demo_password)
+        ensure_active_versions(svc.sessions)  # routing policy v1 and prompt versions exist
         log = logging.getLogger("uvicorn.error")
         if seeded:
             log.info("Demo password set for %d demo user(s).", seeded)
@@ -430,9 +676,47 @@ def create_app(services: Services | None = None, static_dir: Path | None = FRONT
     app = FastAPI(title="Enterprise Fabric AI API", version="0.7.0", lifespan=lifespan,
                   description="Synthetic demo. Sign in with POST /api/v1/auth/login, then send "
                               "`Authorization: Bearer <token>`.")
+    @app.middleware("http")
+    async def count_responses(request: Request, call_next):
+        """API responses by status class (the error-rate alert, M17a)."""
+        response = await call_next(request)
+        if request.url.path.startswith("/api/"):
+            metrics.HTTP_REQUESTS.labels(f"{response.status_code // 100}xx").inc()
+        return response
+
+    @app.get("/metrics", include_in_schema=False)
+    def prometheus_metrics() -> Response:
+        """Prometheus scrape endpoint (internal network only: not routed outside the
+        cluster by the Helm chart). Labels never carry users, questions or documents."""
+        return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
+
+    if services is None or getattr(services.settings, "otel_exporter_otlp_endpoint", None):
+        _start_tracing(app, services.settings if services else get_settings())
+
     app.include_router(auth_router)
     app.include_router(router)
+    app.include_router(admin_router)
+    app.include_router(webhook_router)
+
+    @app.exception_handler(Exception)
+    async def unexpected_error(request: Request, exc: Exception) -> JSONResponse:
+        """Any unhandled error: generic message to the client, details to the log."""
+        ref = error_reference()
+        log.error("Unhandled error on %s %s (reference %s)", request.method, request.url.path,
+                  ref, exc_info=exc)
+        return JSONResponse(status_code=500,
+                            content={"detail": GENERIC_ERROR.format(ref=ref), "reference": ref})
+
     if static_dir is not None and (static_dir / "index.html").exists():
+        index = static_dir / "index.html"
+
+        # The React app's own pages (M16c): /admin is a client-side route, so the server
+        # answers it with the app, which then shows the page (or refuses a non-admin).
+        @app.get("/admin", include_in_schema=False)
+        @app.get("/admin/{rest:path}", include_in_schema=False)
+        def ui_page(rest: str = "") -> FileResponse:
+            return FileResponse(index)
+
         app.mount("/", StaticFiles(directory=static_dir, html=True), name="ui")
     return app
 

@@ -1,0 +1,88 @@
+# Enterprise Fabric AI Helm chart (M17b; CLAUDE.md section 14).
+#
+# Two ways to run it:
+# - profile: lite  (the default; a self-contained demo and the kind smoke test): one API pod
+#   with SQLite and embedded Qdrant on its own volume, indexing the SYNTHETIC corpus at
+#   start. One replica only: the embedded stores cannot be shared, so the HPA is refused.
+# - profile: full  the specified architecture: the API and the worker use the external
+#   PostgreSQL, Qdrant, OpenSearch, Kafka, Redis, OPA and Keycloak named under `external`;
+#   the API can then scale (HPA).
+# Secrets are never written here: they come from a Kubernetes Secret (`secrets.existingSecret`)
+# or, for a local demo only, from `secrets.values` given on the command line.
+
+profile: lite
+
+images:
+  api: {repository: enterprise-fabric/api, tag: dev, pullPolicy: IfNotPresent}
+  worker: {repository: enterprise-fabric/worker, tag: dev, pullPolicy: IfNotPresent}
+  frontend: {repository: enterprise-fabric/frontend, tag: dev, pullPolicy: IfNotPresent}
+
+# Models. llmMode "mock" (app/agents/mock_llm.py) needs no key and makes no paid call: for
+# smoke tests only. "live" needs LLM_AUTH_TOKEN or ANTHROPIC_API_KEY in the Secret.
+llm:
+  mode: mock
+  modelLight: claude-haiku-5-5
+  modelSynth: claude-sonnet-5-5
+  modelVerify: claude-opus-5-5
+  baseUrl: ""            # e.g. https://openrouter.ai/api (lite only); empty = direct Anthropic API
+
+# Non-secret settings passed to every Python container (any app/config.py setting, by its
+# environment name).
+config:
+  QUERY_RATE_PER_MINUTE: "10"
+  RESPONSE_CACHE_ENABLED: "true"
+  OTEL_EXPORTER_OTLP_ENDPOINT: ""
+  PROMETHEUS_URL: ""
+
+# Addresses of the stateful services (profile: full). Credentials belong in the Secret
+# (e.g. DATABASE_URL), never here.
+external:
+  qdrantUrl: ""
+  opensearchUrl: ""
+  redisUrl: ""
+  kafkaBootstrap: ""
+  opaUrl: ""
+  oidcIssuer: ""
+
+secrets:
+  # Name of an existing Secret with keys such as DEMO_PASSWORD, LLM_AUTH_TOKEN,
+  # ANTHROPIC_API_KEY, DATABASE_URL. When empty, the chart creates one from `values`.
+  existingSecret: ""
+  values: {}             # local demo only: --set secrets.values.DEMO_PASSWORD=...
+
+api:
+  replicas: 1
+  port: 8000
+  resources:
+    requests: {cpu: 250m, memory: 1536Mi}
+    limits: {cpu: "2", memory: 2560Mi}
+  # The API loads three models at start: allow time before liveness checks begin.
+  startupProbe: {failureThreshold: 60, periodSeconds: 5}
+  stateSize: 2Gi          # lite: the emptyDir for SQLite, Qdrant and landed documents
+
+hpa:
+  enabled: false          # full profile only (lite stores are per pod)
+  minReplicas: 2
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 70
+
+worker:
+  enabled: false          # full profile: consumes change events from Kafka
+  metricsPort: 9464
+  resources:
+    requests: {cpu: 100m, memory: 768Mi}
+    limits: {cpu: "1", memory: 1536Mi}
+
+frontend:
+  enabled: true
+  port: 8080
+  resources:
+    requests: {cpu: 20m, memory: 32Mi}
+    limits: {cpu: 200m, memory: 128Mi}
+
+service:
+  type: ClusterIP
+
+# `helm test`: signs a synthetic user in and asks one question (scripts/smoke_deploy.py).
+smokeTest:
+  email: riya.kapoor@example-associates.test

@@ -17,6 +17,9 @@ qdrant-client==1.20.0
 rank-bm25==0.2.2
 sentence-transformers==6.2.0
 torch==2.15.0
+# torch depends on setuptools; the PyTorch CPU index serves an old one (78.1.0, with known
+# vulnerabilities found by pip-audit and Trivy in CI, M17c), so it is pinned here.
+setuptools==84.2.1
 
 # Ingestion
 pymupdf==2.1
@@ -24,12 +27,22 @@ watchdog==7.1.0
 
 # Storage / config
 SQLAlchemy==2.1.8
+alembic==1.20.1        # schema migrations (PostgreSQL in full; drift test on SQLite)
 pydantic-settings==2.16.2
 python-dotenv==1.2.4   # already required by pydantic-settings; pinned explicitly
 
 # LLM
 anthropic==2.6.0
 httpx==0.28.1          # already required by anthropic; also used by FastAPI's TestClient
+pyjwt[crypto]==2.15.1   # OIDC/JWT validation of Keycloak tokens (M13b); brings cryptography
+
+# Observability (M17a): traces to an OTLP endpoint (Langfuse in the observability profile),
+# metrics for Prometheus on /metrics. The HTTP exporter is the http part of the approved
+# opentelemetry-exporter-otlp (the gRPC part is not needed).
+opentelemetry-sdk==1.45.2
+opentelemetry-exporter-otlp-proto-http==1.45.2
+opentelemetry-instrumentation-fastapi==0.66b2
+prometheus-client==0.26.0
 
 # Tests
 pytest==9.2.0

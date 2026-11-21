@@ -5,8 +5,10 @@
 // The API decides who the user is from that token alone (never from the request body).
 // A 401 answer means the session ended, so the app returns to the sign-in screen.
 
+import { ensureFreshToken } from "./lib/oidc";
 import { SSEParser } from "./lib/sse";
 import { clearToken, currentToken } from "./lib/session";
+import type { SignalKind } from "./lib/signals";
 import type { FinalPayload, HistoryItem, QueryEvent, SessionInfo, User } from "./types";
 
 const API = "/api/v1";
@@ -41,6 +43,7 @@ async function messageFrom(response: Response, fallback: string): Promise<string
 async function call(path: string, init: RequestInit = {}): Promise<Response> {
   const headers = new Headers(init.headers);
   if (init.body) headers.set("Content-Type", "application/json");
+  await ensureFreshToken(); // single sign-on: renew the 5-minute access token in time (M16c)
   const token = currentToken();
   if (token) headers.set("Authorization", `Bearer ${token}`);
   const response = await fetch(`${API}${path}`, { ...init, headers });
@@ -51,15 +54,20 @@ async function call(path: string, init: RequestInit = {}): Promise<Response> {
   return response;
 }
 
-async function callJson<T>(path: string, init: RequestInit, fallback: string): Promise<T> {
+export async function callJson<T>(path: string, init: RequestInit, fallback: string): Promise<T> {
   const response = await call(path, init);
   if (!response.ok) throw new ApiError(await messageFrom(response, fallback), response.status);
   return (await response.json()) as T;
 }
 
-const post = (body: unknown): RequestInit => ({ method: "POST", body: JSON.stringify(body) });
+export const post = (body: unknown): RequestInit => ({ method: "POST", body: JSON.stringify(body) });
 
 // ------------------------------------------------------------------------------ sign-in
+
+/** What the sign-in screen may offer (self-registration is off unless the firm enables it). */
+export const getAuthConfig = () =>
+  callJson<{ self_registration: boolean; mode?: "session" | "oidc"; oidc_issuer?: string | null;
+    oidc_client_id?: string | null }>("/auth/config", {}, "Sign-in settings unavailable.");
 
 export const login = (email: string, password: string) =>
   callJson<SessionInfo>("/auth/login", post({ email, password }), "Sign-in failed.");
@@ -92,7 +100,9 @@ export const getHistory = () => callJson<HistoryItem[]>("/history", {}, "History
 export const getHistoryAnswer = (queryId: number) =>
   callJson<FinalPayload>(`/history/${queryId}`, {}, "This answer could not be opened.");
 
-/** POST a question and call `onEvent` for every streamed event (progress, token, final). */
+/** POST a question and call `onEvent` for every streamed event: progress steps, the draft
+ * as it is written (draft_token), one claim_verdict per checked claim, the verified answer
+ * (token), then final. */
 export async function streamQuery(
   text: string,
   onEvent: (event: QueryEvent) => void,
@@ -109,7 +119,7 @@ export async function streamQuery(
   const parser = new SSEParser();
   const emit = (messages: { event: string; data: string }[]) => {
     for (const m of messages) {
-      if (["progress", "token", "final", "error"].includes(m.event)) {
+      if (["progress", "draft_token", "claim_verdict", "token", "final", "error"].includes(m.event)) {
         onEvent({ event: m.event, data: JSON.parse(m.data) } as QueryEvent);
       }
     }
@@ -128,4 +138,14 @@ export async function sendFeedback(
   correction: string | null,
 ): Promise<void> {
   await callJson("/feedback", post({ answer_id: answerId, rating, correction }), "Feedback not saved.");
+}
+
+/** An implicit signal about one of the user's answers (copy, citation click, follow-up,
+ * rephrase). It only informs learning, so a failure is ignored. */
+export async function sendSignal(answerId: number, kind: SignalKind): Promise<void> {
+  try {
+    await call("/feedback/signals", post({ answer_id: answerId, kind }));
+  } catch {
+    // never disturb the user over a signal
+  }
 }

@@ -96,10 +96,16 @@ def route(question: str, analysis: QueryAnalysis, user: UserContext,
 
     # Tie-breaker: no rule fired.
     try:
-        result = llm.call(purpose="routing_tiebreak", role="light", system=TIEBREAK_SYSTEM,
-                          user=f"Question: {question}", max_tokens=200, schema=TIEBREAK_SCHEMA)
-        picked = [s for s in (result.data or {}).get("source_types", []) if s in SOURCE_TYPES]
+        picked, result = tiebreak(question, llm)
     except Exception:  # noqa: BLE001 - routing must not fail the request
         result, picked = None, []
-    chosen = list(dict.fromkeys(picked))[:3] or list(DEFAULT)
+    chosen = picked or list(DEFAULT)
     return RoutingDecision(chosen, ["tiebreak" if picked else "default"], True), result
+
+
+def tiebreak(question: str, llm: LLMCaller) -> tuple[list[str], LLMResult]:
+    """The light model's choice of up to three source types (known types only)."""
+    result = llm.call(purpose="routing_tiebreak", role="light", system=TIEBREAK_SYSTEM,
+                      user=f"Question: {question}", max_tokens=200, schema=TIEBREAK_SCHEMA)
+    picked = [s for s in (result.data or {}).get("source_types", []) if s in SOURCE_TYPES]
+    return list(dict.fromkeys(picked))[:3], result

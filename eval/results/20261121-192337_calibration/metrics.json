@@ -1,0 +1,33 @@
+{
+  "answers_run": "20261121-151459_answers+20261121-171000_answers+20261121-181723_answers+20261121-183054_answers",
+  "labelled": 30,
+  "exported": 30,
+  "strata": {
+    "not_correct": 8,
+    "correct": 22,
+    "judged_in_run": 119,
+    "seed": 42,
+    "min_not_correct": 8
+  },
+  "validated": false,
+  "exact_agreement": 0.7333333333333333,
+  "cohens_kappa": 0.0,
+  "binary_agreement_correct_vs_not": 0.7333333333333333,
+  "confusion_human_rows_judge_cols": {
+    "correct": {
+      "correct": 22,
+      "partially_correct": 3,
+      "incorrect": 5
+    },
+    "partially_correct": {
+      "correct": 0,
+      "partially_correct": 0,
+      "incorrect": 0
+    },
+    "incorrect": {
+      "correct": 0,
+      "partially_correct": 0,
+      "incorrect": 0
+    }
+  }
+}

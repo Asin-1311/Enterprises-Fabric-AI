@@ -1,6 +1,5 @@
 """Tests for the baseline, the judge's arithmetic and the answer-eval aggregation (no live LLM)."""
 
-import re
 from pathlib import Path
 
 import pytest
@@ -32,7 +31,7 @@ def searcher(tmp_path_factory: pytest.TempPathFactory):
 def test_baseline_is_one_dense_search_and_one_call_with_acl(searcher) -> None:
     from app.retrieval.acl import UserContext
 
-    llm = FakeLLM(baseline=lambda user: "Forty-five days [POL-NEW:0001] and [FAKE:0001].")
+    llm = FakeLLM(baseline=lambda user: "Forty-five days [POL-NEW:1:1] and [FAKE:0001].")
     calls = []
     original = searcher.search
     searcher.search = lambda *a, **k: calls.append(k) or original(*a, **k)

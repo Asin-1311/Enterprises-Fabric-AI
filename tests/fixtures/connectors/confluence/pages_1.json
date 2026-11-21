@@ -1,0 +1,55 @@
+{
+  "results": [
+    {
+      "id": "1001",
+      "status": "current",
+      "title": "Engagement file naming convention",
+      "spaceId": "98001",
+      "version": {
+        "number": 3,
+        "createdAt": "2026-10-02T10:15:00.000Z"
+      },
+      "body": {
+        "storage": {
+          "representation": "storage",
+          "value": "<p>SYNTHETIC — created for an internship demonstration. Not real firm or client data.</p><h2>1. Purpose</h2><p>Every electronic engagement file at Example &amp; Associates uses one naming pattern, so that a reviewer can find a file without opening it.</p><h2>2. Pattern</h2><p>Client code, financial year, area code and a running number, joined by hyphens: for example <code>NWT-FY26-INV-003</code>.</p><table><tbody><tr><th>Area code</th><th>Area</th></tr><tr><td>INV</td><td>Inventory</td></tr><tr><td>REV</td><td>Revenue</td></tr><tr><td>PLN</td><td>Planning</td></tr></tbody></table>"
+        }
+      }
+    },
+    {
+      "id": "1002",
+      "status": "current",
+      "title": "Technical desk escalation procedure",
+      "spaceId": "98001",
+      "version": {
+        "number": 1,
+        "createdAt": "2026-09-14T08:00:00.000Z"
+      },
+      "body": {
+        "storage": {
+          "representation": "storage",
+          "value": "<p>SYNTHETIC — created for an internship demonstration. Not real firm or client data.</p><h2>1. When to escalate</h2><p>Questions the engagement team cannot settle within two working days go to the firm's technical desk.</p><h2>2. How</h2><ul><li>Log the question in the AUDQ query log.</li><li>Attach the relevant working papers.</li><li>The desk replies within five working days.</li></ul>"
+        }
+      }
+    },
+    {
+      "id": "1009",
+      "status": "archived",
+      "title": "Old intranet notice",
+      "spaceId": "98001",
+      "version": {
+        "number": 7,
+        "createdAt": "2025-01-01T00:00:00.000Z"
+      },
+      "body": {
+        "storage": {
+          "representation": "storage",
+          "value": "<p>SYNTHETIC — created for an internship demonstration. Not real firm or client data.</p><p>Archived.</p>"
+        }
+      }
+    }
+  ],
+  "_links": {
+    "next": "/wiki/api/v2/spaces/98001/pages?cursor=c2&limit=50&body-format=storage"
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "value": [
+    {
+      "id": "01BBB",
+      "name": "Working-paper-retention-index.md",
+      "eTag": "\"{B},2\"",
+      "cTag": "\"c:{B},1\"",
+      "lastModifiedDateTime": "2026-10-12T14:30:00Z",
+      "file": {
+        "mimeType": "text/markdown"
+      },
+      "parentReference": {
+        "path": "/drive/root:/Policies"
+      }
+    },
+    {
+      "id": "01GONE",
+      "name": "Old.md",
+      "deleted": {
+        "state": "deleted"
+      }
+    }
+  ],
+  "@odata.deltaLink": "{base}/v1.0/sites/example.sharepoint.com,1111,2222/drive/root/delta?token=latest"
+}

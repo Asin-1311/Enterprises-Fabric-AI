@@ -1,0 +1,116 @@
+{
+  "targets": {
+    "ttft_p95_s": 1.5,
+    "full_answer_p95_s": 8.0
+  },
+  "levels": [
+    1,
+    5,
+    10
+  ],
+  "per_user": 2,
+  "results": {
+    "k6": {
+      "1": {
+        "requests": 0,
+        "errors": 0,
+        "ttft_measured": 0,
+        "ttft_s_p50": null,
+        "ttft_s_p95": null,
+        "full_answer_s_p50": null,
+        "full_answer_s_p95": null,
+        "statuses": {},
+        "degraded": 0,
+        "ttft_target_met": null,
+        "full_answer_target_met": null
+      },
+      "5": {
+        "requests": 0,
+        "errors": 0,
+        "ttft_measured": 0,
+        "ttft_s_p50": null,
+        "ttft_s_p95": null,
+        "full_answer_s_p50": null,
+        "full_answer_s_p95": null,
+        "statuses": {},
+        "degraded": 0,
+        "ttft_target_met": null,
+        "full_answer_target_met": null
+      },
+      "10": {
+        "requests": 0,
+        "errors": 0,
+        "ttft_measured": 0,
+        "ttft_s_p50": null,
+        "ttft_s_p95": null,
+        "full_answer_s_p50": null,
+        "full_answer_s_p95": null,
+        "statuses": {},
+        "degraded": 0,
+        "ttft_target_met": null,
+        "full_answer_target_met": null
+      }
+    },
+    "locust": {
+      "1": {
+        "requests": 2,
+        "errors": 0,
+        "ttft_measured": 2,
+        "ttft_s_p50": 24.00597120000748,
+        "ttft_s_p95": 55.35137180000311,
+        "full_answer_s_p50": 34.53680139998323,
+        "full_answer_s_p95": 64.13614550000057,
+        "statuses": {
+          "answered": 2
+        },
+        "degraded": 0,
+        "ttft_target_met": false,
+        "full_answer_target_met": false
+      },
+      "5": {
+        "requests": 10,
+        "errors": 0,
+        "ttft_measured": 3,
+        "ttft_s_p50": 62.38547290000133,
+        "ttft_s_p95": 63.606655999989016,
+        "full_answer_s_p50": 115.49667709998903,
+        "full_answer_s_p95": 200.3700508000038,
+        "statuses": {
+          "abstained": 7,
+          "answered": 3
+        },
+        "degraded": 0,
+        "ttft_target_met": false,
+        "full_answer_target_met": false
+      },
+      "10": {
+        "requests": 20,
+        "errors": 0,
+        "ttft_measured": 3,
+        "ttft_s_p50": 69.17369579998194,
+        "ttft_s_p95": 85.92473539998173,
+        "full_answer_s_p50": 137.9060139999783,
+        "full_answer_s_p95": 297.6028343999933,
+        "statuses": {
+          "abstained": 16,
+          "answered": 3,
+          "not_found": 1
+        },
+        "degraded": 0,
+        "ttft_target_met": false,
+        "full_answer_target_met": false
+      }
+    }
+  },
+  "minutes": 14.0,
+  "hardware": {
+    "machine": "AMD64",
+    "processor": "AMD64 Family 23 Model 104 Stepping 1, AuthenticAMD",
+    "os": "Windows-11-10.0.26200-SP0",
+    "logical_cpus": 12,
+    "physical_cpus": 6,
+    "ram_gb": 7.3,
+    "python": "3.13.14"
+  },
+  "measured": "client side; TTFT by Locust only (k6 sees an SSE response only when complete)"
+}

@@ -1,0 +1,9 @@
+# Load every dashboard JSON in deploy/grafana/dashboards (mounted at /var/lib/grafana/dashboards).
+apiVersion: 1
+providers:
+  - name: enterprise-fabric
+    folder: Enterprise Fabric AI
+    type: file
+    allowUiUpdates: false
+    options:
+      path: /var/lib/grafana/dashboards

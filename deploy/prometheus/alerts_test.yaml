@@ -1,0 +1,100 @@
+# Unit tests for alerts.yaml (promtool test rules; run by
+# tests/integration/test_observability.py and CI). Each alert fires on a synthetic series
+# that breaks its threshold, and stays silent on one that does not.
+rule_files:
+  - alerts.yaml
+
+evaluation_interval: 1m
+
+tests:
+  - name: slow answers fire, fast answers do not
+    interval: 1m
+    input_series:
+      # 10 answers a minute, all slower than 8 s (bucket le=8 never grows)
+      - series: 'efa_answer_seconds_bucket{le="8"}'
+        values: '0+0x30'
+      - series: 'efa_answer_seconds_bucket{le="10"}'
+        values: '0+10x30'
+      - series: 'efa_answer_seconds_bucket{le="+Inf"}'
+        values: '0+10x30'
+    alert_rule_test:
+      - eval_time: 25m
+        alertname: AnswerLatencyAboveTarget
+        exp_alerts:
+          - exp_labels: {severity: warning}
+            exp_annotations:
+              summary: p95 full answer time is above the 8 s target
+              description: "p95 over 10 minutes is 9.9 s. Degradation (reduced checking) may be active."
+  - name: answers within target are quiet
+    interval: 1m
+    input_series:
+      - series: 'efa_answer_seconds_bucket{le="4"}'
+        values: '0+10x30'
+      - series: 'efa_answer_seconds_bucket{le="+Inf"}'
+        values: '0+10x30'
+    alert_rule_test:
+      - eval_time: 25m
+        alertname: AnswerLatencyAboveTarget
+        exp_alerts: []
+
+  - name: verification failures above 20%
+    interval: 1m
+    input_series:
+      - series: 'efa_verification_total{outcome="failed"}'
+        values: '0+3x60'
+      - series: 'efa_verification_total{outcome="passed"}'
+        values: '0+7x60'
+    alert_rule_test:
+      - eval_time: 50m
+        alertname: VerificationFailureRateHigh
+        exp_alerts:
+          - exp_labels: {severity: warning}
+            exp_annotations:
+              summary: More than 20% of verification steps removed claims or ended below the confidence threshold
+
+  - name: ingestion lag per source
+    interval: 1m
+    input_series:
+      - series: 'efa_ingestion_lag_seconds{source="git-policies"}'
+        values: '1200x20'
+      - series: 'efa_ingestion_lag_seconds{source="fs-faq"}'
+        values: '30x20'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: IngestionLagHigh
+        exp_alerts:
+          - exp_labels: {severity: warning, source: git-policies}
+            exp_annotations:
+              summary: "Changes from source git-policies take more than 15 minutes to reach the indexes"
+
+  - name: any access-control disagreement fires at once
+    interval: 1m
+    input_series:
+      - series: 'efa_acl_disagreements_total'
+        values: '0 0 0 1 1 1'
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: AccessControlDisagreement
+        exp_alerts:
+          - exp_labels: {severity: critical}
+            exp_annotations:
+              summary: The index pre-filter allowed a chunk the policy engine denied
+              description: The chunk was dropped, but the two statements of the access rules disagree. Investigate at once (server log line "SECURITY").
+      - eval_time: 2m
+        alertname: AccessControlDisagreement
+        exp_alerts: []
+
+  - name: server errors above 5%
+    interval: 1m
+    input_series:
+      - series: 'efa_http_requests_total{status_class="5xx"}'
+        values: '0+1x30'
+      - series: 'efa_http_requests_total{status_class="2xx"}'
+        values: '0+9x30'
+    alert_rule_test:
+      - eval_time: 25m
+        alertname: ApiErrorRateHigh
+        exp_alerts:
+          - exp_labels: {severity: critical}
+            exp_annotations:
+              summary: More than 5% of API responses are server errors

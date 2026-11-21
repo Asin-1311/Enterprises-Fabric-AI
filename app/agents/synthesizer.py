@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from app.agents.llm import LLMCaller, LLMResult
 from app.retrieval.compress import CompressedChunk
 from app.retrieval.hybrid import RetrievedChunk
-from app.security.injection import UNTRUSTED_DATA_RULE, wrap_document
+from app.security.injection import UNTRUSTED_DATA_RULE, restricted_attributes, wrap_document
 
 NOT_FOUND_TOKEN = "NOT_FOUND"
 NOT_AVAILABLE_MESSAGE = (
@@ -27,7 +27,11 @@ JUDGEMENT_NOTE = (
     "_This answer supports, and does not replace, the professional judgement of the "
     "engagement team; sign-off remains with the engagement partner._"
 )
-CITATION = re.compile(r"\[([A-Z0-9][A-Z0-9-]*:\d{4})\]")
+# A cited chunk id in square brackets. Two forms (M12b): the stable id
+# "<doc>:<section>:<window>" ("[STD-CH06:1.9:1]", "[FAQ-01:q-3f9a2c:1]") and the Phase 1
+# position id "<doc>:0012", which answers written before M12b contain. The document part
+# follows the doc_id rule in app/ingest/enrich.py.
+CITATION = re.compile(r"\[([A-Za-z0-9][A-Za-z0-9_.-]*:(?:\d{4}|[A-Za-z0-9][A-Za-z0-9.-]*:\d+))\]")
 
 SYSTEM = f"""You are the knowledge assistant of Example & Associates, Chartered Accountants
 (a fictional firm). You answer questions from audit staff using ONLY the evidence provided.
@@ -85,7 +89,8 @@ def document_attributes(chunk_id: str, c: RetrievedChunk, d: DocInfo) -> dict[st
     return dict(cite=chunk_id, title=d.title, version=d.version or "", source_type=d.source_type,
                 section=f"{c.section or ''} {c.section_title or ''}".strip(),
                 pages=f"{c.page_start}-{c.page_end}" if c.page_start else "",
-                effective_date=d.effective_date or "", status=status)
+                effective_date=d.effective_date or "", status=status,
+                **restricted_attributes(c.classification))
 
 
 def build_prompt(question: str, evidence: list[CompressedChunk],

@@ -1,0 +1,314 @@
+{
+  "complete": true,
+  "n_questions": 5,
+  "n_answered_pairs": 10,
+  "n_reviewed": 0,
+  "judge_model": "openai/gpt-5.6-terra",
+  "ttft_definition": "first draft token (M18b)",
+  "targets": {
+    "ttft_p95_s": 1.5,
+    "full_answer_p95_s": 8.0
+  },
+  "systems": {
+    "full": {
+      "overall": {
+        "questions": 5,
+        "errors": 0,
+        "judged": 5,
+        "correctness": 0.5,
+        "correct_rate": 0.4,
+        "answer_relevance": 0.9,
+        "judge_skipped": 0,
+        "faithfulness_macro": 0.5386904761904762,
+        "faithfulness_micro": 0.71875,
+        "citation_precision": 1.0,
+        "access_leak_rate": 0.0,
+        "cross_engagement_leak_rate": 0.0,
+        "content_leak_rate": 0.0,
+        "status_counts": {
+          "answered": 3,
+          "not_found": 2
+        },
+        "ttft_measured": 5,
+        "ttft_s_p50": 43.58682560001034,
+        "ttft_s_p95": 87.90805940001155,
+        "full_answer_s_p50": 57.579645699996036,
+        "full_answer_s_p95": 88.19904090001364,
+        "estimated_answer_cost_usd": 0.1191
+      },
+      "by_category": {
+        "engagement": {
+          "questions": 1,
+          "errors": 0,
+          "judged": 1,
+          "correctness": 1.0,
+          "correct_rate": 1.0,
+          "answer_relevance": 1.0,
+          "judge_skipped": 0,
+          "faithfulness_macro": 0.9166666666666666,
+          "faithfulness_micro": 0.9166666666666666,
+          "citation_precision": 1.0,
+          "access_leak_rate": 0.0,
+          "cross_engagement_leak_rate": 0.0,
+          "content_leak_rate": null,
+          "status_counts": {
+            "answered": 1
+          },
+          "ttft_measured": 1,
+          "ttft_s_p50": 34.98259530001087,
+          "ttft_s_p95": 34.98259530001087,
+          "full_answer_s_p50": 57.579645699996036,
+          "full_answer_s_p95": 57.579645699996036,
+          "estimated_answer_cost_usd": 0.0446
+        },
+        "role_denied": {
+          "questions": 1,
+          "errors": 0,
+          "judged": 1,
+          "correctness": 1.0,
+          "correct_rate": 1.0,
+          "answer_relevance": 1.0,
+          "judge_skipped": 0,
+          "faithfulness_macro": null,
+          "faithfulness_micro": null,
+          "citation_precision": null,
+          "access_leak_rate": 0.0,
+          "cross_engagement_leak_rate": 0.0,
+          "content_leak_rate": 0.0,
+          "status_counts": {
+            "not_found": 1
+          },
+          "ttft_measured": 1,
+          "ttft_s_p50": 53.88918230001582,
+          "ttft_s_p95": 53.88918230001582,
+          "full_answer_s_p50": 54.181155400001444,
+          "full_answer_s_p95": 54.181155400001444,
+          "estimated_answer_cost_usd": 0.0039
+        },
+        "single_source": {
+          "questions": 1,
+          "errors": 0,
+          "judged": 1,
+          "correctness": 0.0,
+          "correct_rate": 0.0,
+          "answer_relevance": 0.5,
+          "judge_skipped": 0,
+          "faithfulness_macro": 0.0,
+          "faithfulness_micro": 0.0,
+          "citation_precision": null,
+          "access_leak_rate": 0.0,
+          "cross_engagement_leak_rate": 0.0,
+          "content_leak_rate": null,
+          "status_counts": {
+            "not_found": 1
+          },
+          "ttft_measured": 1,
+          "ttft_s_p50": 87.90805940001155,
+          "ttft_s_p95": 87.90805940001155,
+          "full_answer_s_p50": 88.19904090001364,
+          "full_answer_s_p95": 88.19904090001364,
+          "estimated_answer_cost_usd": 0.0053
+        },
+        "standard": {
+          "questions": 1,
+          "errors": 0,
+          "judged": 1,
+          "correctness": 0.5,
+          "correct_rate": 0.0,
+          "answer_relevance": 1.0,
+          "judge_skipped": 0,
+          "faithfulness_macro": 0.6666666666666666,
+          "faithfulness_micro": 0.6666666666666666,
+          "citation_precision": 1.0,
+          "access_leak_rate": 0.0,
+          "cross_engagement_leak_rate": 0.0,
+          "content_leak_rate": null,
+          "status_counts": {
+            "answered": 1
+          },
+          "ttft_measured": 1,
+          "ttft_s_p50": 43.58682560001034,
+          "ttft_s_p95": 43.58682560001034,
+          "full_answer_s_p50": 60.30315220000921,
+          "full_answer_s_p95": 60.30315220000921,
+          "estimated_answer_cost_usd": 0.0431
+        },
+        "time_sensitive": {
+          "questions": 1,
+          "errors": 0,
+          "judged": 1,
+          "correctness": 0.0,
+          "correct_rate": 0.0,
+          "answer_relevance": 1.0,
+          "judge_skipped": 0,
+          "faithfulness_macro": 0.5714285714285714,
+          "faithfulness_micro": 0.5714285714285714,
+          "citation_precision": 1.0,
+          "access_leak_rate": 0.0,
+          "cross_engagement_leak_rate": 0.0,
+          "content_leak_rate": null,
+          "status_counts": {
+            "answered": 1
+          },
+          "ttft_measured": 1,
+          "ttft_s_p50": 20.19797860001563,
+          "ttft_s_p95": 20.19797860001563,
+          "full_answer_s_p50": 29.741123800020432,
+          "full_answer_s_p95": 29.741123800020432,
+          "estimated_answer_cost_usd": 0.0222
+        }
+      }
+    },
+    "baseline": {
+      "overall": {
+        "questions": 5,
+        "errors": 0,
+        "judged": 5,
+        "correctness": 0.8,
+        "correct_rate": 0.8,
+        "answer_relevance": 1.0,
+        "judge_skipped": 0,
+        "faithfulness_macro": 0.4416666666666667,
+        "faithfulness_micro": 0.4603174603174603,
+        "citation_precision": 1.0,
+        "access_leak_rate": 0.0,
+        "cross_engagement_leak_rate": 0.0,
+        "content_leak_rate": 0.0,
+        "status_counts": {
+          "answered": 5
+        },
+        "ttft_measured": 5,
+        "ttft_s_p50": 1.833146199991461,
+        "ttft_s_p95": 3.4095215999986976,
+        "full_answer_s_p50": 4.440188199980184,
+        "full_answer_s_p95": 7.944872399995802,
+        "estimated_answer_cost_usd": 0.0519
+      },
+      "by_category": {
+        "engagement": {
+          "questions": 1,
+          "errors": 0,
+          "judged": 1,
+          "correctness": 1.0,
+          "correct_rate": 1.0,
+          "answer_relevance": 1.0,
+          "judge_skipped": 0,
+          "faithfulness_macro": 0.25,
+          "faithfulness_micro": 0.25,
+          "citation_precision": 1.0,
+          "access_leak_rate": 0.0,
+          "cross_engagement_leak_rate": 0.0,
+          "content_leak_rate": null,
+          "status_counts": {
+            "answered": 1
+          },
+          "ttft_measured": 1,
+          "ttft_s_p50": 1.7998446999990847,
+          "ttft_s_p95": 1.7998446999990847,
+          "full_answer_s_p50": 4.811699000012595,
+          "full_answer_s_p95": 4.811699000012595,
+          "estimated_answer_cost_usd": 0.0105
+        },
+        "role_denied": {
+          "questions": 1,
+          "errors": 0,
+          "judged": 1,
+          "correctness": 1.0,
+          "correct_rate": 1.0,
+          "answer_relevance": 1.0,
+          "judge_skipped": 0,
+          "faithfulness_macro": 0.3333333333333333,
+          "faithfulness_micro": 0.3333333333333333,
+          "citation_precision": 1.0,
+          "access_leak_rate": 0.0,
+          "cross_engagement_leak_rate": 0.0,
+          "content_leak_rate": 0.0,
+          "status_counts": {
+            "answered": 1
+          },
+          "ttft_measured": 1,
+          "ttft_s_p50": 1.8084976999962237,
+          "ttft_s_p95": 1.8084976999962237,
+          "full_answer_s_p50": 4.2527615999861155,
+          "full_answer_s_p95": 4.2527615999861155,
+          "estimated_answer_cost_usd": 0.0079
+        },
+        "single_source": {
+          "questions": 1,
+          "errors": 0,
+          "judged": 1,
+          "correctness": 0.0,
+          "correct_rate": 0.0,
+          "answer_relevance": 1.0,
+          "judge_skipped": 0,
+          "faithfulness_macro": 0.5,
+          "faithfulness_micro": 0.5,
+          "citation_precision": 1.0,
+          "access_leak_rate": 0.0,
+          "cross_engagement_leak_rate": 0.0,
+          "content_leak_rate": null,
+          "status_counts": {
+            "answered": 1
+          },
+          "ttft_measured": 1,
+          "ttft_s_p50": 1.833146199991461,
+          "ttft_s_p95": 1.833146199991461,
+          "full_answer_s_p50": 4.440188199980184,
+          "full_answer_s_p95": 4.440188199980184,
+          "estimated_answer_cost_usd": 0.0115
+        },
+        "standard": {
+          "questions": 1,
+          "errors": 0,
+          "judged": 1,
+          "correctness": 1.0,
+          "correct_rate": 1.0,
+          "answer_relevance": 1.0,
+          "judge_skipped": 0,
+          "faithfulness_macro": 0.625,
+          "faithfulness_micro": 0.625,
+          "citation_precision": 1.0,
+          "access_leak_rate": 0.0,
+          "cross_engagement_leak_rate": 0.0,
+          "content_leak_rate": null,
+          "status_counts": {
+            "answered": 1
+          },
+          "ttft_measured": 1,
+          "ttft_s_p50": 3.4095215999986976,
+          "ttft_s_p95": 3.4095215999986976,
+          "full_answer_s_p50": 7.944872399995802,
+          "full_answer_s_p95": 7.944872399995802,
+          "estimated_answer_cost_usd": 0.0159
+        },
+        "time_sensitive": {
+          "questions": 1,
+          "errors": 0,
+          "judged": 1,
+          "correctness": 1.0,
+          "correct_rate": 1.0,
+          "answer_relevance": 1.0,
+          "judge_skipped": 0,
+          "faithfulness_macro": 0.5,
+          "faithfulness_micro": 0.5,
+          "citation_precision": 1.0,
+          "access_leak_rate": 0.0,
+          "cross_engagement_leak_rate": 0.0,
+          "content_leak_rate": null,
+          "status_counts": {
+            "answered": 1
+          },
+          "ttft_measured": 1,
+          "ttft_s_p50": 2.3225118000118528,
+          "ttft_s_p95": 2.3225118000118528,
+          "full_answer_s_p50": 3.9587336000113282,
+          "full_answer_s_p95": 3.9587336000113282,
+          "estimated_answer_cost_usd": 0.0062
+        }
+      }
+    }
+  },
+  "estimated_judge_cost_usd": 0.1084,
+  "measured_spend_usd": 0.2793,
+  "measured_spend_sessions": 1
+}

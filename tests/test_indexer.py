@@ -111,7 +111,7 @@ def test_edit_is_reflected_in_both_indexes(env) -> None:
     assert indexer.index_path(path, actor="test") == "POL-1"
 
     ids = assert_in_step(indexer, "POL-1")
-    assert ids == {"POL-1:0001"}  # section 2 was removed: its old chunk must be gone
+    assert ids == {"POL-1:1:1"}  # section 2 was removed: its old chunk must be gone
     assert indexer.bm25.search("zebrawordone") == []          # old text gone from BM25
     hits = [cid for cid, _ in indexer.bm25.search("quokkaword")]
     assert hits and all(h.startswith("POL-1:") for h in hits)  # new text found
@@ -167,6 +167,28 @@ def test_superseded_flag_follows_the_links(env) -> None:
     path.unlink()
     indexer.remove_path(path, actor="test")
     assert {p["superseded"] for p in indexer.store.payloads("POL-1")} == {False}
+
+
+def test_superseded_refresh_touches_only_documents_whose_flag_is_wrong(env) -> None:
+    """M12c: a change to one document no longer rewrites the flag on every document (that
+    took minutes on the full embedded index); a superseded document that is re-indexed
+    (its new points start as False) is still corrected."""
+    root, indexer, _ = env
+    touched: list[str] = []
+    original = indexer.store.set_document_payload
+    indexer.store.set_document_payload = lambda doc_id, payload: (
+        touched.append(doc_id) if "superseded" in payload else None) or original(doc_id, payload)
+
+    _write_doc(root, "engagement/a/plan.md", "# Plan\n\n## 1. Risks\nInventory and payroll risk.")
+    indexer.sync(actor="test")
+    assert touched == []  # ENG-1 changed; no document's flag was wrong
+
+    _write_doc(root, "firm_policy/p1.md", "# File Policy\n\n## 1. Assembly\nAssemble within "
+               "sixty days, edited.\n\n## 2. Retention\nKeep seven years.")
+    indexer.sync(actor="test")
+    assert touched == ["POL-1"]  # re-indexed superseded document: its new points fixed
+    assert {p["superseded"] for p in indexer.store.payloads("POL-1")} == {True}
+    assert {p["superseded"] for p in indexer.store.payloads("POL-2")} == {False}
 
 
 # -------------------------------------------------------------- safety checks

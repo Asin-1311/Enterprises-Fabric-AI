@@ -8,6 +8,15 @@ test("numbers citations by first appearance and reuses numbers", () => {
   );
 });
 
+test("numbers stable chunk ids (M12b) alongside Phase 1 ids", () => {
+  const { markdown, order } = numberCitations(
+    "60 days [STD-CH06:1.9:1]. FAQ [FAQ-01:q-3f9a2c:2]. Old [POL-DOC-02:0003]. Again [STD-CH06:1.9:1].",
+  );
+  expect(order).toEqual(["STD-CH06:1.9:1", "FAQ-01:q-3f9a2c:2", "POL-DOC-02:0003"]);
+  expect(markdown).toContain("Again [1](#cite-STD-CH06%3A1.9%3A1).");
+  expect(citationIdFromHref("#cite-FAQ-01%3Aq-3f9a2c%3A2")).toBe("FAQ-01:q-3f9a2c:2");
+});
+
 test("leaves ordinary brackets alone", () => {
   expect(numberCitations("See [note] and [A:12].").markdown).toBe("See [note] and [A:12].");
 });

@@ -1,0 +1,4 @@
+{
+  "replay_tolerance": 0.02,
+  "embedding_model": "BAAI/bge-small-en-v1.5"
+}

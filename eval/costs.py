@@ -11,12 +11,23 @@ PRICES_USD_PER_MTOK: dict[str, tuple[float, float]] = {  # (input, output)
     "anthropic/claude-haiku-5.5": (0.10, 0.50),
     "anthropic/claude-sonnet-5.5": (2.00, 10.00),
     "anthropic/claude-opus-5.5": (4.00, 20.00),
+    # The evaluation judge (M18b), listed on OpenRouter on 2026-11-21.
+    "openai/gpt-5.6-terra": (2.00, 12.00),
 }
+
+
+def price_key(model: str) -> str:
+    """The price-list name of a model id: "claude-haiku-5-5" (direct API) and
+    "anthropic/claude-haiku-5.5" (OpenRouter) are the same model."""
+    if "/" in model:  # already a provider/model id (OpenRouter), e.g. the judge's
+        return model
+    name, _, minor = model.rpartition("-")
+    return f"anthropic/{name}.{minor}" if name else model
 
 
 def estimate_usd(model: str, tokens_in: int, tokens_out: int) -> float:
     """Estimated cost of one call (0 for an unknown model)."""
-    p_in, p_out = PRICES_USD_PER_MTOK.get(model, (0.0, 0.0))
+    p_in, p_out = PRICES_USD_PER_MTOK.get(price_key(model), (0.0, 0.0))
     return p_in * tokens_in / 1e6 + p_out * tokens_out / 1e6
 
 

@@ -23,69 +23,69 @@ text{font-family:system-ui,-apple-system,"Segoe UI",sans-serif}
 <line class="axis" x1="210.0" y1="88" x2="210.0" y2="304.0" stroke-width="1"/>
 <text class="muted" x="210.0" y="320.0" font-size="11" text-anchor="middle">0 s</text>
 <line class="grid" x1="306.0" y1="88" x2="306.0" y2="304.0" stroke-width="1"/>
-<text class="muted" x="306.0" y="320.0" font-size="11" text-anchor="middle">10 s</text>
+<text class="muted" x="306.0" y="320.0" font-size="11" text-anchor="middle">20 s</text>
 <line class="grid" x1="402.0" y1="88" x2="402.0" y2="304.0" stroke-width="1"/>
-<text class="muted" x="402.0" y="320.0" font-size="11" text-anchor="middle">20 s</text>
+<text class="muted" x="402.0" y="320.0" font-size="11" text-anchor="middle">40 s</text>
 <line class="grid" x1="498.0" y1="88" x2="498.0" y2="304.0" stroke-width="1"/>
-<text class="muted" x="498.0" y="320.0" font-size="11" text-anchor="middle">30 s</text>
+<text class="muted" x="498.0" y="320.0" font-size="11" text-anchor="middle">60 s</text>
 <line class="grid" x1="594.0" y1="88" x2="594.0" y2="304.0" stroke-width="1"/>
-<text class="muted" x="594.0" y="320.0" font-size="11" text-anchor="middle">40 s</text>
+<text class="muted" x="594.0" y="320.0" font-size="11" text-anchor="middle">80 s</text>
 <line class="grid" x1="690.0" y1="88" x2="690.0" y2="304.0" stroke-width="1"/>
-<text class="muted" x="690.0" y="320.0" font-size="11" text-anchor="middle">50 s</text>
+<text class="muted" x="690.0" y="320.0" font-size="11" text-anchor="middle">100 s</text>
 <text class="ink" x="198" y="115.0" font-size="12" text-anchor="end">First token p50</text>
 <g>
-<title>First token p50 - Full system: 28.6 s</title>
+<title>First token p50 - Full system: 37.0 s</title>
 <rect class="hit" x="210" y="95" width="480" height="16"/>
-<path class="s1" d="M210.0,96.0 H480.2 A4,4 0 0 1 484.2,100.0 V106.0 A4,4 0 0 1 480.2,110.0 H210.0 Z"/>
-<text class="ink2" x="490.2" y="107" font-size="11">28.6 s</text>
+<path class="s1" d="M210.0,96.0 H383.6 A4,4 0 0 1 387.6,100.0 V106.0 A4,4 0 0 1 383.6,110.0 H210.0 Z"/>
+<text class="ink2" x="393.6" y="107" font-size="11">37.0 s</text>
 </g>
 <g>
-<title>First token p50 - Baseline: 1.3 s</title>
+<title>First token p50 - Baseline: 2.6 s</title>
 <rect class="hit" x="210" y="111" width="480" height="16"/>
-<path class="s2" d="M210.0,112.0 H218.8 A4,4 0 0 1 222.8,116.0 V122.0 A4,4 0 0 1 218.8,126.0 H210.0 Z"/>
-<text class="ink2" x="228.8" y="123" font-size="11">1.3 s</text>
+<path class="s2" d="M210.0,112.0 H218.7 A4,4 0 0 1 222.7,116.0 V122.0 A4,4 0 0 1 218.7,126.0 H210.0 Z"/>
+<text class="ink2" x="228.7" y="123" font-size="11">2.6 s</text>
 </g>
 <text class="ink" x="198" y="177.0" font-size="12" text-anchor="end">First token p95</text>
 <g>
-<title>First token p95 - Full system: 46.1 s</title>
+<title>First token p95 - Full system: 73.3 s</title>
 <rect class="hit" x="210" y="157" width="480" height="16"/>
-<path class="s1" d="M210.0,158.0 H648.6 A4,4 0 0 1 652.6,162.0 V168.0 A4,4 0 0 1 648.6,172.0 H210.0 Z"/>
-<text class="ink2" x="658.6" y="169" font-size="11">46.1 s</text>
+<path class="s1" d="M210.0,158.0 H558.0 A4,4 0 0 1 562.0,162.0 V168.0 A4,4 0 0 1 558.0,172.0 H210.0 Z"/>
+<text class="ink2" x="568.0" y="169" font-size="11">73.3 s</text>
 </g>
 <g>
-<title>First token p95 - Baseline: 1.9 s</title>
+<title>First token p95 - Baseline: 4.9 s</title>
 <rect class="hit" x="210" y="173" width="480" height="16"/>
-<path class="s2" d="M210.0,174.0 H223.8 A4,4 0 0 1 227.8,178.0 V184.0 A4,4 0 0 1 223.8,188.0 H210.0 Z"/>
-<text class="ink2" x="233.8" y="185" font-size="11">1.9 s</text>
+<path class="s2" d="M210.0,174.0 H229.5 A4,4 0 0 1 233.5,178.0 V184.0 A4,4 0 0 1 229.5,188.0 H210.0 Z"/>
+<text class="ink2" x="239.5" y="185" font-size="11">4.9 s</text>
 </g>
-<line class="target" x1="224.4" y1="152" x2="224.4" y2="191" stroke-width="1.5" stroke-dasharray="4 3"/>
-<text class="ink" x="228.4" y="154" font-size="11">target 1.5 s</text>
+<line class="target" x1="217.2" y1="152" x2="217.2" y2="191" stroke-width="1.5" stroke-dasharray="4 3"/>
+<text class="ink" x="221.2" y="154" font-size="11">target 1.5 s</text>
 <text class="ink" x="198" y="225.0" font-size="12" text-anchor="end">Full answer p50</text>
 <g>
-<title>Full answer p50 - Full system: 28.6 s</title>
+<title>Full answer p50 - Full system: 44.0 s</title>
 <rect class="hit" x="210" y="205" width="480" height="16"/>
-<path class="s1" d="M210.0,206.0 H480.2 A4,4 0 0 1 484.2,210.0 V216.0 A4,4 0 0 1 480.2,220.0 H210.0 Z"/>
-<text class="ink2" x="490.2" y="217" font-size="11">28.6 s</text>
+<path class="s1" d="M210.0,206.0 H417.1 A4,4 0 0 1 421.1,210.0 V216.0 A4,4 0 0 1 417.1,220.0 H210.0 Z"/>
+<text class="ink2" x="427.1" y="217" font-size="11">44.0 s</text>
 </g>
 <g>
-<title>Full answer p50 - Baseline: 4.1 s</title>
+<title>Full answer p50 - Baseline: 4.8 s</title>
 <rect class="hit" x="210" y="221" width="480" height="16"/>
-<path class="s2" d="M210.0,222.0 H245.1 A4,4 0 0 1 249.1,226.0 V232.0 A4,4 0 0 1 245.1,236.0 H210.0 Z"/>
-<text class="ink2" x="255.1" y="233" font-size="11">4.1 s</text>
+<path class="s2" d="M210.0,222.0 H229.0 A4,4 0 0 1 233.0,226.0 V232.0 A4,4 0 0 1 229.0,236.0 H210.0 Z"/>
+<text class="ink2" x="239.0" y="233" font-size="11">4.8 s</text>
 </g>
 <text class="ink" x="198" y="287.0" font-size="12" text-anchor="end">Full answer p95</text>
 <g>
-<title>Full answer p95 - Full system: 46.1 s</title>
+<title>Full answer p95 - Full system: 87.7 s</title>
 <rect class="hit" x="210" y="267" width="480" height="16"/>
-<path class="s1" d="M210.0,268.0 H648.6 A4,4 0 0 1 652.6,272.0 V278.0 A4,4 0 0 1 648.6,282.0 H210.0 Z"/>
-<text class="ink2" x="658.6" y="279" font-size="11">46.1 s</text>
+<path class="s1" d="M210.0,268.0 H627.1 A4,4 0 0 1 631.1,272.0 V278.0 A4,4 0 0 1 627.1,282.0 H210.0 Z"/>
+<text class="ink2" x="637.1" y="279" font-size="11">87.7 s</text>
 </g>
 <g>
-<title>Full answer p95 - Baseline: 7.0 s</title>
+<title>Full answer p95 - Baseline: 7.6 s</title>
 <rect class="hit" x="210" y="283" width="480" height="16"/>
-<path class="s2" d="M210.0,284.0 H273.6 A4,4 0 0 1 277.6,288.0 V294.0 A4,4 0 0 1 273.6,298.0 H210.0 Z"/>
-<text class="ink2" x="294.8" y="295" font-size="11">7.0 s</text>
+<path class="s2" d="M210.0,284.0 H242.4 A4,4 0 0 1 246.4,288.0 V294.0 A4,4 0 0 1 242.4,298.0 H210.0 Z"/>
+<text class="ink2" x="256.4" y="295" font-size="11">7.6 s</text>
 </g>
-<line class="target" x1="286.8" y1="262" x2="286.8" y2="301" stroke-width="1.5" stroke-dasharray="4 3"/>
-<text class="ink" x="290.8" y="264" font-size="11">target 8.0 s</text>
+<line class="target" x1="248.4" y1="262" x2="248.4" y2="301" stroke-width="1.5" stroke-dasharray="4 3"/>
+<text class="ink" x="252.4" y="264" font-size="11">target 8.0 s</text>
 </svg>

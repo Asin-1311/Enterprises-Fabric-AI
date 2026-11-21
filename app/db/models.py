@@ -2,7 +2,12 @@
 
 Tables: users, engagements, engagement_members, documents, chunks, queries,
 traces, answers, citations, feedback, audit_log; plus auth_sessions and
-password_resets for sign-in (added 2026-11-14 at the author's request).
+password_resets for sign-in (added 2026-11-14 at the author's request); plus, for
+Phase 2 (M11, CLAUDE.md section 9): sources, retrievals, routing_policies,
+prompt_versions and feedback_signals, and new columns on several tables.
+
+New columns that existing rows need get a server-side default, so an older database
+upgrades in place (SQLite through init_db, PostgreSQL through Alembic migration 0002).
 
 `audit_log` is append-only: an ORM event hook raises if any code tries to
 update or delete an existing row, and no update/delete helpers exist for it.
@@ -11,13 +16,18 @@ update or delete an existing row, and no update/delete helpers exist for it.
 from datetime import datetime, timezone
 
 from sqlalchemy import (
+    JSON,
+    Boolean,
     DateTime,
     Float,
     ForeignKey,
     Integer,
     String,
     Text,
+    UniqueConstraint,
     event,
+    false,
+    true,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -45,6 +55,8 @@ class User(Base):
     synthetic: Mapped[bool] = mapped_column(default=True)
     email: Mapped[str | None] = mapped_column(String, nullable=True, unique=True)  # lower case
     password_hash: Mapped[str | None] = mapped_column(String, nullable=True)
+    # Admin console and source management (M11). Grants NO extra document access.
+    is_admin: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
 
 
 class AuthSession(Base):
@@ -112,6 +124,16 @@ class Document(Base):
     synthetic: Mapped[bool] = mapped_column(default=True)
     content_hash: Mapped[str | None] = mapped_column(String, nullable=True)
     indexed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # M11: where the document came from, and enrichment fields (filled by M12).
+    source_id: Mapped[str | None] = mapped_column(ForeignKey("sources.id"), nullable=True,
+                                                  index=True)
+    uri: Mapped[str | None] = mapped_column(String, nullable=True)
+    owner: Mapped[str | None] = mapped_column(String, nullable=True)
+    classification: Mapped[str | None] = mapped_column(String, nullable=True)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # M16c: the classification before any classification policy; `classification` is the
+    # strictest of this and every active policy that matches the document.
+    base_classification: Mapped[str | None] = mapped_column(String, nullable=True)
 
 
 class Chunk(Base):
@@ -132,6 +154,13 @@ class Chunk(Base):
     page_start: Mapped[int | None] = mapped_column(Integer, nullable=True)
     page_end: Mapped[int | None] = mapped_column(Integer, nullable=True)
     sa_refs: Mapped[str | None] = mapped_column(String, nullable=True)  # comma-separated
+    # M11/M12b: chunk-level incremental updates and chunking profiles.
+    content_hash: Mapped[str | None] = mapped_column(String, nullable=True)  # SHA-256 of text
+    chunking_profile: Mapped[str | None] = mapped_column(String, nullable=True)  # "faq@1:400/50"
+    embedding_ref: Mapped[str | None] = mapped_column(String, nullable=True)  # embedding model
+    # M12b: the Phase 1 position id ("STD-CH06:0004") this chunk had before stable ids, so
+    # citations in answers written before M12b still resolve. None for newer chunks.
+    legacy_chunk_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
 
 
 class Query(Base):
@@ -144,6 +173,8 @@ class Query(Base):
     text: Mapped[str] = mapped_column(Text)
     intent: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+    # M11: instruction-like patterns found in the question (app/security/injection.py).
+    injection_hits: Mapped[list | None] = mapped_column(JSON, nullable=True)
 
 
 class Trace(Base):
@@ -161,6 +192,12 @@ class Trace(Base):
     tokens_in: Mapped[int | None] = mapped_column(Integer, nullable=True)
     tokens_out: Mapped[int | None] = mapped_column(Integer, nullable=True)
     latency_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # M11: which prompt and routing policy produced this step, and when.
+    prompt_version_id: Mapped[int | None] = mapped_column(ForeignKey("prompt_versions.id"),
+                                                          nullable=True)
+    policy_version_id: Mapped[int | None] = mapped_column(ForeignKey("routing_policies.id"),
+                                                          nullable=True)
+    created_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=utc_now)
 
 
 class Answer(Base):
@@ -173,20 +210,28 @@ class Answer(Base):
     text: Mapped[str] = mapped_column(Text)
     confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     status: Mapped[str] = mapped_column(String)
+    # M11 columns, used from M14/M15: verification reduced under load; claims that the NLI
+    # model contradicted but the LLM verifier accepted ("check this point").
+    degraded: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
+    flagged_claims: Mapped[list | None] = mapped_column(JSON, nullable=True)
 
 
 class Citation(Base):
-    """A chunk cited by an answer."""
+    """A chunk cited by an answer, with the character span of the supporting text in the
+    chunk's text (M11; None when it could not be located)."""
 
     __tablename__ = "citations"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     answer_id: Mapped[int] = mapped_column(ForeignKey("answers.id"), index=True)
     chunk_id: Mapped[str] = mapped_column(String)
+    span_start: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    span_end: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 
 class Feedback(Base):
-    """User feedback on an answer (stored only; no learning loop)."""
+    """User feedback on an answer. Since M15b it feeds the routing bandit's rewards
+    (app/adaptive/routing_policy.py): "not helpful" within 24 hours makes an answer a failure."""
 
     __tablename__ = "feedback"
 
@@ -195,6 +240,117 @@ class Feedback(Base):
     user_id: Mapped[str] = mapped_column(ForeignKey("users.user_id"))
     rating: Mapped[str] = mapped_column(String)  # 'helpful' | 'not_helpful'
     correction: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=utc_now)  # M15b
+
+
+class Source(Base):
+    """A registered place documents come from (folder, Git repo, bucket, ...; M11).
+
+    connector_config holds settings only: secrets are referenced (e.g. "env:NAME"), never
+    stored (app/api/admin.py refuses them)."""
+
+    __tablename__ = "sources"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)  # e.g. "fs-firm_policy"
+    type: Mapped[str] = mapped_column(String)  # filesystem | git | s3 | webhook | ...
+    connector_config: Mapped[dict] = mapped_column(JSON)
+    owner: Mapped[str | None] = mapped_column(String, nullable=True)
+    classification: Mapped[str] = mapped_column(String)  # public_internal | confidential | restricted
+    status: Mapped[str] = mapped_column(String)  # active | paused
+    last_event_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+    # M12c: what a polling connector saw last time (item -> version token), when it last
+    # polled, and its last error. Written by app/connectors/runner.py only.
+    sync_state: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+
+class Retrieval(Base):
+    """One search inside answering a question: per sub-query and method (dense, keyword)
+    the raw scores and ranks, and for the fused list every multiplier and weight applied
+    (M11; audit finding R-8-record)."""
+
+    __tablename__ = "retrievals"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    query_id: Mapped[int] = mapped_column(ForeignKey("queries.id"), index=True)
+    sub_query: Mapped[str] = mapped_column(Text)  # masked
+    source_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    method: Mapped[str] = mapped_column(String)  # dense | keyword | fused
+    scores: Mapped[list] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+
+
+class RoutingPolicy(Base):
+    """A version of the source-routing policy. Exactly one is active. A new version can be
+    activated only with a passing replay report (CLAUDE.md section 13.3)."""
+
+    __tablename__ = "routing_policies"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    version: Mapped[int] = mapped_column(Integer, unique=True)
+    weights: Mapped[dict] = mapped_column(JSON)
+    created_by: Mapped[str] = mapped_column(String)
+    eval_report: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    activated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
+
+
+class PromptVersion(Base):
+    """A version of one agent's prompt. Exactly one per agent is active."""
+
+    __tablename__ = "prompt_versions"
+    __table_args__ = (UniqueConstraint("agent", "version"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    agent: Mapped[str] = mapped_column(String)
+    version: Mapped[int] = mapped_column(Integer)
+    template: Mapped[str] = mapped_column(Text)
+    eval_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    eval_report: Mapped[dict | None] = mapped_column(JSON, nullable=True)  # replay (M15c)
+    created_by: Mapped[str] = mapped_column(String)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+    activated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
+
+
+class FeedbackSignal(Base):
+    """An implicit signal from the UI (copy, citation click, follow-up, rephrase)."""
+
+    __tablename__ = "feedback_signals"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    answer_id: Mapped[int] = mapped_column(ForeignKey("answers.id"), index=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.user_id"))
+    kind: Mapped[str] = mapped_column(String)  # copy | citation_click | follow_up | rephrase
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+
+
+class ClassificationPolicy(Base):
+    """An administrator's rule: documents of a source type, or whose path matches a glob,
+    are at least `classification` (M16c; spec 7.10). Rules only ever make documents
+    stricter; a document's own classification is never lowered by a rule."""
+
+    __tablename__ = "classification_policies"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    match: Mapped[str] = mapped_column(String)  # source_type | path
+    pattern: Mapped[str] = mapped_column(String)  # a source type, or a glob such as "engagement/*"
+    classification: Mapped[str] = mapped_column(String)  # confidential | restricted
+    active: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true())
+    created_by: Mapped[str] = mapped_column(String)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+    deactivated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class IndexState(Base):
+    """One row: the index version, raised after every write to the indexes (M16a). The
+    response cache puts it in its key, so any index change makes older answers unusable."""
+
+    __tablename__ = "index_state"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    version: Mapped[int] = mapped_column(Integer, default=0)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
 class AuditLog(Base):

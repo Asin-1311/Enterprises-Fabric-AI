@@ -11,6 +11,7 @@ from sqlalchemy import select
 from app.agents.graph import AgentDeps, AuditAssistant
 from app.agents.query import ClientMatcher
 from app.agents.synthesizer import JUDGEMENT_NOTE, NOT_AVAILABLE_MESSAGE
+from app.concurrency import ReadWriteLock
 from app.api.main import Services, create_app, stream_pieces
 from app.db.models import AuditLog, Feedback, User
 from app.security.passwords import verify_password
@@ -22,10 +23,12 @@ _tokens: dict[str, str] = {}
 
 
 def with_emails(users_csv: str) -> str:
-    """Add an email column (<id>@test.example) to a users.csv text."""
+    """Add email (<id>@test.example) and is_admin columns to a users.csv text, plus an
+    administrator A1: role staff, no engagements, admin flag (M11)."""
     lines = users_csv.strip().splitlines()
-    rows = [lines[0] + ",email"] + [f"{line},{line.split(',')[0].lower()}@test.example"
-                                    for line in lines[1:]]
+    rows = [lines[0] + ",email,is_admin"] + [
+        f"{line},{line.split(',')[0].lower()}@test.example,false" for line in lines[1:]]
+    rows.append("A1,Admin A,staff,true,a1@test.example,true")
     return "\n".join(rows) + "\n"
 
 
@@ -74,11 +77,12 @@ def client(tmp_path_factory: pytest.TempPathFactory):
     _tokens.clear()
     results = root / "eval_results"
     # The API sets the demo password for these synthetic users at start-up (real path).
-    settings = _settings().model_copy(update={"eval_results_dir": results, "demo_password": PASSWORD})
+    settings = _settings().model_copy(update={"eval_results_dir": results, "demo_password": PASSWORD,
+                                              "auth_rate_per_minute": 1000})
     assistant = AuditAssistant(AgentDeps(
         settings=settings, llm=FakeLLM(), searcher=make_searcher(indexer, top_k=20),
         reranker=FakeReranker(), sessions=indexer.sessions, clients=clients))
-    services = Services(settings, assistant, indexer, threading.RLock())
+    services = Services(settings, assistant, indexer, ReadWriteLock())
     with TestClient(create_app(services)) as c:
         c.results_dir = results  # type: ignore[attr-defined]
         c.indexer = indexer  # type: ignore[attr-defined]
@@ -99,8 +103,10 @@ def test_query_streams_progress_then_verified_answer_then_final(client) -> None:
     kinds = [k for k, _ in events]
     assert kinds[0] == "progress" and kinds[-1] == "final"
     first_token = kinds.index("token")
-    assert all(k == "progress" for k in kinds[:first_token])  # tokens only after verification
-    assert "verifying" in [d["step"] for k, d in events[:first_token]]
+    # Verified text only after verification. Before it, since M14b (CLAUDE.md sections 10
+    # and 11, replacing the M6 verified-only choice): the draft and the claim verdicts.
+    assert set(kinds[:first_token]) <= {"progress", "draft_token", "claim_verdict"}
+    assert "verifying" in [d["step"] for k, d in events[:first_token] if k == "progress"]
     final = events[-1][1]
     streamed = "".join(d["text"] for k, d in events if k == "token")
     assert streamed == final["text"] and final["text"].endswith(JUDGEMENT_NOTE)
@@ -109,6 +115,34 @@ def test_query_streams_progress_then_verified_answer_then_final(client) -> None:
     cite = final["citations"][0]
     assert cite["preview"] and cite["title"].endswith("title")
     assert "File Policy" not in cite["preview"].split(" ")[0]  # heading line stripped
+
+
+def test_two_questions_are_answered_at_the_same_time(client, monkeypatch) -> None:
+    """Covers: R-5-par. No global query lock: both questions are inside the assistant at
+    once. (Phase 1's lock made the second wait, so the barrier would time out.)"""
+    svc = client.app.state.services
+    both_inside = threading.Barrier(2, timeout=10)
+    real_ask = svc.assistant.ask
+
+    def ask_together(*args, **kwargs):
+        both_inside.wait()
+        return real_ask(*args, **kwargs)
+
+    monkeypatch.setattr(svc.assistant, "ask", ask_together)
+    headers = {u: as_user(client, u) for u in ("S1", "P1")}  # sign in before the race
+    finals: dict[str, str] = {}
+
+    def one(user: str) -> None:
+        events = parse_sse(client.post("/api/v1/query", json={"text": QUESTION},
+                                       headers=headers[user]).text)
+        finals[user] = events[-1][0]
+
+    threads = [threading.Thread(target=one, args=(u,)) for u in headers]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=30)
+    assert finals == {"S1": "final", "P1": "final"}
 
 
 def test_denied_query_streams_generic_message(client) -> None:
@@ -167,12 +201,43 @@ def test_history_is_personal_newest_first_and_reopens_the_same_answer(client) ->
     assert client.get("/api/v1/history/999999", headers=as_user(client, "S1")).status_code == 404
 
 
+def test_answers_citing_phase1_chunk_ids_still_open_their_sources(client) -> None:
+    """M12b: an answer written before stable chunk ids cites "<doc>:0003"; the API resolves
+    it through legacy_chunk_id to the chunk with the same text."""
+    from app.db.models import Chunk, Citation
+
+    original = ask(client, QUESTION, "S1")[-1][1]
+    cited = original["citations"][0]
+    assert cited["chunk_id"].count(":") == 2  # new answers cite stable ids
+    old_id = f"{cited['doc_id']}:0003"
+    with client.app.state.services.indexer.sessions() as s:
+        s.get(Chunk, cited["chunk_id"]).legacy_chunk_id = old_id
+        for row in s.scalars(select(Citation).where(Citation.answer_id == original["answer_id"],
+                                                    Citation.chunk_id == cited["chunk_id"])):
+            row.chunk_id = old_id  # as a Phase 1 answer stored it
+        s.commit()
+
+    reopened = client.get(f"/api/v1/history/{original['query_id']}",
+                          headers=as_user(client, "S1")).json()
+    old = next(c for c in reopened["citations"] if c["chunk_id"] == old_id)
+    assert {k: v for k, v in old.items() if k != "chunk_id"} == \
+        {k: v for k, v in cited.items() if k != "chunk_id"}
+
+
 def test_traces_are_partner_only(client) -> None:
     query_id = ask(client, QUESTION, "S1")[-1][1]["query_id"]
     assert client.get(f"/api/v1/traces/{query_id}", headers=as_user(client, "S1")).status_code == 403
     rows = client.get(f"/api/v1/traces/{query_id}", headers=as_user(client, "P1")).json()
     assert [r["agent"] for r in rows][:2] == ["query_understanding", "source_routing"]
     assert rows[0]["model"] == "fake-light" and isinstance(rows[0]["output"], dict)
+    assert not any(r["content_hidden"] for r in rows)
+    # Administrators may inspect traces too (CLAUDE.md section 10), but an admin who is not a
+    # partner sees how each step ran, not the document text or drafts inside it.
+    admin_rows = client.get(f"/api/v1/traces/{query_id}", headers=as_user(client, "A1")).json()
+    assert [r["agent"] for r in admin_rows] == [r["agent"] for r in rows]
+    assert all(r["content_hidden"] and r["input"] is None and r["output"] is None
+               for r in admin_rows)
+    assert admin_rows[0]["model"] == "fake-light" and admin_rows[0]["policy_version_id"]
 
 
 def test_feedback_is_stored_masked(client) -> None:
@@ -195,12 +260,16 @@ def test_feedback_is_stored_masked(client) -> None:
                        headers=as_user(client, "S2")).status_code == 404
 
 
-def test_reindex_is_partner_only_and_logged(client) -> None:
-    assert client.post("/api/v1/documents/reindex", headers=as_user(client, "S1")).status_code == 403
-    r = client.post("/api/v1/documents/reindex", headers=as_user(client, "P1"))
-    assert r.status_code == 200 and r.json()["unchanged"] == len(DOCS)
+def test_reindex_is_admin_only_and_logged(client) -> None:
+    """Re-indexing is an administrative action (M11): not even a partner may do it."""
+    everything = {"all": True}
+    for user in ("S1", "P1"):
+        r = client.post("/api/v1/documents/reindex", json=everything, headers=as_user(client, user))
+        assert r.status_code == 403
+    r = client.post("/api/v1/documents/reindex", json=everything, headers=as_user(client, "A1"))
+    assert r.status_code == 200 and r.json()["unchanged"] == len(DOCS) and r.json()["scope"] == "all"
     with client.indexer.sessions() as s:
-        actions = [a.action for a in s.scalars(select(AuditLog).where(AuditLog.actor == "P1"))]
+        actions = [a.action for a in s.scalars(select(AuditLog).where(AuditLog.actor == "A1"))]
     assert "manual_reindex_requested" in actions
 
 
@@ -217,15 +286,34 @@ def test_sources_status(client) -> None:
     assert rows["engagement"]["last_indexed_at"]
 
 
-def test_metrics_quality_reads_latest_results_file_only(client) -> None:
+def test_metrics_quality_reads_saved_quality_runs_in_a_window(client) -> None:
+    """Covers: R-10-metrics. Only retrieval/answers runs, filtered by from/to; calibration
+    and known-invalid runs are never returned; values are copied, never computed."""
     s1 = as_user(client, "S1")
     assert client.get("/api/v1/metrics/quality", headers=s1).status_code == 404
-    for name, value in [("20260101-000000_retrieval", 0.1), ("20260202-000000_retrieval", 0.9)]:
+    for name, value in [("20260101-000000_retrieval", 0.1), ("20260202-000000_retrieval", 0.9),
+                        ("20260203-000000_answers", 0.7), ("20260204-000000_calibration", 0.5),
+                        ("20261107-125802_retrieval", 0.0)]:  # the known-invalid run
         run = client.results_dir / name
         run.mkdir(parents=True)
-        (run / "metrics.json").write_text(json.dumps({"recall@5": value}), encoding="utf-8")
-    body = client.get("/api/v1/metrics/quality", headers=s1).json()
-    assert body == {"run": "20260202-000000_retrieval", "metrics": {"recall@5": 0.9}}
+        (run / "metrics.json").write_text(json.dumps({"value": value}), encoding="utf-8")
+
+    def runs(**params) -> list[tuple[str, float]]:
+        body = client.get("/api/v1/metrics/quality", headers=s1, params=params).json()
+        return [(r["run"], r["metrics"]["value"]) for r in body["runs"]]
+
+    assert runs() == [("20260202-000000_retrieval", 0.9), ("20260203-000000_answers", 0.7)]
+    assert runs(**{"from": "2026-01-01", "to": "2026-01-31"}) == [("20260101-000000_retrieval", 0.1)]
+    assert runs(**{"from": "2026-02-02"}) == [("20260203-000000_answers", 0.7),
+                                             ("20260202-000000_retrieval", 0.9)]
+    assert runs(to="2026-02-02") == [("20260202-000000_retrieval", 0.9),
+                                     ("20260101-000000_retrieval", 0.1)]  # bare date = whole day
+    bad = client.get("/api/v1/metrics/quality", headers=s1, params={"from": "last week"})
+    assert bad.status_code == 422
+    backwards = {"from": "2026-03-01", "to": "2026-01-01"}
+    assert client.get("/api/v1/metrics/quality", headers=s1, params=backwards).status_code == 422
+    empty = {"from": "2030-01-01"}
+    assert client.get("/api/v1/metrics/quality", headers=s1, params=empty).status_code == 404
 
 
 def test_users_endpoint_is_partner_only(client) -> None:
@@ -241,3 +329,39 @@ def test_users_endpoint_is_partner_only(client) -> None:
 def test_stream_pieces_rejoin_exactly() -> None:
     text = "Line one [A:0001].\n\n- point two\n_note_"
     assert "".join(stream_pieces(text)) == text
+
+
+def test_errors_shown_to_clients_are_generic_with_a_reference(client, monkeypatch, caplog) -> None:
+    """Audit finding (M9): no internal details in client-visible errors; the details are
+    in the server log under the same reference."""
+    import logging
+
+    svc = client.app.state.services
+
+    def broken_ask(*args, **kwargs):
+        raise RuntimeError("secret detail: C:/internal/fabric.db is locked")
+
+    monkeypatch.setattr(svc.assistant, "ask", broken_ask)
+    caplog.set_level(logging.ERROR, logger="uvicorn.error")
+    kind, data = ask(client, QUESTION, "S1")[-1]
+    assert kind == "error"
+    assert "secret detail" not in data["message"] and "RuntimeError" not in data["message"]
+    assert data["reference"] in data["message"]
+    assert data["reference"] in caplog.text and "secret detail" in caplog.text
+
+
+def test_unhandled_route_errors_are_generic(tmp_path, caplog) -> None:
+    import logging
+
+    app = create_app(services=None, static_dir=None)
+
+    def boom() -> dict:
+        raise ZeroDivisionError("internal path /srv/secret")
+
+    app.add_api_route("/api/v1/boom", boom)
+    caplog.set_level(logging.ERROR, logger="uvicorn.error")
+    r = TestClient(app, raise_server_exceptions=False).get("/api/v1/boom")
+    assert r.status_code == 500
+    body = r.json()
+    assert "internal path" not in body["detail"] and "ZeroDivisionError" not in body["detail"]
+    assert body["reference"] in body["detail"] and body["reference"] in caplog.text
