@@ -702,8 +702,14 @@ def build_assistant(settings: Settings) -> AuditAssistant:
         clients = ClientMatcher.from_db(s)
     # Every request goes through the model router: restricted text reaches only the
     # private model (PRIVATE_MODEL on Ollama), or nothing if none is configured (M13a).
-    private = OllamaLLM(settings.private_model, settings.ollama_url) if settings.private_model else None
-    llm = ModelRouter(LLM(make_client(settings), settings), private)
+    if settings.llm_mode == "mock":  # M17b: deployment smoke tests and CI; no key, no cost
+        from app.agents.mock_llm import MockLLM
+
+        log.warning("LLM_MODE=mock: answers are extractive stand-ins, not model output.")
+        llm = ModelRouter(MockLLM(), MockLLM("mock-private"))
+    else:
+        private = OllamaLLM(settings.private_model, settings.ollama_url) if settings.private_model else None
+        llm = ModelRouter(LLM(make_client(settings), settings), private)
     from app.agents.nli import CrossEncoderNli
 
     nli = CrossEncoderNli(settings.nli_model) if settings.nli_model else None

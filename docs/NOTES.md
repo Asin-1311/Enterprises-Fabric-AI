@@ -3238,3 +3238,141 @@ Branch `m17a-observability`, made from `phase2` after M16c was merged.
   - frontend: 47 passed;
   - `check_compliance.py --run --run-integration`: passes.
 - **On the way:** the OpenAPI snapshot gained the performance figures' `source` field.
+
+## M17b — Container images, mock model mode and the Helm chart on kind (2026-11-21)
+
+### What was built
+- **Three container images** (`deploy/docker/`):
+  - `api` and `worker` come from one Dockerfile (`app.Dockerfile`, two targets), because
+    they run the same code. The base is `python:3.13.18-slim-trixie` with CPU-only
+    PyTorch.
+  - The image holds the embedding, re-ranking and NLI models at the exact revisions used
+    on the laptop (`deploy/docker/fetch_models.py`). At build time each model is loaded
+    once offline, so a broken model cache fails the build, not a pod.
+  - The containers run with `HF_HUB_OFFLINE=1`: a pod never downloads anything.
+  - `frontend` is a two-stage build: `npm ci` plus the Vite build, served by an
+    unprivileged nginx on port 8080. Nginx forwards `/api/` with buffering off, so the
+    Server-Sent Events stream through, and answers client routes such as `/admin` with
+    `index.html`. `/metrics` is not forwarded, so it stays internal.
+  - All three run as non-root users, have health checks and use pinned base images.
+  - `.dockerignore` keeps out `.env`, local databases and indexes, the licensed ICAI
+    chapters (`data/corpus/standards/`, `*.pdf`), learning data, `.git`, tests and docs.
+    Only the committed SYNTHETIC corpus goes in.
+- **`LLM_MODE=mock`** (`app/agents/mock_llm.py`): a deterministic stand-in for the model.
+  - Synthesis copies one retrieved sentence with its real citation, behind a visible note
+    "[Mock model: retrieval and citations are real, the wording is not AI-generated.]".
+    The verifier accepts cited claims.
+  - Everything else is real: retrieval, re-ranking, NLI, access control, the verification
+    pipeline and the API. Deployment checks and CI therefore exercise the whole system
+    without an API key or a paid call.
+  - `LLM_MODE=live` stays the default and still requires a key.
+- **Helm chart** `deploy/helm/enterprise-fabric/`, covering the API, the worker and the
+  frontend:
+  - a ConfigMap and a Secret; an existing Secret can be referenced instead;
+  - startup, readiness and liveness probes;
+  - resource limits;
+  - an HPA for the API;
+  - a read-only root filesystem with every Linux capability dropped;
+  - a `helm test` smoke-test pod.
+- **Two chart profiles:**
+  - `lite` (the default) is a self-contained demo: one API pod indexes the synthetic
+    corpus in an init container.
+  - `full` points at external, operator-managed Qdrant, OpenSearch, Kafka, PostgreSQL and
+    Redis, as the spec says, and adds the worker.
+- **The chart refuses unsafe combinations:**
+  - lite with more than one replica or an HPA (lite keeps its state in the pod);
+  - full without its servers;
+  - a worker in lite.
+- **Smoke test** (`scripts/smoke_deploy.py`): health, Prometheus metrics, sign-in, then
+  one question that must come back answered with a citation and a confidence. The same
+  script runs from the laptop, inside the cluster through `helm test`, and in CI.
+- **`scripts/kind_smoke.py`** runs the whole check:
+  1. creates the kind cluster;
+  2. loads the images;
+  3. runs `helm lint` and `helm upgrade --install`, with a random demo password that is
+     never printed;
+  4. runs `helm test`.
+
+  M17c's CI will run it.
+
+### Problems found and fixed
+- **The first image would not start offline.** It failed with "couldn't connect to
+  huggingface.co".
+  - Cause: downloading a model by revision does not record which revision is `main`, and
+    the app asks for the models by name.
+  - Fix: `fetch_models.py` writes `refs/main` and then loads every model offline during
+    the build.
+- **The model weights were downloaded in every format.** Only the files the app loads are
+  fetched now, with one safetensors copy.
+- **Three small cache files were readable only by root.** The hub wrote its tree-cache
+  JSON files that way, which gave harmless warnings for the app user. Only those three
+  files are made readable: a `chmod` over the whole model folder would copy 1.5 GB of
+  weights into a new image layer.
+- **`.dockerignore` excluded `deploy/`,** including the nginx template. `deploy/docker/`
+  is now re-included.
+- **`npm ci` failed once after 35 minutes with ECONNRESET** on the laptop's connection.
+  npm now retries fetches.
+
+### Why it matters
+- The system can now be built, shipped and installed the way the spec describes:
+  containers, Kubernetes and Helm.
+- The images are safe by construction. They contain no secrets and no licensed ICAI
+  text, run as non-root on a read-only filesystem, and never contact the internet at run
+  time.
+
+### Likely viva questions
+- *Why is the API image about 6 GB on disk?*
+  - The content is 2.09 GB compressed: CPU PyTorch (about 0.75 GB), the three models
+    (about 1.5 GB) and the Python dependencies.
+  - Baking the models in is deliberate: pods start offline and identically every time.
+  - Possible trim later: the Streamlit fallback's dependencies (about 0.3 GB) could go to
+    a separate image.
+- *Is the mock mode cheating?* No.
+  - It is off by default and announces itself in every answer and in the logs.
+  - It replaces only the wording; retrieval, citations, access control and verification
+    all run for real.
+  - It exists so deployment tests need no paid model calls. No evaluation number is ever
+    produced with it.
+- *Why only one replica in lite?* Lite keeps SQLite and embedded Qdrant inside the pod, so
+  replicas would disagree. Horizontal scaling is the full profile, with external stores;
+  the chart refuses the unsafe combination.
+- *Where are PostgreSQL, Kafka and the other stateful services in the chart?* Referenced
+  as external or operator-managed services, as spec Section 14 says. Running databases
+  well on Kubernetes is an operator's job, not an application chart's.
+
+### Status
+- **Advanced, still Partial:**
+  - R-14: images, Helm and kind are done; CI/CD with scans and gates is M17c.
+  - R-6-stack: Docker, Kubernetes and Helm now run and are tested. What remains for Met
+    is an automated test of the Prefect deployment.
+- **COMPLIANCE.md:** 43 requirements; 31 Met, 10 Partial, 2 Not met (unchanged counts).
+- **Image check (2026-11-21):**
+  - The API image ran standalone with a read-only root filesystem, every capability
+    dropped, `no-new-privileges`, `PROFILE=lite` and `LLM_MODE=mock`.
+  - Its init step indexed the synthetic corpus, and the models loaded offline.
+  - `scripts/smoke_deploy.py` passed: health, metrics, sign-in, and a query answered
+    with 1 citation and confidence 1.0, which is the mock's figure, not a quality
+    measure.
+- **Image sizes:** api and worker 6.13 GB on disk each (2.09 GB content), frontend
+  82.4 MB.
+- **kind (2026-11-21):** `scripts/kind_smoke.py` ran on a fresh kind 0.33.0 cluster with
+  helm 4.3.2.
+  - `helm lint`: 0 charts failed.
+  - Install: the API and frontend pods were ready after about 97 s.
+  - `helm test`: SMOKE TEST PASSED inside the cluster (health, metrics, sign-in, one
+    answered question with a citation).
+  - Through the frontend Service: the UI and `/admin` load, and `/api/v1/health`
+    reaches the API. `/metrics` returns the UI page, not Prometheus data, so the metrics
+    stay internal.
+  - The three Helm integration tests passed against the live release. The cluster was
+    then deleted to free the Docker VM for `full`.
+- **Tests (2026-11-21):**
+  - default suite: 577 passed, 0 skipped (8 new; counts from pytest's JUnit report);
+  - integration with `full` up: 24 passed, 4 skipped. The skips are the kind release
+    (deleted by then; it passed above) and the three observability tests, whose stack
+    cannot run beside `full`;
+  - frontend: 47 passed;
+  - `check_compliance.py --run --run-integration`: passes.
+- **On the way:** `scripts/kind_smoke.py` and the Helm test now decode tool output as
+  UTF-8. kind prints symbols that Windows' default code page cannot decode; it raised an
+  error in a reader thread, although the run itself went on.
