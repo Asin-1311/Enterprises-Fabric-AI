@@ -3518,3 +3518,115 @@ Branch `m17a-observability`, made from `phase2` after M16c was merged.
 - **Tools installed this milestone:** GitHub CLI 2.105.0 (winget; sign-in still to do),
   and ruff 0.17.6 and pip-audit 2.10.1 in a scratch environment only. In CI they are
   installed pinned and are not in `requirements.txt`.
+
+## M18a — Per-source evaluation sets, regression baselines, weekly review (2026-11-21)
+
+### What was built
+- **One question file per source type,** `eval/questions/<source_type>.jsonl`, 84 new
+  questions in all:
+  - standards 10, calendar 10, FAQ 10, templates 11, checklists 10, circulars 11, firm
+    policy 10, engagement 12;
+  - each type has at least 10 questions whose gold documents include that type, plus two
+    role-denied questions (a staff user asking for a manager-level template and for the
+    restricted allegation note);
+  - new intents: `analytical` and `open_ended`;
+  - time-sensitive questions went from 2 to 10.
+- **How the questions were drafted:**
+  - synthetic questions from the documents' own text (read in full);
+  - ICAI questions from the locally indexed chunks, with chapter, section and page in
+    `notes`;
+  - placeholder dates and fictional percentages are labelled as such.
+  - **All 147 questions (63 general, 84 new) start `"reviewed": false`, and 0 are
+    reviewed.** Only the author can review them.
+- **`eval/question_sets.py`** loads the general set and the per-source files and validates
+  them:
+  - unique ids and known intents;
+  - every gold and superseded document in the manifest;
+  - each superseded document actually superseded by a gold one;
+  - every gold document visible to the asker, by the evaluation's own access rule;
+  - each per-source file at its minimum.
+  - A test feeds it broken questions to prove it catches them.
+- **The existing question checks** (fields, visibility, forbidden facts, Phase 1 quotas)
+  now run on all 147 questions. The restricted-content test (R-12-model) now asks every
+  question too.
+- **The retrieval evaluation** reads every set and records `questions_by_set` and the
+  reviewed count.
+- **Two regression baselines, both copied from real runs by `eval.gates accept`:**
+  - CI, synthetic corpus: `20261121-144148_retrieval_synthetic`, made in a clean clone,
+    113 questions;
+  - laptop, full corpus with the ICAI chapters: `20261121-144722_retrieval`, 147
+    questions. A new nightly Prefect job, `nightly-retrieval-gate`, checks each night's
+    run against it (`eval.gates retrieval --corpus full`).
+- **`scripts/sample_weekly_review.py`:**
+  - `draw` writes a reproducible 5% sample of the week's answers to a git-ignored
+    labelling sheet and never overwrites one;
+  - `drift` reports human-versus-judge agreement and Cohen's kappa per week to
+    `eval/results/<ts>_review/`, without answer text;
+  - it runs weekly in Prefect.
+  - The judge's labels come with M18b. No real week has been labelled yet.
+
+### Measured (from the run folders)
+- **Full corpus** (`20261121-144722_retrieval`): 147 questions, 125 scored.
+
+  | Mode | recall@5 | recall@10 | MRR | nDCG@10 | superseded ordering | leaks |
+  |---|---|---|---|---|---|---|
+  | hybrid | 0.965 | 0.976 | 0.836 | 0.866 | 1.000 | 0 |
+  | adaptive | 0.957 | 0.976 | 0.830 | 0.859 | 1.000 | 0 |
+
+  - Per source type (adaptive), recall@5 / recall@10: calendar, FAQ and templates
+    1.000 / 1.000; standards 0.971 / 1.000; circulars 0.952 / 1.000; engagement
+    0.947 / 0.947; firm policy 0.920 / 0.920; checklists 0.875 / 0.958.
+  - Plain hybrid is slightly ahead of the adaptive weights on this set. This is reported
+    as measured; tuning is not part of an evaluation milestone.
+- **Synthetic corpus** (`20261121-144148_retrieval_synthetic`): adaptive recall@5 0.995,
+  recall@10 1.000, MRR 0.919, nDCG@10 0.937, no leaks.
+  - Recall@10 is saturated on 42 documents, so in CI the gate's signal is recall@5, MRR,
+    nDCG and superseded ordering.
+  - Against the old baseline the gate failed, as it should: the question set had
+    changed. The new baseline was then accepted.
+- **A finding:** `cir-03` is the spec's own comparison workflow ("How did the bank branch
+  audit circular change between FY 2024-25 and FY 2025-26?"). The superseded FY 2024-25
+  circular ranks 9th, because superseded documents are down-weighted. A one-query search
+  therefore misses half of a time-bounded comparison in the top 5. The agent splits such
+  questions into per-year sub-queries; whether that recovers it is measured in the M18b
+  answer runs.
+
+### Why it matters
+- Retrieval quality can now be judged per source type, which spec 13.1 asks for. A
+  regression in any one type (for example the small calendar or FAQ sources) fails the
+  build, instead of being hidden in an overall average.
+
+### Likely viva questions
+- *Can you trust questions the assistant wrote itself?* Only as far as they are checked.
+  - Each one is grounded in a cited passage and validated automatically, including
+    access.
+  - But 0 of 147 are reviewed by the author, and every report says so. Reviewing them
+    is the author's task.
+- *Why do some source types have only one or two documents but ten questions?* The
+  calendar, FAQ and templates are small, so their questions target different sections.
+  Recall there is 1.0; the questions mainly protect against regressions, such as a
+  ranking change pushing a small source out of the top 5.
+- *Why two baselines?* CI cannot see the licensed ICAI chapters, so it gates the
+  synthetic corpus. The laptop gates the full corpus every night. Neither can be edited
+  by hand.
+
+### Status
+- **Met:** R-13.1-sets. One evaluation file per source type
+  (`tests/test_questions.py::test_one_file_per_source_type_with_at_least_ten_questions`),
+  and the regression gate failing on an injected regression
+  (`tests/test_gates.py::test_the_retrieval_gate_fails_on_an_injected_regression`).
+  Stated with it: 0 of 147 questions reviewed by the author.
+- **Advanced, still Partial:**
+  - R-3-eval: the reviewed count is reported; kappa and two runs with spread are M18b.
+  - R-13.2-judge: the weekly sampler and drift report are done; answer relevance and a
+    calibrated judge from another family are M18b.
+- **COMPLIANCE.md:** 43 requirements; 34 Met, 8 Partial, 1 Not met (R-13.3-load, M18c).
+- **Tests (2026-11-21):**
+  - default suite: 679 passed, 0 skipped (89 new, most of them the per-question checks
+    for the 84 new questions; counts from pytest's JUnit report);
+  - integration with `full` up: 24 passed, 4 skipped (the kind release and the
+    observability stack, as before);
+  - frontend: 47 passed;
+  - ruff: clean;
+  - `check_compliance.py --run --run-integration`: passes.
+- **No paid calls** in this part.

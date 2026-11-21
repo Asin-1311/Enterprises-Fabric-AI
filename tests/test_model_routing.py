@@ -68,7 +68,12 @@ def fragments(text: str) -> list[str]:
 
 
 def asked() -> list[tuple[str, str]]:
-    rows = [json.loads(line) for line in QUESTIONS.read_text(encoding="utf-8").splitlines() if line.strip()]
+    """Every evaluation question (the general set and, from M18a, the per-source files)."""
+    from eval.question_sets import load_questions
+
+    rows = load_questions()
+    assert {r["question"] for r in rows} >= {r["question"] for r in map(json.loads, filter(
+        str.strip, QUESTIONS.read_text(encoding="utf-8").splitlines()))}  # nothing dropped
     return [(r["user_id"], r["question"]) for r in rows] + RESTRICTED_QUESTIONS
 
 

@@ -31,7 +31,7 @@ import argparse
 import csv
 import json
 import time
-from collections import defaultdict
+from collections import Counter, defaultdict
 from datetime import date, datetime
 from pathlib import Path
 
@@ -40,6 +40,7 @@ from app.retrieval.acl import load_user
 from app.agents.plan import intent_profile
 from app.retrieval.hybrid import MODES as SEARCH_MODES
 from app.retrieval.hybrid import build_searcher
+from eval.question_sets import load_questions
 from eval.metrics import (
     dedupe_docs,
     mean,
@@ -106,8 +107,8 @@ def run(k_docs: int = 10, chunk_limit: int = 40, corpus: str = "full") -> Path:
     if corpus not in CORPORA:
         raise ValueError(f"corpus must be one of {CORPORA}")
     settings = get_settings()
-    questions = [json.loads(line) for line in (PROJECT_ROOT / "eval" / "questions.jsonl")
-                 .read_text(encoding="utf-8").splitlines() if line.strip()]
+    # The general set and the per-source files (eval/question_sets.py, M18a).
+    questions = load_questions()
     docs, roles, teams = load_ground_truth()
     as_of = date.today()
     excluded = 0
@@ -138,7 +139,7 @@ def run(k_docs: int = 10, chunk_limit: int = 40, corpus: str = "full") -> Path:
             flags = [leak_flags(q["user_id"], d, docs, roles, teams) for d in ranked]
             row = {
                 "id": q["id"], "mode": mode, "user_id": q["user_id"], "intent": q["intent"],
-                "category": q.get("category", ""), "reviewed": q.get("reviewed", False),
+                "category": q.get("category", ""), "set": q["set"], "reviewed": q.get("reviewed", False),
                 "gold": ";".join(sorted(gold)), "retrieved_top10": ";".join(ranked),
                 "access_leak": any(a for a, _ in flags), "cross_engagement_leak": any(c for _, c in flags),
                 "recall@5": None, "recall@10": None, "mrr": None, "ndcg@10": None,
@@ -160,6 +161,7 @@ def run(k_docs: int = 10, chunk_limit: int = 40, corpus: str = "full") -> Path:
     metrics = {"by_mode": {}, "corpus": corpus, "n_questions": len(questions),
                "n_questions_excluded": excluded,
                "n_reviewed": sum(1 for q in questions if q.get("reviewed")),
+               "questions_by_set": dict(sorted(Counter(q["set"] for q in questions).items())),
                "as_of": as_of.isoformat(), "k_docs": k_docs}
     for mode in MODES:
         mrows = [r for r in rows if r["mode"] == mode]

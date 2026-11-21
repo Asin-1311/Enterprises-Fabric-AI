@@ -43,3 +43,6 @@ data/sources/
 /data/learning/
 # Fine-tuned models (M15c), large and rebuilt from data/learning/.
 /models/
+# Weekly human-review samples (M18a): real answer text, kept local; only aggregate
+# drift figures go to eval/results/.
+data/review/

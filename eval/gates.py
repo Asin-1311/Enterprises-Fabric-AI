@@ -1,6 +1,7 @@
 """The CI quality gates (M17c; CLAUDE.md sections 13.1, 13.3 and 14). No LLM calls.
 
     python -m eval.gates retrieval [--run DIR]   # newest *_retrieval_synthetic run by default
+    python -m eval.gates retrieval --corpus full # laptop: newest *_retrieval run vs retrieval.json
     python -m eval.gates routing-replay          # replay now, write the run, compare
     python -m eval.gates prompts                 # changed seed prompts need a passing replay
     python -m eval.gates accept retrieval --run DIR
@@ -12,7 +13,9 @@
    The build fails if any gated metric, overall or per source type, is more than
    RETRIEVAL_TOLERANCE (default 0.02 absolute) below the baseline, if any mode leaks a
    document across roles or engagements, or if the question set differs from the
-   baseline's (then a new baseline must be accepted from a real run).
+   baseline's (then a new baseline must be accepted from a real run). On the laptop, where
+   the licensed ICAI chapters are indexed, the same gate compares full-corpus runs with
+   eval/baselines/retrieval.json (`--corpus full`; the nightly Prefect job, M18a).
 2. Routing replay gate (13.3). The code's default routing (the rule router and the
    per-intent weights in app/config.py) is replayed on eval/replay/routing_replay.jsonl,
    synthetic records only, and must not lose more than REPLAY_TOLERANCE against
@@ -40,7 +43,9 @@ from app.config import PROJECT_ROOT, get_settings
 
 RESULTS = PROJECT_ROOT / "eval" / "results"
 BASELINES = PROJECT_ROOT / "eval" / "baselines"
-RETRIEVAL_BASELINE = BASELINES / "retrieval_synthetic.json"
+RETRIEVAL_BASELINE = BASELINES / "retrieval_synthetic.json"  # CI (clean clone)
+RETRIEVAL_BASELINES = {"synthetic": RETRIEVAL_BASELINE, "full": BASELINES / "retrieval.json"}
+RUN_KINDS = {"synthetic": "retrieval_synthetic", "full": "retrieval"}
 REPLAY_BASELINE = BASELINES / "replay_synthetic.json"
 PROMPT_BASELINE = BASELINES / "prompts.json"
 
@@ -96,8 +101,8 @@ def retrieval_failures(metrics: dict, question_ids: list[str], baseline: dict,
                        tolerance: float) -> list[str]:
     """Why a retrieval run fails the gate (empty list = it passes)."""
     fails = []
-    if metrics.get("corpus") != baseline["corpus"]:
-        fails.append(f"corpus {metrics.get('corpus')!r} differs from the baseline's {baseline['corpus']!r}.")
+    if run_corpus(metrics) != baseline["corpus"]:
+        fails.append(f"corpus {run_corpus(metrics)!r} differs from the baseline's {baseline['corpus']!r}.")
     if question_ids != baseline["question_ids"]:
         fails.append("The question set differs from the baseline's: accept a new baseline from a real run.")
     for mode, m in metrics["by_mode"].items():
@@ -113,11 +118,17 @@ def retrieval_failures(metrics: dict, question_ids: list[str], baseline: dict,
     return fails
 
 
+def run_corpus(metrics: dict) -> str:
+    """Runs before M17c have no `corpus` field: they are full-corpus runs."""
+    return metrics.get("corpus", "full")
+
+
 def gate_retrieval(run_dir: Path, results: Path = RESULTS) -> int:
     settings = get_settings()
-    baseline = _read_json(RETRIEVAL_BASELINE)
     metrics = _read_json(run_dir / "metrics.json")
-    fails = _baseline_matches_its_run(RETRIEVAL_BASELINE.name, baseline,
+    path = RETRIEVAL_BASELINES[run_corpus(metrics)]
+    baseline = _read_json(path)
+    fails = _baseline_matches_its_run(path.name, baseline,
                                       lambda r: gated_values(_read_json(r / "metrics.json")), results)
     fails += retrieval_failures(metrics, _question_ids(run_dir), baseline, settings.retrieval_tolerance)
     print(f"Retrieval gate: {run_dir.name} against {baseline['source_run']} "
@@ -237,11 +248,13 @@ def gate_prompts(results: Path = RESULTS) -> int:
 # ------------------------------------------------------------------------- accepting
 
 def accept_retrieval(run_dir: Path) -> None:
+    """The run becomes the baseline for its corpus: synthetic (CI) or full (laptop)."""
     metrics = _read_json(run_dir / "metrics.json")
-    if metrics.get("corpus") != "synthetic":
-        raise SystemExit("Only a --corpus synthetic run can become the CI baseline.")
-    _write(RETRIEVAL_BASELINE, {
-        "source_run": run_dir.name, "corpus": "synthetic", "mode": GATED_MODE,
+    corpus = run_corpus(metrics)
+    if "questions_by_set" not in metrics:
+        raise SystemExit("Only a run made with the current question sets (M18a) can become a baseline.")
+    _write(RETRIEVAL_BASELINES[corpus], {
+        "source_run": run_dir.name, "corpus": corpus, "mode": GATED_MODE,
         "question_ids": _question_ids(run_dir), "values": gated_values(metrics),
         "n_reviewed": metrics["n_reviewed"], "accepted_at": _today(),
     })
@@ -280,7 +293,7 @@ def _today() -> str:
 def _write(path: Path, data: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-    print(f"wrote {path.relative_to(PROJECT_ROOT)}")
+    print(f"wrote {path.relative_to(PROJECT_ROOT) if path.is_relative_to(PROJECT_ROOT) else path}")
 
 
 def _verdict(name: str, fails: list[str]) -> int:
@@ -295,6 +308,8 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="gate", required=True)
     r = sub.add_parser("retrieval")
     r.add_argument("--run", type=Path)
+    r.add_argument("--corpus", choices=sorted(RUN_KINDS), default="synthetic",
+                   help="which newest run to gate when --run is not given")
     rr = sub.add_parser("routing-replay")
     rr.add_argument("--run", type=Path, help="compare an existing run instead of replaying now")
     sub.add_parser("prompts")
@@ -305,7 +320,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.gate == "retrieval":
-        return gate_retrieval(args.run or newest_run("retrieval_synthetic"))
+        return gate_retrieval(args.run or newest_run(RUN_KINDS[args.corpus]))
     if args.gate == "routing-replay":
         return gate_routing_replay(args.run)
     if args.gate == "prompts":

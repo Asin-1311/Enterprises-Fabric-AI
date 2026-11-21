@@ -11,10 +11,12 @@ exit code and output. flows/serve.py turns this list into Prefect deployments.
 | nightly-retention-purge | 01:00 daily         | python -m app.security.retention (M13a)       |
 | nightly-reconciliation  | 01:30 daily         | python -m app.ingest.reconcile                |
 | nightly-retrieval-eval  | 02:00 daily         | python -m eval.run_retrieval_eval (no LLM calls) |
+| nightly-retrieval-gate  | 02:15 daily         | python -m eval.gates retrieval --corpus full (M18a) |
 | nightly-routing-policy  | 02:30 daily         | python -m app.adaptive.routing_policy --propose (M15b): learns a new INACTIVE version and replays it; an admin activates it |
+| weekly-review-sample    | 09:00 Monday        | python -m scripts.sample_weekly_review draw (M18a): 5% of last week's answers for human review |
 
-Added by a later milestone: the weekly answer sample for human review (M18). The
-retrieval regression gate runs in CI (M17c, eval/gates.py); M18 extends its question sets.
+The retrieval regression gate runs in CI on the synthetic corpus (M17c) and here, nightly,
+on the full corpus with the licensed ICAI chapters (eval/baselines/retrieval.json, M18a).
 """
 
 import os
@@ -45,9 +47,15 @@ JOBS: dict[str, Job] = {
     "nightly-retrieval-eval": Job(
         "Retrieval evaluation (recall, MRR, nDCG, leak checks); no LLM calls.", "0 2 * * *",
         ["-m", "eval.run_retrieval_eval"]),
+    "nightly-retrieval-gate": Job(
+        "Compare last night's full-corpus retrieval run with eval/baselines/retrieval.json.",
+        "15 2 * * *", ["-m", "eval.gates", "retrieval", "--corpus", "full"]),
     "nightly-routing-policy": Job(
         "Learn a new routing policy version from the logs and replay it (never activates it).",
         "30 2 * * *", ["-m", "app.adaptive.routing_policy", "--propose"]),
+    "weekly-review-sample": Job(
+        "Draw a fixed share of last week's answers for human review (judge drift).",
+        "0 9 * * 1", ["-m", "scripts.sample_weekly_review", "draw"]),
 }
 
 
