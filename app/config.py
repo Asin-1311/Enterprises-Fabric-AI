@@ -33,6 +33,9 @@ class Settings(BaseSettings):
     llm_base_url: str | None = None  # e.g. https://openrouter.ai/api
     llm_auth_token: str | None = None  # sent as "Authorization: Bearer ..."
     anthropic_api_key: str | None = None  # direct Anthropic API instead
+    # "mock" (M17b): a deterministic stand-in (app/agents/mock_llm.py) for deployment smoke
+    # tests and CI, with no key and no paid calls. Never for answering real questions.
+    llm_mode: Literal["live", "mock"] = "live"
     model_light: str  # query understanding, routing tie-breaks, compression
     model_synth: str  # synthesis
     model_verify: str  # verification; must differ from model_synth
@@ -235,7 +238,7 @@ class Settings(BaseSettings):
         """Verifier differs from synthesiser; a credential exists; efforts are valid."""
         if self.model_verify == self.model_synth:
             raise ValueError("MODEL_VERIFY must differ from MODEL_SYNTH")
-        if not (self.llm_auth_token or self.anthropic_api_key):
+        if self.llm_mode == "live" and not (self.llm_auth_token or self.anthropic_api_key):
             raise ValueError("set LLM_AUTH_TOKEN (OpenRouter) or ANTHROPIC_API_KEY")
         allowed = {"low", "medium", "high", "xhigh", "max"}
         for name in ("effort_light", "effort_synth", "effort_verify"):

@@ -1,0 +1,41 @@
+{{- if and (eq .Values.profile "lite") (or .Values.hpa.enabled (gt (int .Values.api.replicas) 1)) }}
+{{- fail "profile lite keeps SQLite and Qdrant inside the pod: use one API replica and no HPA (or profile full)" }}
+{{- end }}
+{{- if and (eq .Values.profile "full") (not .Values.external.qdrantUrl) }}
+{{- fail "profile full needs external.qdrantUrl, opensearchUrl, redisUrl and kafkaBootstrap (and DATABASE_URL in the Secret)" }}
+{{- end }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "ef.name" . }}-config
+  labels: {{- include "ef.labels" . | nindent 4 }}
+data:
+  PROFILE: {{ .Values.profile | quote }}
+  LLM_MODE: {{ .Values.llm.mode | quote }}
+  MODEL_LIGHT: {{ .Values.llm.modelLight | quote }}
+  MODEL_SYNTH: {{ .Values.llm.modelSynth | quote }}
+  MODEL_VERIFY: {{ .Values.llm.modelVerify | quote }}
+  {{- with .Values.llm.baseUrl }}
+  LLM_BASE_URL: {{ . | quote }}
+  {{- end }}
+  WORKER_METRICS_PORT: {{ .Values.worker.metricsPort | quote }}
+  {{- if eq .Values.profile "full" }}
+  QDRANT_URL: {{ .Values.external.qdrantUrl | quote }}
+  OPENSEARCH_URL: {{ .Values.external.opensearchUrl | quote }}
+  REDIS_URL: {{ .Values.external.redisUrl | quote }}
+  KAFKA_BOOTSTRAP: {{ .Values.external.kafkaBootstrap | quote }}
+  {{- with .Values.external.opaUrl }}
+  OPA_URL: {{ . | quote }}
+  {{- end }}
+  {{- with .Values.external.oidcIssuer }}
+  OIDC_ISSUER: {{ . | quote }}
+  {{- end }}
+  # The worker runs as its own Deployment; the API does not consume events itself.
+  API_RUN_WORKER: "false"
+  API_WATCH_CORPUS: "false"
+  {{- end }}
+  {{- range $key, $value := .Values.config }}
+  {{- if $value }}
+  {{ $key }}: {{ $value | quote }}
+  {{- end }}
+  {{- end }}

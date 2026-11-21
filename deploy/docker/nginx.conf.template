@@ -1,0 +1,37 @@
+# nginx for the UI image (M17b). ${API_UPSTREAM} is filled in by the image's entrypoint
+# (envsubst on /etc/nginx/templates). /metrics is NOT forwarded: it stays internal.
+server {
+    listen 8080;
+    server_name _;
+    root /usr/share/nginx/html;
+
+    # Security headers for the single-page app.
+    add_header X-Content-Type-Options nosniff always;
+    add_header X-Frame-Options DENY always;
+    add_header Referrer-Policy no-referrer always;
+
+    location = /healthz {
+        access_log off;
+        return 200 "ok\n";
+    }
+
+    location /api/ {
+        proxy_pass ${API_UPSTREAM};
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        # Server-Sent Events (/api/v1/query): no buffering, long reads.
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_read_timeout 300s;
+    }
+
+    location /assets/ {
+        expires 7d;
+        add_header Cache-Control "public, immutable";
+    }
+
+    location / {
+        try_files $uri /index.html;
+    }
+}
