@@ -6,7 +6,8 @@
 By default it picks the latest valid run of each kind:
 - answers:     the newest *_answers run whose metrics.json says "complete": true;
 - retrieval:   the newest *_retrieval run not listed in EXCLUDED_RUNS;
-- calibration: the newest *_calibration run made from that answers run.
+- calibration: the newest *_calibration run made from that answers run (alone or pooled
+  with others, M18b).
 
 It writes
     docs/report/RESULTS.md       tables (regenerated every time; never edit by hand)
@@ -79,7 +80,9 @@ def choose_runs(results: Path, answers: str | None = None, retrieval: str | None
         c: Path | None = results / calibration
     else:
         try:
-            c = latest_run(results, "calibration", lambda run, m: m.get("answers_run") == a.name)
+            # A calibration may pool several answers runs (M18b): "<run A>+<run B>".
+            c = latest_run(results, "calibration",
+                           lambda run, m: a.name in str(m.get("answers_run", "")).split("+"))
         except SystemExit:
             c = None  # calibration not done yet: the report says so
     return Runs(a, r, c)

@@ -1,0 +1,66 @@
+{
+  "targets": {
+    "ttft_p95_s": 1.5,
+    "full_answer_p95_s": 8.0
+  },
+  "levels": [
+    1,
+    5,
+    10
+  ],
+  "per_user": 2,
+  "results": {
+    "k6": {
+      "1": {
+        "requests": 2,
+        "errors": 0,
+        "ttft_measured": 0,
+        "ttft_s_p50": null,
+        "ttft_s_p95": null,
+        "full_answer_s_p50": 25.8615604,
+        "full_answer_s_p95": 74.3209214,
+        "statuses": {},
+        "degraded": 0,
+        "ttft_target_met": null,
+        "full_answer_target_met": false
+      },
+      "5": {
+        "requests": 10,
+        "errors": 0,
+        "ttft_measured": 0,
+        "ttft_s_p50": null,
+        "ttft_s_p95": null,
+        "full_answer_s_p50": 114.89343240000001,
+        "full_answer_s_p95": 180.2514253,
+        "statuses": {},
+        "degraded": 0,
+        "ttft_target_met": null,
+        "full_answer_target_met": false
+      },
+      "10": {
+        "requests": 20,
+        "errors": 3,
+        "ttft_measured": 0,
+        "ttft_s_p50": null,
+        "ttft_s_p95": null,
+        "full_answer_s_p50": 125.1436485,
+        "full_answer_s_p95": 309.3396672,
+        "statuses": {},
+        "degraded": 0,
+        "ttft_target_met": null,
+        "full_answer_target_met": false
+      }
+    }
+  },
+  "minutes": 12.9,
+  "hardware": {
+    "machine": "AMD64",
+    "processor": "AMD64 Family 23 Model 104 Stepping 1, AuthenticAMD",
+    "os": "Windows-11-10.0.26200-SP0",
+    "logical_cpus": 12,
+    "physical_cpus": 6,
+    "ram_gb": 7.3,
+    "python": "3.13.14"
+  },
+  "measured": "client side; TTFT by Locust only (k6 sees an SSE response only when complete)"
+}

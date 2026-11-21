@@ -15,7 +15,7 @@ text{font-family:system-ui,-apple-system,"Segoe UI",sans-serif}
 </style>
 <rect class="bg" width="760" height="316" rx="8"/>
 <text class="ink" x="16" y="28" font-size="16" font-weight="600">Answer quality: full system vs single-pass baseline</text>
-<text class="ink2" x="16" y="48" font-size="12">63 questions, judged by anthropic/claude-opus-5.5; 0 of 63 reviewed by the author</text>
+<text class="ink2" x="16" y="48" font-size="12">12 questions, judged by openai/gpt-5.6-terra; 0 of 12 reviewed by the author</text>
 <rect class="s1" x="16" y="62" width="12" height="12" rx="3"/>
 <text class="ink2" x="34" y="72" font-size="12">Full system</text>
 <rect class="s2" x="137.2" y="62" width="12" height="12" rx="3"/>
@@ -34,54 +34,54 @@ text{font-family:system-ui,-apple-system,"Segoe UI",sans-serif}
 <text class="muted" x="690.0" y="292.0" font-size="11" text-anchor="middle">1.0</text>
 <text class="ink" x="198" y="115.0" font-size="12" text-anchor="end">Correctness</text>
 <g>
-<title>Correctness - Full system: 0.960</title>
+<title>Correctness - Full system: 1.000</title>
 <rect class="hit" x="210" y="95" width="480" height="16"/>
-<path class="s1" d="M210.0,96.0 H667.0 A4,4 0 0 1 671.0,100.0 V106.0 A4,4 0 0 1 667.0,110.0 H210.0 Z"/>
-<text class="ink2" x="677.0" y="107" font-size="11">0.960</text>
+<path class="s1" d="M210.0,96.0 H686.0 A4,4 0 0 1 690.0,100.0 V106.0 A4,4 0 0 1 686.0,110.0 H210.0 Z"/>
+<text class="ink2" x="696.0" y="107" font-size="11">1.000</text>
 </g>
 <g>
-<title>Correctness - Baseline: 0.913</title>
+<title>Correctness - Baseline: 1.000</title>
 <rect class="hit" x="210" y="111" width="480" height="16"/>
-<path class="s2" d="M210.0,112.0 H644.1 A4,4 0 0 1 648.1,116.0 V122.0 A4,4 0 0 1 644.1,126.0 H210.0 Z"/>
-<text class="ink2" x="654.1" y="123" font-size="11">0.913</text>
+<path class="s2" d="M210.0,112.0 H686.0 A4,4 0 0 1 690.0,116.0 V122.0 A4,4 0 0 1 686.0,126.0 H210.0 Z"/>
+<text class="ink2" x="696.0" y="123" font-size="11">1.000</text>
 </g>
 <text class="ink" x="198" y="163.0" font-size="12" text-anchor="end">Fully correct</text>
 <g>
-<title>Fully correct - Full system: 0.921</title>
+<title>Fully correct - Full system: 1.000</title>
 <rect class="hit" x="210" y="143" width="480" height="16"/>
-<path class="s1" d="M210.0,144.0 H647.9 A4,4 0 0 1 651.9,148.0 V154.0 A4,4 0 0 1 647.9,158.0 H210.0 Z"/>
-<text class="ink2" x="657.9" y="155" font-size="11">0.921</text>
+<path class="s1" d="M210.0,144.0 H686.0 A4,4 0 0 1 690.0,148.0 V154.0 A4,4 0 0 1 686.0,158.0 H210.0 Z"/>
+<text class="ink2" x="696.0" y="155" font-size="11">1.000</text>
 </g>
 <g>
-<title>Fully correct - Baseline: 0.857</title>
+<title>Fully correct - Baseline: 1.000</title>
 <rect class="hit" x="210" y="159" width="480" height="16"/>
-<path class="s2" d="M210.0,160.0 H617.4 A4,4 0 0 1 621.4,164.0 V170.0 A4,4 0 0 1 617.4,174.0 H210.0 Z"/>
-<text class="ink2" x="627.4" y="171" font-size="11">0.857</text>
+<path class="s2" d="M210.0,160.0 H686.0 A4,4 0 0 1 690.0,164.0 V170.0 A4,4 0 0 1 686.0,174.0 H210.0 Z"/>
+<text class="ink2" x="696.0" y="171" font-size="11">1.000</text>
 </g>
 <text class="ink" x="198" y="211.0" font-size="12" text-anchor="end">Faithfulness (micro)</text>
 <g>
-<title>Faithfulness (micro) - Full system: 0.954</title>
+<title>Faithfulness (micro) - Full system: 0.756</title>
 <rect class="hit" x="210" y="191" width="480" height="16"/>
-<path class="s1" d="M210.0,192.0 H664.0 A4,4 0 0 1 668.0,196.0 V202.0 A4,4 0 0 1 664.0,206.0 H210.0 Z"/>
-<text class="ink2" x="674.0" y="203" font-size="11">0.954</text>
+<path class="s1" d="M210.0,192.0 H569.1 A4,4 0 0 1 573.1,196.0 V202.0 A4,4 0 0 1 569.1,206.0 H210.0 Z"/>
+<text class="ink2" x="579.1" y="203" font-size="11">0.756</text>
 </g>
 <g>
-<title>Faithfulness (micro) - Baseline: 0.477</title>
+<title>Faithfulness (micro) - Baseline: 0.419</title>
 <rect class="hit" x="210" y="207" width="480" height="16"/>
-<path class="s2" d="M210.0,208.0 H434.8 A4,4 0 0 1 438.8,212.0 V218.0 A4,4 0 0 1 434.8,222.0 H210.0 Z"/>
-<text class="ink2" x="444.8" y="219" font-size="11">0.477</text>
+<path class="s2" d="M210.0,208.0 H407.0 A4,4 0 0 1 411.0,212.0 V218.0 A4,4 0 0 1 407.0,222.0 H210.0 Z"/>
+<text class="ink2" x="417.0" y="219" font-size="11">0.419</text>
 </g>
 <text class="ink" x="198" y="259.0" font-size="12" text-anchor="end">Citation precision</text>
 <g>
-<title>Citation precision - Full system: 0.981</title>
+<title>Citation precision - Full system: 0.973</title>
 <rect class="hit" x="210" y="239" width="480" height="16"/>
-<path class="s1" d="M210.0,240.0 H676.6 A4,4 0 0 1 680.6,244.0 V250.0 A4,4 0 0 1 676.6,254.0 H210.0 Z"/>
-<text class="ink2" x="686.6" y="251" font-size="11">0.981</text>
+<path class="s1" d="M210.0,240.0 H672.8 A4,4 0 0 1 676.8,244.0 V250.0 A4,4 0 0 1 672.8,254.0 H210.0 Z"/>
+<text class="ink2" x="682.8" y="251" font-size="11">0.973</text>
 </g>
 <g>
-<title>Citation precision - Baseline: 0.968</title>
+<title>Citation precision - Baseline: 0.930</title>
 <rect class="hit" x="210" y="255" width="480" height="16"/>
-<path class="s2" d="M210.0,256.0 H670.4 A4,4 0 0 1 674.4,260.0 V266.0 A4,4 0 0 1 670.4,270.0 H210.0 Z"/>
-<text class="ink2" x="680.4" y="267" font-size="11">0.968</text>
+<path class="s2" d="M210.0,256.0 H652.3 A4,4 0 0 1 656.3,260.0 V266.0 A4,4 0 0 1 652.3,270.0 H210.0 Z"/>
+<text class="ink2" x="662.3" y="267" font-size="11">0.930</text>
 </g>
 </svg>

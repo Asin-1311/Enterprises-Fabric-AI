@@ -1,0 +1,21 @@
+{
+  "api_env": {
+    "RESPONSE_CACHE_ENABLED": "false",
+    "AUTH_RATE_PER_MINUTE": "1000",
+    "API_RUN_CONNECTORS": "false",
+    "API_WATCH_CORPUS": "false"
+  },
+  "port": 8010,
+  "profile": "lite",
+  "questions": [
+    "How should the management representation letter be dated relative to the auditor's report?",
+    "How many items must we sample for a test of controls?",
+    "What special steps are involved in the audit of a hospital?",
+    "According to the latest regulatory update, when do the bank branch audits for FY 2025-26 run?",
+    "How are government-guaranteed advances treated for NPA classification on our bank branch checklist?",
+    "In the FY 2025-26 compliance calendar, when was the annual independence declaration due?",
+    "Which version of the article assistant helpdesk FAQ is current, and when was it updated?"
+  ],
+  "latency_target_seconds": 8.0,
+  "degradation_enabled": true
+}

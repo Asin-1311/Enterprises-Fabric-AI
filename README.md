@@ -30,6 +30,13 @@ Without a key, `LLM_MODE=mock` runs the whole pipeline with a labelled stand-in 
 model. It is meant for smoke tests, never for evaluation.
 
 ## Documentation
+- **[Requirements](docs/REQUIREMENTS.md):** use cases, the enterprise source inventory,
+  quality targets.
+- **[Architecture](docs/ARCHITECTURE.md):** the five planes, ports and adapters, the data
+  flow.
+- **[API reference](docs/api/REFERENCE.md):** generated from the OpenAPI schema.
+- **[Section 15 replacement](docs/report/SECTION15.md):** the real status of every
+  requirement, generated from COMPLIANCE.md.
 - **[Operations guide](docs/OPERATIONS.md):** run, deploy (Docker, Helm, kind), CI/CD
   and its quality gates, back up and restore, rotate keys, add a source, roll back a prompt
   or routing policy, dashboards and alerts, troubleshooting.
