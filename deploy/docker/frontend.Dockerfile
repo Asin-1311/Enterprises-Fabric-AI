@@ -17,6 +17,11 @@ COPY frontend/ ./
 RUN npm run build
 
 FROM nginxinc/nginx-unprivileged:1.29.8-alpine AS frontend
+# Security updates for the Alpine packages of the pinned base (M17c, found by the Trivy
+# scan in CI), then back to the unprivileged nginx user.
+USER root
+RUN apk upgrade --no-cache
+USER 101
 ENV API_UPSTREAM=http://api:8000
 COPY deploy/docker/nginx.conf.template /etc/nginx/templates/default.conf.template
 COPY --from=build /ui/dist /usr/share/nginx/html

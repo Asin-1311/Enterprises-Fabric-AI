@@ -246,6 +246,8 @@ curl.exe -X POST http://127.0.0.1:6333/collections/chunks/snapshots
 | A container says `couldn't connect to huggingface.co` | The model cache in the image is incomplete: rebuild; `deploy/docker/fetch_models.py` checks the models load offline during the build |
 | `npm ci` fails with `ECONNRESET` during an image build | Network interruption; the Dockerfile retries fetches, so build again |
 | `UnicodeDecodeError: 'charmap'` from a script that runs kind or helm | Windows' default code page; the scripts decode tool output as UTF-8 |
+| The frontend container stops right after starting | nginx resolves `API_UPSTREAM` (default `http://api:8000`) at start: run it beside the API (compose, or the chart, which sets it), or set `API_UPSTREAM` to a reachable address |
+| Trivy fails the image job | A base-image package has a published fix: the Dockerfiles apply OS security updates at build time, so rebuild; for a Python package, raise its pin and run the tests |
 | Langfuse web restarts (out of memory) | It needs about 1 GB: run the `observability` profile without `full` |
 | A Keycloak test times out right after the stack started | Keycloak was still starting; run it again once `/health/ready` answers |
 | The indexer says `ICAI study material not found` | Expected on a clean clone: only the synthetic documents are indexed (the ICAI PDFs are licensed and never in git) |

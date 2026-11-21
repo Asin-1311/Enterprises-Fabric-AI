@@ -20,6 +20,7 @@ runs:
     - name: Install CPU PyTorch and the requirements
       shell: bash
       run: |
+        python -m pip install pip==26.3   # the runner's bundled pip has a known vulnerability (pip-audit)
         python -m pip install --index-url https://download.pytorch.org/whl/cpu torch==2.15.0
         python -m pip install -r requirements.txt
         if [ "${{ inputs.full }}" = "true" ]; then python -m pip install -r requirements-full.txt; fi
