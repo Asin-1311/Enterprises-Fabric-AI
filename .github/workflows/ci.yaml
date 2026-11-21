@@ -99,9 +99,17 @@ jobs:
           full: "true"
       # Audits the installed environment (direct and transitive packages, CPU PyTorch as
       # actually used), not a fresh resolution from PyPI.
+      # Findings go to the run summary and, when the audit fails, to error annotations.
       - run: |
           python -m pip install pip-audit==2.10.1
-          pip-audit --progress-spinner off --skip-editable
+          status=0
+          pip-audit --progress-spinner off --skip-editable --output audit.txt 2> audit-warnings.txt || status=$?
+          cat audit.txt audit-warnings.txt
+          { echo '## pip-audit'; echo '```'; cat audit.txt audit-warnings.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$status" -ne 0 ]; then
+            while IFS= read -r line; do [ -n "$line" ] && echo "::error title=pip-audit::$line"; done < <(cat audit.txt audit-warnings.txt)
+          fi
+          exit "$status"
 
   eval-gates:
     name: Retrieval regression gate and replay gates
