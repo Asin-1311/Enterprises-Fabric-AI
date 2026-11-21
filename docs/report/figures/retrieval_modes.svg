@@ -15,7 +15,7 @@ text{font-family:system-ui,-apple-system,"Segoe UI",sans-serif}
 </style>
 <rect class="bg" width="760" height="444" rx="8"/>
 <text class="ink" x="16" y="28" font-size="16" font-weight="600">Retrieval quality by mode</text>
-<text class="ink2" x="16" y="48" font-size="12">43 questions with gold documents; value labels shown for the system (hybrid); all values in RESULTS.md</text>
+<text class="ink2" x="16" y="48" font-size="12">125 questions with gold documents; value labels shown for the system (hybrid); all values in RESULTS.md</text>
 <rect class="s1" x="16" y="62" width="12" height="12" rx="3"/>
 <text class="ink2" x="34" y="72" font-size="12">dense</text>
 <rect class="s2" x="94.0" y="62" width="12" height="12" rx="3"/>
@@ -38,69 +38,69 @@ text{font-family:system-ui,-apple-system,"Segoe UI",sans-serif}
 <text class="muted" x="690.0" y="420.0" font-size="11" text-anchor="middle">1.0</text>
 <text class="ink" x="198" y="131.0" font-size="12" text-anchor="end">recall@5</text>
 <g>
-<title>recall@5 - dense: 0.981</title>
+<title>recall@5 - dense: 0.961</title>
 <rect class="hit" x="210" y="95" width="480" height="16"/>
-<path class="s1" d="M210.0,96.0 H676.7 A4,4 0 0 1 680.7,100.0 V106.0 A4,4 0 0 1 676.7,110.0 H210.0 Z"/>
+<path class="s1" d="M210.0,96.0 H667.4 A4,4 0 0 1 671.4,100.0 V106.0 A4,4 0 0 1 667.4,110.0 H210.0 Z"/>
 </g>
 <g>
-<title>recall@5 - BM25: 0.899</title>
+<title>recall@5 - BM25: 0.941</title>
 <rect class="hit" x="210" y="111" width="480" height="16"/>
-<path class="s2" d="M210.0,112.0 H637.6 A4,4 0 0 1 641.6,116.0 V122.0 A4,4 0 0 1 637.6,126.0 H210.0 Z"/>
+<path class="s2" d="M210.0,112.0 H657.8 A4,4 0 0 1 661.8,116.0 V122.0 A4,4 0 0 1 657.8,126.0 H210.0 Z"/>
 </g>
 <g>
-<title>recall@5 - RRF only: 0.969</title>
+<title>recall@5 - RRF only: 0.973</title>
 <rect class="hit" x="210" y="127" width="480" height="16"/>
-<path class="s3" d="M210.0,128.0 H671.1 A4,4 0 0 1 675.1,132.0 V138.0 A4,4 0 0 1 671.1,142.0 H210.0 Z"/>
+<path class="s3" d="M210.0,128.0 H673.2 A4,4 0 0 1 677.2,132.0 V138.0 A4,4 0 0 1 673.2,142.0 H210.0 Z"/>
 </g>
 <g>
 <title>recall@5 - hybrid (system): 0.981</title>
 <rect class="hit" x="210" y="143" width="480" height="16"/>
-<path class="s4" d="M210.0,144.0 H676.7 A4,4 0 0 1 680.7,148.0 V154.0 A4,4 0 0 1 676.7,158.0 H210.0 Z"/>
-<text class="ink2" x="686.7" y="155" font-size="11">0.981</text>
+<path class="s4" d="M210.0,144.0 H677.0 A4,4 0 0 1 681.0,148.0 V154.0 A4,4 0 0 1 677.0,158.0 H210.0 Z"/>
+<text class="ink2" x="687.0" y="155" font-size="11">0.981</text>
 </g>
 <text class="ink" x="198" y="211.0" font-size="12" text-anchor="end">MRR</text>
 <g>
-<title>MRR - dense: 0.884</title>
+<title>MRR - dense: 0.821</title>
 <rect class="hit" x="210" y="175" width="480" height="16"/>
-<path class="s1" d="M210.0,176.0 H630.2 A4,4 0 0 1 634.2,180.0 V186.0 A4,4 0 0 1 630.2,190.0 H210.0 Z"/>
+<path class="s1" d="M210.0,176.0 H600.1 A4,4 0 0 1 604.1,180.0 V186.0 A4,4 0 0 1 600.1,190.0 H210.0 Z"/>
 </g>
 <g>
-<title>MRR - BM25: 0.823</title>
+<title>MRR - BM25: 0.815</title>
 <rect class="hit" x="210" y="191" width="480" height="16"/>
-<path class="s2" d="M210.0,192.0 H601.3 A4,4 0 0 1 605.3,196.0 V202.0 A4,4 0 0 1 601.3,206.0 H210.0 Z"/>
+<path class="s2" d="M210.0,192.0 H597.3 A4,4 0 0 1 601.3,196.0 V202.0 A4,4 0 0 1 597.3,206.0 H210.0 Z"/>
 </g>
 <g>
-<title>MRR - RRF only: 0.804</title>
+<title>MRR - RRF only: 0.808</title>
 <rect class="hit" x="210" y="207" width="480" height="16"/>
-<path class="s3" d="M210.0,208.0 H592.0 A4,4 0 0 1 596.0,212.0 V218.0 A4,4 0 0 1 592.0,222.0 H210.0 Z"/>
+<path class="s3" d="M210.0,208.0 H594.0 A4,4 0 0 1 598.0,212.0 V218.0 A4,4 0 0 1 594.0,222.0 H210.0 Z"/>
 </g>
 <g>
-<title>MRR - hybrid (system): 0.880</title>
+<title>MRR - hybrid (system): 0.852</title>
 <rect class="hit" x="210" y="223" width="480" height="16"/>
-<path class="s4" d="M210.0,224.0 H628.3 A4,4 0 0 1 632.3,228.0 V234.0 A4,4 0 0 1 628.3,238.0 H210.0 Z"/>
-<text class="ink2" x="638.3" y="235" font-size="11">0.880</text>
+<path class="s4" d="M210.0,224.0 H615.0 A4,4 0 0 1 619.0,228.0 V234.0 A4,4 0 0 1 615.0,238.0 H210.0 Z"/>
+<text class="ink2" x="625.0" y="235" font-size="11">0.852</text>
 </g>
 <text class="ink" x="198" y="291.0" font-size="12" text-anchor="end">nDCG@10</text>
 <g>
-<title>nDCG@10 - dense: 0.887</title>
+<title>nDCG@10 - dense: 0.849</title>
 <rect class="hit" x="210" y="255" width="480" height="16"/>
-<path class="s1" d="M210.0,256.0 H631.9 A4,4 0 0 1 635.9,260.0 V266.0 A4,4 0 0 1 631.9,270.0 H210.0 Z"/>
+<path class="s1" d="M210.0,256.0 H613.4 A4,4 0 0 1 617.4,260.0 V266.0 A4,4 0 0 1 613.4,270.0 H210.0 Z"/>
 </g>
 <g>
-<title>nDCG@10 - BM25: 0.813</title>
+<title>nDCG@10 - BM25: 0.837</title>
 <rect class="hit" x="210" y="271" width="480" height="16"/>
-<path class="s2" d="M210.0,272.0 H596.3 A4,4 0 0 1 600.3,276.0 V282.0 A4,4 0 0 1 596.3,286.0 H210.0 Z"/>
+<path class="s2" d="M210.0,272.0 H607.8 A4,4 0 0 1 611.8,276.0 V282.0 A4,4 0 0 1 607.8,286.0 H210.0 Z"/>
 </g>
 <g>
-<title>nDCG@10 - RRF only: 0.845</title>
+<title>nDCG@10 - RRF only: 0.850</title>
 <rect class="hit" x="210" y="287" width="480" height="16"/>
-<path class="s3" d="M210.0,288.0 H611.5 A4,4 0 0 1 615.5,292.0 V298.0 A4,4 0 0 1 611.5,302.0 H210.0 Z"/>
+<path class="s3" d="M210.0,288.0 H613.8 A4,4 0 0 1 617.8,292.0 V298.0 A4,4 0 0 1 613.8,302.0 H210.0 Z"/>
 </g>
 <g>
-<title>nDCG@10 - hybrid (system): 0.907</title>
+<title>nDCG@10 - hybrid (system): 0.884</title>
 <rect class="hit" x="210" y="303" width="480" height="16"/>
-<path class="s4" d="M210.0,304.0 H641.2 A4,4 0 0 1 645.2,308.0 V314.0 A4,4 0 0 1 641.2,318.0 H210.0 Z"/>
-<text class="ink2" x="651.2" y="315" font-size="11">0.907</text>
+<path class="s4" d="M210.0,304.0 H630.2 A4,4 0 0 1 634.2,308.0 V314.0 A4,4 0 0 1 630.2,318.0 H210.0 Z"/>
+<text class="ink2" x="640.2" y="315" font-size="11">0.884</text>
 </g>
 <text class="ink" x="198" y="371.0" font-size="12" text-anchor="end">Superseded order</text>
 <g>
@@ -109,14 +109,14 @@ text{font-family:system-ui,-apple-system,"Segoe UI",sans-serif}
 <path class="s1" d="M210.0,336.0 H526.0 A4,4 0 0 1 530.0,340.0 V346.0 A4,4 0 0 1 526.0,350.0 H210.0 Z"/>
 </g>
 <g>
-<title>Superseded order - BM25: 0.500</title>
+<title>Superseded order - BM25: 0.611</title>
 <rect class="hit" x="210" y="351" width="480" height="16"/>
-<path class="s2" d="M210.0,352.0 H446.0 A4,4 0 0 1 450.0,356.0 V362.0 A4,4 0 0 1 446.0,366.0 H210.0 Z"/>
+<path class="s2" d="M210.0,352.0 H499.3 A4,4 0 0 1 503.3,356.0 V362.0 A4,4 0 0 1 499.3,366.0 H210.0 Z"/>
 </g>
 <g>
-<title>Superseded order - RRF only: 0.500</title>
+<title>Superseded order - RRF only: 0.611</title>
 <rect class="hit" x="210" y="367" width="480" height="16"/>
-<path class="s3" d="M210.0,368.0 H446.0 A4,4 0 0 1 450.0,372.0 V378.0 A4,4 0 0 1 446.0,382.0 H210.0 Z"/>
+<path class="s3" d="M210.0,368.0 H499.3 A4,4 0 0 1 503.3,372.0 V378.0 A4,4 0 0 1 499.3,382.0 H210.0 Z"/>
 </g>
 <g>
 <title>Superseded order - hybrid (system): 1.000</title>

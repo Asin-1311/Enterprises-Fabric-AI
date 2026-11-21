@@ -32,108 +32,108 @@ text{font-family:system-ui,-apple-system,"Segoe UI",sans-serif}
 <text class="muted" x="594.0" y="484.0" font-size="11" text-anchor="middle">0.8</text>
 <line class="grid" x1="690.0" y1="88" x2="690.0" y2="468.0" stroke-width="1"/>
 <text class="muted" x="690.0" y="484.0" font-size="11" text-anchor="middle">1.0</text>
-<text class="ink" x="198" y="115.0" font-size="12" text-anchor="end">cross_engagement (n=5)</text>
+<text class="ink" x="198" y="115.0" font-size="12" text-anchor="end">cross_engagement (n=1)</text>
 <g>
-<title>cross_engagement (n=5) - Full system: 1.000</title>
+<title>cross_engagement (n=1) - Full system: 1.000</title>
 <rect class="hit" x="210" y="95" width="480" height="16"/>
 <path class="s1" d="M210.0,96.0 H686.0 A4,4 0 0 1 690.0,100.0 V106.0 A4,4 0 0 1 686.0,110.0 H210.0 Z"/>
 <text class="ink2" x="696.0" y="107" font-size="11">1.000</text>
 </g>
 <g>
-<title>cross_engagement (n=5) - Baseline: 1.000</title>
+<title>cross_engagement (n=1) - Baseline: 1.000</title>
 <rect class="hit" x="210" y="111" width="480" height="16"/>
 <path class="s2" d="M210.0,112.0 H686.0 A4,4 0 0 1 690.0,116.0 V122.0 A4,4 0 0 1 686.0,126.0 H210.0 Z"/>
 <text class="ink2" x="696.0" y="123" font-size="11">1.000</text>
 </g>
-<text class="ink" x="198" y="163.0" font-size="12" text-anchor="end">engagement (n=4)</text>
+<text class="ink" x="198" y="163.0" font-size="12" text-anchor="end">engagement (n=1)</text>
 <g>
-<title>engagement (n=4) - Full system: 1.000</title>
+<title>engagement (n=1) - Full system: 1.000</title>
 <rect class="hit" x="210" y="143" width="480" height="16"/>
 <path class="s1" d="M210.0,144.0 H686.0 A4,4 0 0 1 690.0,148.0 V154.0 A4,4 0 0 1 686.0,158.0 H210.0 Z"/>
 <text class="ink2" x="696.0" y="155" font-size="11">1.000</text>
 </g>
 <g>
-<title>engagement (n=4) - Baseline: 1.000</title>
+<title>engagement (n=1) - Baseline: 1.000</title>
 <rect class="hit" x="210" y="159" width="480" height="16"/>
 <path class="s2" d="M210.0,160.0 H686.0 A4,4 0 0 1 690.0,164.0 V170.0 A4,4 0 0 1 686.0,174.0 H210.0 Z"/>
 <text class="ink2" x="696.0" y="171" font-size="11">1.000</text>
 </g>
-<text class="ink" x="198" y="211.0" font-size="12" text-anchor="end">multi_source (n=18)</text>
+<text class="ink" x="198" y="211.0" font-size="12" text-anchor="end">multi_source (n=1)</text>
 <g>
-<title>multi_source (n=18) - Full system: 0.944</title>
+<title>multi_source (n=1) - Full system: 1.000</title>
 <rect class="hit" x="210" y="191" width="480" height="16"/>
-<path class="s1" d="M210.0,192.0 H659.3 A4,4 0 0 1 663.3,196.0 V202.0 A4,4 0 0 1 659.3,206.0 H210.0 Z"/>
-<text class="ink2" x="669.3" y="203" font-size="11">0.944</text>
+<path class="s1" d="M210.0,192.0 H686.0 A4,4 0 0 1 690.0,196.0 V202.0 A4,4 0 0 1 686.0,206.0 H210.0 Z"/>
+<text class="ink2" x="696.0" y="203" font-size="11">1.000</text>
 </g>
 <g>
-<title>multi_source (n=18) - Baseline: 0.944</title>
+<title>multi_source (n=1) - Baseline: 1.000</title>
 <rect class="hit" x="210" y="207" width="480" height="16"/>
-<path class="s2" d="M210.0,208.0 H659.3 A4,4 0 0 1 663.3,212.0 V218.0 A4,4 0 0 1 659.3,222.0 H210.0 Z"/>
-<text class="ink2" x="669.3" y="219" font-size="11">0.944</text>
+<path class="s2" d="M210.0,208.0 H686.0 A4,4 0 0 1 690.0,212.0 V218.0 A4,4 0 0 1 686.0,222.0 H210.0 Z"/>
+<text class="ink2" x="696.0" y="219" font-size="11">1.000</text>
 </g>
-<text class="ink" x="198" y="259.0" font-size="12" text-anchor="end">no_retrieval (n=5)</text>
+<text class="ink" x="198" y="259.0" font-size="12" text-anchor="end">role_denied (n=1)</text>
 <g>
-<title>no_retrieval (n=5) - Full system: 1.000</title>
+<title>role_denied (n=1) - Full system: 1.000</title>
 <rect class="hit" x="210" y="239" width="480" height="16"/>
 <path class="s1" d="M210.0,240.0 H686.0 A4,4 0 0 1 690.0,244.0 V250.0 A4,4 0 0 1 686.0,254.0 H210.0 Z"/>
 <text class="ink2" x="696.0" y="251" font-size="11">1.000</text>
 </g>
 <g>
-<title>no_retrieval (n=5) - Baseline: 0.800</title>
+<title>role_denied (n=1) - Baseline: 1.000</title>
 <rect class="hit" x="210" y="255" width="480" height="16"/>
-<path class="s2" d="M210.0,256.0 H590.0 A4,4 0 0 1 594.0,260.0 V266.0 A4,4 0 0 1 590.0,270.0 H210.0 Z"/>
-<text class="ink2" x="600.0" y="267" font-size="11">0.800</text>
+<path class="s2" d="M210.0,256.0 H686.0 A4,4 0 0 1 690.0,260.0 V266.0 A4,4 0 0 1 686.0,270.0 H210.0 Z"/>
+<text class="ink2" x="696.0" y="267" font-size="11">1.000</text>
 </g>
-<text class="ink" x="198" y="307.0" font-size="12" text-anchor="end">role_denied (n=10)</text>
+<text class="ink" x="198" y="307.0" font-size="12" text-anchor="end">single_source (n=4)</text>
 <g>
-<title>role_denied (n=10) - Full system: 1.000</title>
+<title>single_source (n=4) - Full system: 1.000</title>
 <rect class="hit" x="210" y="287" width="480" height="16"/>
 <path class="s1" d="M210.0,288.0 H686.0 A4,4 0 0 1 690.0,292.0 V298.0 A4,4 0 0 1 686.0,302.0 H210.0 Z"/>
 <text class="ink2" x="696.0" y="299" font-size="11">1.000</text>
 </g>
 <g>
-<title>role_denied (n=10) - Baseline: 1.000</title>
+<title>single_source (n=4) - Baseline: 1.000</title>
 <rect class="hit" x="210" y="303" width="480" height="16"/>
 <path class="s2" d="M210.0,304.0 H686.0 A4,4 0 0 1 690.0,308.0 V314.0 A4,4 0 0 1 686.0,318.0 H210.0 Z"/>
 <text class="ink2" x="696.0" y="315" font-size="11">1.000</text>
 </g>
-<text class="ink" x="198" y="355.0" font-size="12" text-anchor="end">standard (n=8)</text>
+<text class="ink" x="198" y="355.0" font-size="12" text-anchor="end">standard (n=1)</text>
 <g>
-<title>standard (n=8) - Full system: 0.938</title>
+<title>standard (n=1) - Full system: 1.000</title>
 <rect class="hit" x="210" y="335" width="480" height="16"/>
-<path class="s1" d="M210.0,336.0 H656.0 A4,4 0 0 1 660.0,340.0 V346.0 A4,4 0 0 1 656.0,350.0 H210.0 Z"/>
-<text class="ink2" x="666.0" y="347" font-size="11">0.938</text>
+<path class="s1" d="M210.0,336.0 H686.0 A4,4 0 0 1 690.0,340.0 V346.0 A4,4 0 0 1 686.0,350.0 H210.0 Z"/>
+<text class="ink2" x="696.0" y="347" font-size="11">1.000</text>
 </g>
 <g>
-<title>standard (n=8) - Baseline: 0.812</title>
+<title>standard (n=1) - Baseline: 1.000</title>
 <rect class="hit" x="210" y="351" width="480" height="16"/>
-<path class="s2" d="M210.0,352.0 H596.0 A4,4 0 0 1 600.0,356.0 V362.0 A4,4 0 0 1 596.0,366.0 H210.0 Z"/>
-<text class="ink2" x="606.0" y="363" font-size="11">0.812</text>
+<path class="s2" d="M210.0,352.0 H686.0 A4,4 0 0 1 690.0,356.0 V362.0 A4,4 0 0 1 686.0,366.0 H210.0 Z"/>
+<text class="ink2" x="696.0" y="363" font-size="11">1.000</text>
 </g>
-<text class="ink" x="198" y="403.0" font-size="12" text-anchor="end">superseded (n=11)</text>
+<text class="ink" x="198" y="403.0" font-size="12" text-anchor="end">superseded (n=2)</text>
 <g>
-<title>superseded (n=11) - Full system: 1.000</title>
+<title>superseded (n=2) - Full system: 1.000</title>
 <rect class="hit" x="210" y="383" width="480" height="16"/>
 <path class="s1" d="M210.0,384.0 H686.0 A4,4 0 0 1 690.0,388.0 V394.0 A4,4 0 0 1 686.0,398.0 H210.0 Z"/>
 <text class="ink2" x="696.0" y="395" font-size="11">1.000</text>
 </g>
 <g>
-<title>superseded (n=11) - Baseline: 0.864</title>
+<title>superseded (n=2) - Baseline: 1.000</title>
 <rect class="hit" x="210" y="399" width="480" height="16"/>
-<path class="s2" d="M210.0,400.0 H620.5 A4,4 0 0 1 624.5,404.0 V410.0 A4,4 0 0 1 620.5,414.0 H210.0 Z"/>
-<text class="ink2" x="630.5" y="411" font-size="11">0.864</text>
+<path class="s2" d="M210.0,400.0 H686.0 A4,4 0 0 1 690.0,404.0 V410.0 A4,4 0 0 1 686.0,414.0 H210.0 Z"/>
+<text class="ink2" x="696.0" y="411" font-size="11">1.000</text>
 </g>
-<text class="ink" x="198" y="451.0" font-size="12" text-anchor="end">time_sensitive (n=2)</text>
+<text class="ink" x="198" y="451.0" font-size="12" text-anchor="end">time_sensitive (n=1)</text>
 <g>
-<title>time_sensitive (n=2) - Full system: 0.500</title>
+<title>time_sensitive (n=1) - Full system: 1.000</title>
 <rect class="hit" x="210" y="431" width="480" height="16"/>
-<path class="s1" d="M210.0,432.0 H446.0 A4,4 0 0 1 450.0,436.0 V442.0 A4,4 0 0 1 446.0,446.0 H210.0 Z"/>
-<text class="ink2" x="456.0" y="443" font-size="11">0.500</text>
+<path class="s1" d="M210.0,432.0 H686.0 A4,4 0 0 1 690.0,436.0 V442.0 A4,4 0 0 1 686.0,446.0 H210.0 Z"/>
+<text class="ink2" x="696.0" y="443" font-size="11">1.000</text>
 </g>
 <g>
-<title>time_sensitive (n=2) - Baseline: 0.750</title>
+<title>time_sensitive (n=1) - Baseline: 1.000</title>
 <rect class="hit" x="210" y="447" width="480" height="16"/>
-<path class="s2" d="M210.0,448.0 H566.0 A4,4 0 0 1 570.0,452.0 V458.0 A4,4 0 0 1 566.0,462.0 H210.0 Z"/>
-<text class="ink2" x="576.0" y="459" font-size="11">0.750</text>
+<path class="s2" d="M210.0,448.0 H686.0 A4,4 0 0 1 690.0,452.0 V458.0 A4,4 0 0 1 686.0,462.0 H210.0 Z"/>
+<text class="ink2" x="696.0" y="459" font-size="11">1.000</text>
 </g>
 </svg>
