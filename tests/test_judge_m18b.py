@@ -23,7 +23,7 @@ from eval.run_answer_eval import summarise
 
 BASE = dict(_env_file=None, model_light="anthropic/claude-haiku-5.5",
             model_synth="anthropic/claude-sonnet-5.5", model_verify="anthropic/claude-opus-5.5",
-            llm_auth_token="test-token")
+            llm_auth_token="test-token", llm_mode="live")  # explicit: CI sets LLM_MODE=mock
 
 
 def test_the_judge_must_come_from_another_family_than_the_verifier() -> None:
@@ -37,7 +37,7 @@ def test_the_judge_must_come_from_another_family_than_the_verifier() -> None:
     with pytest.raises(ValidationError, match="different model family"):
         Settings(**{**BASE, "model_verify": "claude-opus-5-5"}, model_judge="claude-haiku-5-5")
     # Mock mode (CI) uses placeholder ids and calls no model, so the rule does not apply.
-    assert Settings(**BASE, llm_mode="mock", model_judge="anthropic/claude-x").llm_mode == "mock"
+    assert Settings(**{**BASE, "llm_mode": "mock"}, model_judge="anthropic/claude-x").llm_mode == "mock"
 
 
 def _judge(handler) -> OpenAICompatibleJudge:
