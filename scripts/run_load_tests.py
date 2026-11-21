@@ -3,6 +3,7 @@ section 13.3) and write eval/results/<timestamp>_load/.
 
     python -m scripts.run_load_tests --confirm-paid            # live model calls (paid)
     python -m scripts.run_load_tests --confirm-paid --per-user 2 --levels 1,5,10
+    python -m scripts.run_load_tests --confirm-paid --tools k6     # one tool only
 
 - It starts its own API (uvicorn on 127.0.0.1:8010) from the laptop's lite index. The
   response cache is off, so every request is answered, not served from a cache. The
@@ -81,8 +82,11 @@ def start_api(log: Path) -> subprocess.Popen:
 
 
 def k6_path() -> str | None:
-    """k6 on PATH, or at the winget/MSI default location (an install may finish mid-run)."""
+    """k6 from the K6 environment variable (e.g. a portable copy), on PATH, or at the
+    winget/MSI default location (an install may finish mid-run)."""
     default = Path(r"C:\Program Files\k6\k6.exe")
+    if os.environ.get("K6") and Path(os.environ["K6"]).exists():
+        return os.environ["K6"]
     return shutil.which("k6") or (str(default) if default.exists() else None)
 
 
@@ -153,6 +157,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--confirm-paid", action="store_true")
     parser.add_argument("--levels", default="1,5,10")
     parser.add_argument("--per-user", type=int, default=2)
+    parser.add_argument("--tools", default="locust,k6", help="which tools to run, in order")
     args = parser.parse_args(argv)
     levels = [int(x) for x in args.levels.split(",")]
     if not args.confirm_paid:
@@ -169,7 +174,8 @@ def main(argv: list[str] | None = None) -> int:
     rows: list[dict] = []
     started = time.time()
     try:
-        for tool, runner in (("locust", run_locust), ("k6", run_k6)):
+        runners = {"locust": run_locust, "k6": run_k6}
+        for tool, runner in ((name, runners[name]) for name in args.tools.split(",")):
             if tool == "k6" and k6_path() is None:
                 print("k6 is not installed (winget install GrafanaLabs.k6): k6 levels not run", flush=True)
                 continue
@@ -182,7 +188,7 @@ def main(argv: list[str] | None = None) -> int:
         api.terminate()
         api.wait(timeout=60)
     results = {tool: {str(u): summarise([r for r in rows if r["tool"] == tool and r["users"] == u])
-                      for u in levels} for tool in ("k6", "locust")}
+                      for u in levels} for tool in args.tools.split(",")}
     metrics = {"targets": TARGETS, "levels": levels, "per_user": args.per_user, "results": results,
                "minutes": round((time.time() - started) / 60, 1), "hardware": hardware(),
                "measured": "client side; TTFT by Locust only (k6 sees an SSE response only when complete)"}

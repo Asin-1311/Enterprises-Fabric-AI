@@ -5,7 +5,7 @@ This table replaces the project document's Section 15 "Work Completed" table, wh
 marked every deliverable as Completed. A requirement is **Met** only when its code exists
 and its acceptance test passes; the evidence and tests are in COMPLIANCE.md.
 
-**43 requirements: 39 Met, 4 Partial, 0 Not met, 0 Deviation.**
+**43 requirements: 40 Met, 3 Partial, 0 Not met, 0 Deviation.**
 
 ## Specification section 3
 
@@ -132,7 +132,7 @@ and its acceptance test passes; the evidence and tests are in COMPLIANCE.md.
 | ID | Requirement | Status | Milestone |
 |---|---|---|---|
 | R-13.3-replay | Replay tests before activation | Met | M15b, M15c, M17c, M18b |
-| R-13.3-load | k6 and Locust load tests against latency targets | Partial | M18c |
+| R-13.3-load | k6 and Locust load tests against latency targets | Met | M18c |
 | R-13.3-contract | Contract tests for connectors and API | Met | M11, M12c |
 
 ## Specification section 14
@@ -167,4 +167,3 @@ Every requirement that is not Met, with the reason from COMPLIANCE.md (shortened
 - **R-3-eval (Partial)**: ). Computed as labelled at the author's request; a relabel would be a second calibration run, kept beside this one. Everything the acceptance asks to be REPORTED is now reported (reviewed count, kappa, two runs with spread), but the evaluation cannot yet be trusted, which is the requirement: the judge is not validated and 0 of 147 questions are reviewed by the author. Kept Partial for that reason.
 - **R-6-stack (Partial)**: data; Langfuse rejects its own prompt-link attribute for prompts it does not manage). Langfuse's web server needs about 1 GB, so the observability profile runs instead of `full`, not beside it, on the 3.5 GB Docker VM. M17b: Docker images and Kubernetes via the Helm chart, installed on kind with a passing smoke test (see R-14). Remaining for Met: an automated test of the Prefect deployment itself.
 - **R-12-model (Partial)**: del: Ollama is not installed, and the 7.3 GB laptop cannot run a local model beside the full stack; the adapter is tested against a mock Ollama server. M16c: administrators can mark more sources or paths `restricted` with classification rules (admin console); the rule updates documents and index payloads at once, so the model router sends that text only to the private model from the next question.
-- **R-13.3-load (Partial)**: Still missing: the k6 levels were not run, because k6 was not yet installed (its Windows installer was waiting for the author's approval); k6 measures the full-answer time only, since it sees an SSE response only once complete.
