@@ -186,6 +186,9 @@ class Settings(BaseSettings):
     bandit_seed: int | None = None
     reward_window_hours: float = 24.0
     replay_tolerance: float = 0.02  # a new routing policy may lose at most this much
+    # CI retrieval regression gate (M17c, eval/gates.py): any gated metric may drop at most
+    # this much (absolute) below the accepted baseline. CLAUDE.md section 13.1.
+    retrieval_tolerance: float = 0.02
     # A new prompt version may score at most this much below the active one on replay
     # (M15c). Wider than for routing: model outputs vary between runs and one record of
     # ~20 is 0.05. A starting value, to be revisited with run-to-run spread in M18.

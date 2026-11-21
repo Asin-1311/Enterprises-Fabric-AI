@@ -17,6 +17,9 @@ qdrant-client==1.20.0
 rank-bm25==0.2.2
 sentence-transformers==6.2.0
 torch==2.15.0
+# torch depends on setuptools; the PyTorch CPU index serves an old one (78.1.0, with known
+# vulnerabilities found by pip-audit and Trivy in CI, M17c), so it is pinned here.
+setuptools==84.2.1
 
 # Ingestion
 pymupdf==2.1

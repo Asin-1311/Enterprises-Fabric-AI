@@ -46,7 +46,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.adaptive.degradation import REDUCED_CHECKING_NOTICE, low_risk_reasons, under_load
 from app.agents.budgets import BudgetExceeded, StepBudget
-from app.agents.llm import LLM, LLMCaller, LLMResult
+from app.agents.llm import LLM, LLMCaller
 from app.agents.nli import NliScorer
 from app.agents.model_router import (
     RESTRICTED_UNAVAILABLE_MESSAGE,

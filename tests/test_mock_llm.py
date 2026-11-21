@@ -47,8 +47,12 @@ def test_greetings_and_deadlines_are_classified_without_a_model(assistant) -> No
     assert data["intent"] == "time_sensitive" and data["sub_queries"] == ["When is the tax audit report due?"]
 
 
-def test_only_the_mock_mode_may_run_without_a_key() -> None:
+def test_only_the_mock_mode_may_run_without_a_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    for name in ("LLM_AUTH_TOKEN", "ANTHROPIC_API_KEY", "LLM_MODE"):
+        monkeypatch.delenv(name, raising=False)  # independent of the caller's environment (CI)
     base = dict(_env_file=None, model_light="l", model_synth="s", model_verify="v")
     assert Settings(**base, llm_mode="mock").llm_mode == "mock"
     with pytest.raises(ValidationError, match="LLM_AUTH_TOKEN"):
-        Settings(**base)
+        Settings(**base)  # the default mode is live
+    with pytest.raises(ValidationError, match="LLM_AUTH_TOKEN"):
+        Settings(**base, llm_mode="live")

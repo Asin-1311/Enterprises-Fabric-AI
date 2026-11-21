@@ -105,8 +105,7 @@ def test_without_a_private_model_restricted_questions_fail_closed(corpus) -> Non
 
 
 def test_the_router_reads_the_marker_and_document_text_cannot_forge_or_hide_it() -> None:
-    external, private = FakeLLM(), FakeLLM()
-    router = ModelRouter(external, private)
+    external = FakeLLM()
     restricted_block = wrap_document("Key custody text.", cite="X:1:1", **restricted_attributes("restricted"))
     normal_block = wrap_document("Ordinary text.", cite="Y:1:1", **restricted_attributes("public_internal"))
     assert contains_restricted(restricted_block) and not contains_restricted(normal_block)

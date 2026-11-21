@@ -1,0 +1,269 @@
+# Continuous integration (M17c; CLAUDE.md section 14; spec section 14).
+#
+# Runs on every push and pull request, on a clean clone: no .env, no licensed ICAI material
+# (the indexer falls back to the committed synthetic corpus), no API key. Models run in
+# LLM_MODE=mock (app/agents/mock_llm.py), so CI makes no paid call. Third-party actions are
+# pinned to commit SHAs; downloaded tools are pinned by version and checksum.
+#
+# Jobs: python (lint, unit tests, compliance), frontend (type check, Vitest, npm audit),
+# policy (opa test), dependency-audit (pip-audit), eval-gates (retrieval regression gate,
+# routing replay gate, prompt gate), helm (lint, render), images (build, Trivy, container
+# smoke test), integration (docker compose full profile, pytest -m integration, the
+# compliance check with every Met test run). When all pass on a push to phase2 or main,
+# release.yaml publishes the images and deploys to the staging namespace on kind.
+
+name: CI
+
+on:
+  push:
+  pull_request:
+    branches: [phase2, main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHONUTF8: "1"
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  LLM_MODE: mock
+  MODEL_LIGHT: ci-mock-light
+  MODEL_SYNTH: ci-mock-synth
+  MODEL_VERIFY: ci-mock-verify
+  MODEL_JUDGE: ci-mock-judge
+  HELM_VERSION: v4.3.2
+  HELM_SHA256: d1c0278d46beab79582d7e50f5b3dc206944ba8e577cde618513fd07daa53983
+  TRIVY_IMAGE: aquasec/trivy:0.76.2@sha256:8f6bb947dbc528902e11f2f5be52f7b519f6a39d5d148f41166f2040499768fb
+  OPA_IMAGE: openpolicyagent/opa:1.4.2@sha256:35a093d9ae828373cf88f68ecaa8189ab26287468074a3b78f0601d9c8b7a4f5
+
+jobs:
+  python:
+    name: Python lint and unit tests (lite)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/python-env
+      - name: Lint (ruff, ruff.toml)
+        run: |
+          python -m pip install ruff==0.17.6
+          ruff check .
+      - name: Unit tests (lite profile, clean clone)
+        run: python -m pytest -q -p no:cacheprovider --junitxml=junit-lite.xml
+      - name: Compliance table is consistent with the tests
+        run: python -m scripts.check_compliance
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: junit-lite
+          path: junit-lite.xml
+
+  frontend:
+    name: Frontend type check, Vitest, npm audit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24.22.3"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci --no-fund
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm audit --audit-level=high
+
+  policy:
+    name: OPA policy tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: docker run --rm -v "$PWD/policy:/policy:ro" "$OPA_IMAGE" test /policy -v
+
+  dependency-audit:
+    name: Python dependency audit (pip-audit)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/python-env
+        with:
+          full: "true"
+      # Audits the installed environment (direct and transitive packages, CPU PyTorch as
+      # actually used), not a fresh resolution from PyPI.
+      # Findings go to the run summary and, when the audit fails, to error annotations.
+      - run: |
+          python -m pip install pip-audit==2.10.1
+          status=0
+          pip-audit --progress-spinner off --skip-editable --output audit.txt 2> audit-warnings.txt || status=$?
+          cat audit.txt audit-warnings.txt
+          { echo '## pip-audit'; echo '```'; cat audit.txt audit-warnings.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$status" -ne 0 ]; then
+            while IFS= read -r line; do [ -n "$line" ] && echo "::error title=pip-audit::$line"; done < <(cat audit.txt audit-warnings.txt)
+          fi
+          exit "$status"
+
+  eval-gates:
+    name: Retrieval regression gate and replay gates
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/python-env
+      - name: Index the committed synthetic corpus (what a clean clone has)
+        run: python -m app.ingest.indexer --actor ci
+      - name: Retrieval evaluation (synthetic corpus, no LLM calls)
+        run: python -m eval.run_retrieval_eval --corpus synthetic
+      - name: Retrieval regression gate (eval/baselines/retrieval_synthetic.json)
+        run: python -m eval.gates retrieval
+      - name: Routing replay gate (eval/baselines/replay_synthetic.json)
+        run: python -m eval.gates routing-replay
+      - name: Prompt gate (changed seed prompts need a passing replay report)
+        run: python -m eval.gates prompts
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: eval-gate-runs
+          path: |
+            eval/results/*_retrieval_synthetic/
+            eval/results/*_routing_replay_synthetic/
+
+  helm:
+    name: Helm lint and render
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install helm (pinned, checksum verified)
+        run: |
+          curl -fsSLo helm.tgz "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz"
+          echo "${HELM_SHA256}  helm.tgz" | sha256sum -c -
+          tar -xzf helm.tgz linux-amd64/helm && sudo mv linux-amd64/helm /usr/local/bin/helm
+      - run: helm lint deploy/helm/enterprise-fabric
+      - name: Render both profiles
+        run: |
+          helm template ef deploy/helm/enterprise-fabric --set secrets.values.DEMO_PASSWORD=x > /dev/null
+          helm template ef deploy/helm/enterprise-fabric --set profile=full \
+            --set external.qdrantUrl=http://qdrant:6333 --set external.opensearchUrl=http://opensearch:9200 \
+            --set external.redisUrl=redis://redis:6379 --set external.kafkaBootstrap=kafka:9092 \
+            --set secrets.existingSecret=ef-secrets --set worker.enabled=true --set hpa.enabled=true > /dev/null
+
+  images:
+    name: Images, Trivy scan, container smoke test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Free disk space (the API image is about 6 GB unpacked)
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL && df -h /
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Build api
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: deploy/docker/app.Dockerfile
+          target: api
+          tags: enterprise-fabric/api:ci
+          load: true
+          cache-from: type=gha,scope=app
+          cache-to: type=gha,scope=app,mode=max
+      - name: Build worker
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: deploy/docker/app.Dockerfile
+          target: worker
+          tags: enterprise-fabric/worker:ci
+          load: true
+          cache-from: type=gha,scope=app
+      - name: Build frontend
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: deploy/docker/frontend.Dockerfile
+          tags: enterprise-fabric/frontend:ci
+          load: true
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,scope=frontend,mode=max
+      - name: Trivy (HIGH and CRITICAL with a fix available fail the build)
+        run: |
+          mkdir -p "$HOME/.cache/trivy"
+          for image in api worker frontend; do
+            docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$HOME/.cache/trivy:/root/.cache/trivy" \
+              "$TRIVY_IMAGE" image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 \
+              --no-progress "enterprise-fabric/$image:ci"
+          done
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.13"
+      - name: Container smoke test (read-only, no capabilities, mock LLM)
+        run: |
+          password="$(python3 -c 'import secrets; print(secrets.token_urlsafe(18))')"
+          echo "::add-mask::$password"
+          docker run -d --name ef-api -p 127.0.0.1:18000:8000 --read-only --tmpfs /tmp \
+            --tmpfs /var/lib/fabric:uid=10001 --cap-drop ALL --security-opt no-new-privileges \
+            -e PROFILE=lite -e LLM_MODE=mock -e MODEL_LIGHT -e MODEL_SYNTH -e MODEL_VERIFY -e MODEL_JUDGE \
+            -e "DEMO_PASSWORD=$password" enterprise-fabric/api:ci \
+            sh -c "python -m app.ingest.indexer --actor ci && exec uvicorn app.api.main:app --host 0.0.0.0 --port 8000"
+          python3 -m pip install --quiet httpx==0.28.1
+          SMOKE_PASSWORD="$password" python3 scripts/smoke_deploy.py --base http://127.0.0.1:18000 \
+            || { docker logs ef-api | tail -80; exit 1; }
+
+  integration:
+    name: Integration tests (docker compose, full profile)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/python-env
+        with:
+          full: "true"
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24.22.3"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci --no-fund
+        working-directory: frontend
+      - name: Install helm (pinned, checksum verified)
+        run: |
+          curl -fsSLo helm.tgz "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz"
+          echo "${HELM_SHA256}  helm.tgz" | sha256sum -c -
+          tar -xzf helm.tgz linux-amd64/helm && sudo mv linux-amd64/helm /usr/local/bin/helm
+      - name: Throwaway .env (random passwords, masked in the logs)
+        run: python -m scripts.ci_env
+      - name: Start the full profile
+        run: docker compose --env-file .env -f deploy/compose.yaml --profile full up -d --wait --wait-timeout 600
+      - name: Prepare Keycloak, the synthetic DMS and the Debezium connector
+        run: |
+          python -m scripts.keycloak_setup
+          python -m scripts.make_synthetic_dms
+          python -m scripts.register_debezium_connector
+      - name: Integration tests
+        run: python -m pytest -m integration -q -p no:cacheprovider -rs --junitxml=junit-integration.xml
+      - name: Compliance check, every Met acceptance test run (lite, integration, Vitest)
+        run: python -m scripts.check_compliance --run --run-integration
+      - if: failure()
+        run: docker compose --env-file .env -f deploy/compose.yaml --profile full ps -a && docker compose --env-file .env -f deploy/compose.yaml --profile full logs --tail 60
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: junit-integration
+          path: junit-integration.xml
+
+  release:
+    name: Release and staging
+    needs: [python, frontend, policy, dependency-audit, eval-gates, helm, images, integration]
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/phase2' || github.ref == 'refs/heads/main')
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/release.yaml

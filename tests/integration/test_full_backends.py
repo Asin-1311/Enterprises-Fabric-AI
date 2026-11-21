@@ -16,7 +16,6 @@ import uuid
 from urllib.parse import urlparse
 
 import pytest
-from qdrant_client import QdrantClient
 from sqlalchemy import create_engine, inspect, select, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import DBAPIError

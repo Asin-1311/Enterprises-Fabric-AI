@@ -1,0 +1,29 @@
+{
+  "metric": "document recall@10",
+  "score": 0.8947,
+  "policy": "code default (rules)",
+  "records": 19,
+  "record_ids": [
+    "q003",
+    "q005",
+    "q006",
+    "q008",
+    "q011",
+    "q012",
+    "q013",
+    "q014",
+    "q024",
+    "q025",
+    "q026",
+    "q027",
+    "q028",
+    "q029",
+    "q030",
+    "q057",
+    "q058",
+    "q059",
+    "q063"
+  ],
+  "corpus": "synthetic",
+  "ran_at": "2026-11-21T07:24:50+00:00"
+}

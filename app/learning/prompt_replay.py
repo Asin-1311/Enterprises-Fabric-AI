@@ -25,6 +25,7 @@ Model outputs vary from run to run: a report is one run, not a fixed property.
 
 import argparse
 import csv
+import hashlib
 import json
 import sys
 import time
@@ -220,6 +221,9 @@ def replay_version(sessions: sessionmaker[Session], version_id: int, llm: LLMCal
     cand_score, base_score = _mean(cand_rows), _mean(base_rows)
     report = {
         "kind": "prompt", "agent": agent, "version": cand_no, "baseline_version": base_no,
+        # Which exact text was replayed: the CI prompt gate (eval/gates.py) matches a changed
+        # seed prompt in the code to a passing report by this hash.
+        "template_sha256": hashlib.sha256(cand_text.encode("utf-8")).hexdigest(),
         "baseline_version_id": base_id, "score": cand_score, "baseline_score": base_score,
         "tolerance": tolerance, "passed": cand_score >= base_score - tolerance,
         "records": len(used), "labels_reviewed": sum(bool(x.get("reviewed")) for x in labels),

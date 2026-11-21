@@ -1,6 +1,5 @@
 """Tests for the baseline, the judge's arithmetic and the answer-eval aggregation (no live LLM)."""
 
-import re
 from pathlib import Path
 
 import pytest

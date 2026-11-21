@@ -14,7 +14,7 @@ exit code and output. flows/serve.py turns this list into Prefect deployments.
 | nightly-routing-policy  | 02:30 daily         | python -m app.adaptive.routing_policy --propose (M15b): learns a new INACTIVE version and replays it; an admin activates it |
 
 Added by a later milestone: the weekly answer sample for human review (M18). The
-retrieval regression gate itself is M18.
+retrieval regression gate runs in CI (M17c, eval/gates.py); M18 extends its question sets.
 """
 
 import os
