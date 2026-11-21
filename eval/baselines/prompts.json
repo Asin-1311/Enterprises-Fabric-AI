@@ -1,0 +1,35 @@
+{
+  "agents": {
+    "query_understanding": {
+      "template_sha256": "d6d5fd689b384b6dbd0a039ab008bf0dde2c1040bb765dd3eabe389ad5415d73",
+      "replay_run": null,
+      "reason": "reference text when the gate was introduced (M17c): the seed that becomes version 1 on a new database"
+    },
+    "routing_tiebreak": {
+      "template_sha256": "a939643a58af82cd1aeb5835b6d8b4ef8f606428629b05f9c5931c99a8418590",
+      "replay_run": null,
+      "reason": "reference text when the gate was introduced (M17c): the seed that becomes version 1 on a new database"
+    },
+    "reformulate": {
+      "template_sha256": "6317fc9a5e8a446c34db7c9dbf5f55d8daf004018358387865b071419ea90ea0",
+      "replay_run": null,
+      "reason": "reference text when the gate was introduced (M17c): the seed that becomes version 1 on a new database"
+    },
+    "compress": {
+      "template_sha256": "6d4e35d2c2a63f9103b7b3591f2846bc85f65ab2cff689ab86e3d55446ffbd8b",
+      "replay_run": null,
+      "reason": "reference text when the gate was introduced (M17c): the seed that becomes version 1 on a new database"
+    },
+    "synthesis": {
+      "template_sha256": "6b3f778b601861d576d340a01f384a74f68009aceed070e0d708c0d404ea2b65",
+      "replay_run": null,
+      "reason": "reference text when the gate was introduced (M17c): the seed that becomes version 1 on a new database"
+    },
+    "verification": {
+      "template_sha256": "ce326323f6064ac021d98b464023c21a665973247764a87c9494203347d10f78",
+      "replay_run": null,
+      "reason": "reference text when the gate was introduced (M17c): the seed that becomes version 1 on a new database"
+    }
+  },
+  "accepted_at": "2026-11-21"
+}

@@ -131,7 +131,7 @@ def test_figures_are_valid_svg_with_one_bar_per_value(results: Path) -> None:
                     "latency.svg": 8}[name]
         assert len(bars) == expected, name
     latency = ET.fromstring(figs["latency.svg"])
-    assert len([l for l in latency.iter(f"{ns}line") if l.get("class") == "target"]) == 2
+    assert len([line for line in latency.iter(f"{ns}line") if line.get("class") == "target"]) == 2
 
 
 def test_an_undocumented_edit_blocks_the_report(results: Path) -> None:

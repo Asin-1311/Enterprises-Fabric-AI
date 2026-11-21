@@ -33,6 +33,7 @@ def test_verify_model_must_differ_from_synth(
 def test_a_credential_is_required(env_settings: None, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("LLM_AUTH_TOKEN", raising=False)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("LLM_MODE", raising=False)  # CI sets LLM_MODE=mock; this is about live
     with pytest.raises(ValidationError, match="LLM_AUTH_TOKEN"):
         Settings(_env_file=None)
 

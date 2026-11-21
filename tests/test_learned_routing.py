@@ -20,7 +20,7 @@ from app.agents.graph import AgentDeps, AuditAssistant
 from app.agents.query import ClientMatcher
 from app.api.main import Services, create_app
 from app.concurrency import ReadWriteLock
-from app.db.models import Answer, Feedback, FeedbackSignal, Query, Retrieval, RoutingPolicy, Trace, User
+from app.db.models import Feedback, FeedbackSignal, Query, Retrieval, RoutingPolicy, Trace, User
 from app.ingest.manifest import read_manifest
 from app.security.passwords import hash_password
 from tests.helpers import make_indexer, make_searcher

@@ -17,11 +17,15 @@ No estimate is made up and no model is called.
 import json
 from collections import defaultdict
 from datetime import datetime, timezone
+from typing import TYPE_CHECKING
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.models import Answer, Query, Trace
+
+if TYPE_CHECKING:  # only for the annotation; httpx is imported where it is used
+    import httpx
 
 
 def percentile(values: list[float], q: float) -> float | None:
