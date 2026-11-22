@@ -10,4 +10,5 @@ outset (CLAUDE.md Section 0A, "Late start").
 | T1 secrets in snapshots | 40 min | 09:40 | 09:46 | 6 | done: all nine writers redact; the author then changed the two exposed passwords, verified useless at 10:34, so R-ops-secrets is Met |
 | T2 report generator, deviations | 35 min | 09:46 | 09:47 | 1 | done: whole-sentence summaries with a test; four deviation rows, whose sub-sample sizes T3 and T4 will update |
 | T3 reviewed flags | 10 min | 11:14 | | | in progress |
-| T4 second calibration | 15 min | 11:14 | | | in progress: 7 of 8 labels received, row 20 was blank and has been asked for |
+| T4 second calibration | 15 min | 11:14 | 11:20 | 6 | skipped: row 20 was blank at the 11:20 cut-off (7 of 8 labels returned); no kappa computed, the first calibration stands; the partial sheet is not committed |
+| T6 close | 25 min | 11:20 | | | in progress |
