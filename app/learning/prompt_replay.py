@@ -49,6 +49,7 @@ from app.db.models import Document, PromptVersion
 from app.db.session import write_audit_log
 from app.learning.prompt_registry import PromptedLLM
 from app.retrieval.acl import UserContext, load_user
+from app.security.redaction import snapshot_json
 
 REPLAY_FILE = PROJECT_ROOT / "eval" / "replay" / "prompt_replay.jsonl"
 RESULTS_DIR = PROJECT_ROOT / "eval" / "results"
@@ -258,7 +259,7 @@ def write_results(report: dict, rows: list[dict], settings: Settings,
               "model_verify": settings.model_verify, "effort_light": settings.effort_light,
               "effort_synth": settings.effort_synth, "effort_verify": settings.effort_verify,
               "prompt_replay_tolerance": settings.prompt_replay_tolerance}
-    (out / "config.json").write_text(json.dumps(config, indent=2), encoding="utf-8")
+    (out / "config.json").write_text(snapshot_json(config), encoding="utf-8")
     return out
 
 

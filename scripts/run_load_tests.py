@@ -36,6 +36,7 @@ from pathlib import Path
 import httpx
 
 from app.config import PROJECT_ROOT, get_settings
+from app.security.redaction import snapshot_json
 from eval.run_answer_eval import TARGETS, percentile
 
 RESULTS = PROJECT_ROOT / "eval" / "results"
@@ -198,9 +199,9 @@ def main(argv: list[str] | None = None) -> int:
         w.writeheader()
         w.writerows(rows)
     s = get_settings()
-    (out / "config.json").write_text(json.dumps({"api_env": API_ENV, "port": PORT, "profile": s.profile,
+    (out / "config.json").write_text(snapshot_json({"api_env": API_ENV, "port": PORT, "profile": s.profile,
                                                  "questions": qs, "latency_target_seconds": s.latency_target_seconds,
-                                                 "degradation_enabled": s.degradation_enabled}, indent=2),
+                                                 "degradation_enabled": s.degradation_enabled}),
                                      encoding="utf-8")
     (out / "model_ids.json").write_text(json.dumps({"light": s.model_light, "synth": s.model_synth,
                                                     "verify": s.model_verify}, indent=2), encoding="utf-8")

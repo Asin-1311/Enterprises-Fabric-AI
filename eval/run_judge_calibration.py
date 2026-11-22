@@ -18,6 +18,7 @@ from collections import Counter
 from datetime import datetime
 
 from app.config import PROJECT_ROOT
+from app.security.redaction import snapshot_json
 
 LABELS = ("correct", "partially_correct", "incorrect")
 CALIBRATION = PROJECT_ROOT / "eval" / "calibration"
@@ -78,7 +79,7 @@ def main() -> int:
         w = csv.DictWriter(f, fieldnames=list(items[0]))
         w.writeheader()
         w.writerows(items)
-    (out / "config.json").write_text(json.dumps({"labels_file": labels_path.name}, indent=2),
+    (out / "config.json").write_text(snapshot_json({"labels_file": labels_path.name}),
                                      encoding="utf-8")
     (out / "model_ids.json").write_text(json.dumps({"note": "see the answers run's model_ids.json"}),
                                         encoding="utf-8")

@@ -66,11 +66,12 @@ from sqlalchemy import select
 from app.config import PROJECT_ROOT, get_settings
 from app.db.models import Chunk, Document, Trace
 from app.retrieval.acl import load_user
+from app.security.redaction import snapshot_json
 from eval.costs import estimate_usd, openrouter_balance
 from eval.judge import judge_answer
 from eval.metrics import mean
 from eval.question_sets import SAMPLE_SEED, evaluation_sample, load_questions
-from eval.run_retrieval_eval import SECRET_FIELDS, leak_flags, load_ground_truth
+from eval.run_retrieval_eval import leak_flags, load_ground_truth
 
 SYSTEMS = ("full", "baseline")
 TARGETS = {"ttft_p95_s": 1.5, "full_answer_p95_s": 8.0}
@@ -385,10 +386,10 @@ def write_outputs(out: Path, questions: list[dict], use_judge: bool, selection: 
     with (out / "answers.jsonl").open("w", encoding="utf-8") as f:
         for a in answers:
             f.write(json.dumps(a, ensure_ascii=False) + "\n")
-    config = settings.model_dump(exclude=SECRET_FIELDS)
+    config = settings.model_dump()
     config |= {"question_ids": [q["id"] for q in questions], "judge": use_judge,
                "question_selection": selection}
-    (out / "config.json").write_text(json.dumps(config, indent=2, default=str), encoding="utf-8")
+    (out / "config.json").write_text(snapshot_json(config), encoding="utf-8")
     (out / "model_ids.json").write_text(json.dumps({
         "light": settings.model_light, "synth": settings.model_synth,
         "verify": settings.model_verify, "judge": settings.model_judge if use_judge else None,

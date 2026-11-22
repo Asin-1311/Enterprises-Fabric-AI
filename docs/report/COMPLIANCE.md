@@ -12,10 +12,10 @@ The PDF's Section 15 table is regenerated from this file before submission.
   which milestone adds it.
 - Statuses start from the independent audit of 2026-11-18 (CLAUDE.md Appendix A).
 
-Last updated: M18c and M19 (2026-11-21).
+Last updated: M20 (2026-11-22).
 
 <!-- summary: written by hand, verified by scripts/check_compliance.py -->
-**Summary: 43 requirements: 40 Met, 3 Partial, 0 Not met, 0 Deviation.**
+**Summary: 44 requirements: 40 Met, 4 Partial, 0 Not met, 0 Deviation.**
 
 | ID | Spec § | Requirement | Status | Evidence | Acceptance test | Milestone | Notes |
 |---|---|---|---|---|---|---|---|
@@ -62,6 +62,7 @@ Last updated: M18c and M19 (2026-11-21).
 | R-15-docs | 15 (#2, #17) | Architecture design, API reference, operations guide | Met | `docs/ARCHITECTURE.md`, `docs/api/REFERENCE.md` (from `scripts/make_docs.py`), `docs/OPERATIONS.md`, `README.md` | `tests/test_docs.py::test_architecture_api_reference_and_operations_are_linked_from_the_readme` | M17c, M19 | M19: `docs/ARCHITECTURE.md` (the five planes, a data-flow diagram in Mermaid, ports and adapters, the two profiles); `docs/api/REFERENCE.md` generated from the OpenAPI schema (a test fails if it is out of date); `docs/OPERATIONS.md` (M17c); all linked from the README. |
 | R-ops-clone | audit | Runnable from a clean clone | Met | `data/manifest.synthetic.csv`, `app/ingest/manifest.py`, `app/ingest/indexer.py`, `.github/workflows/ci.yaml` (jobs python and eval-gates) | `tests/test_ci.py::test_the_fresh_clone_job_indexes_the_synthetic_corpus_without_secrets` | M9, M17c | Audited as Defect. M9: without the ICAI PDFs the indexer uses the synthetic manifest and warns: `tests/test_clean_clone.py`, `tests/test_synthetic_corpus.py::test_committed_manifest_is_valid`. M17c: CI checks out a clean clone (no .env, no ICAI material, no key) and passes the unit tests (job python) and indexes the synthetic corpus, 42 documents, before the retrieval gate (job eval-gates); green in run 44884117578 (https://github.com/Asin-1311/Enterprises-Fabric-AI/actions/runs/44884117578). Before pushing, the whole suite ran in a local clean clone: two tests that depended on the caller's LLM_MODE were fixed; the three tests that need the licensed PDFs skip, as designed. |
 | R-ops-integrity | audit | No edited evaluation outputs; honest Section 15 | Met | `scripts/make_report.py`, `app/quality_runs.py`, `scripts/make_docs.py`, `docs/report/SECTION15.md`, `docs/report/RESULTS.md` | `tests/test_docs.py::test_generated_documents_are_up_to_date` | M9, M19 | M9: the report refuses any undocumented disagreement between a run's files (`tests/test_make_report.py::test_an_undocumented_edit_blocks_the_report`). M19: RESULTS.md was regenerated from the newest runs (answers `20261121-183054_answers`, retrieval `20261121-153910_retrieval`, calibration `20261121-192337_calibration`) and the integrity check passed; `docs/report/SECTION15.md`, the replacement for the PDF's Section 15 table, is generated from this file and a test fails if it is out of date. The PDF itself is the author's document: its Section 15 must be replaced with that table (the 17 deliverable names of the PDF could not be read here, so the table is by specification section). |
+| R-ops-secrets | audit (M20) | No secrets in committed run snapshots | Partial | `app/security/redaction.py` (used by all nine config.json writers) | `tests/test_run_snapshots.py::test_a_snapshot_holds_neither_the_password_nor_the_url_credentials` | M20 | Audited as Defect. M20: every run writer redacts secret-named settings and URL credentials; tests fail if a writer bypasses the helper or a new run folder holds a secret. A scan of every git object found two values from `.env` in the history, the PostgreSQL password and the demo password, in 11 run snapshots committed before the fix; those folders are not edited. Still missing: the author changing both passwords, so that the published values are useless. |
 
 ## Declared deviations
 
