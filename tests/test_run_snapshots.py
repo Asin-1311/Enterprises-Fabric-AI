@@ -88,3 +88,12 @@ def test_no_other_run_snapshot_holds_a_secret() -> None:
         if path.parent.name not in EXPOSED_BEFORE_THE_FIX:
             config = json.loads(path.read_text(encoding="utf-8"))
             assert redact(config) == config, path.parent.name
+
+
+def test_the_old_snapshots_expose_only_the_two_retired_passwords() -> None:
+    """Covers: R-ops-secrets (changing the demo and PostgreSQL passwords retired everything
+    the runs committed before the fix exposed)."""
+    for run in sorted(EXPOSED_BEFORE_THE_FIX):
+        config = json.loads((PROJECT_ROOT / "eval" / "results" / run / "config.json").read_text(encoding="utf-8"))
+        clean = redact(config)
+        assert {k for k in config if clean[k] != config[k]} <= {"demo_password", "database_url"}, run

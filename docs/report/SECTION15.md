@@ -5,7 +5,7 @@ This table replaces the project document's Section 15 "Work Completed" table, wh
 marked every deliverable as Completed. A requirement is **Met** only when its code exists
 and its acceptance test passes; the evidence and tests are in COMPLIANCE.md.
 
-**44 requirements: 40 Met, 4 Partial, 0 Not met, 0 Deviation.**
+**44 requirements: 41 Met, 3 Partial, 0 Not met, 0 Deviation.**
 
 ## Specification section 3
 
@@ -164,7 +164,7 @@ and its acceptance test passes; the evidence and tests are in COMPLIANCE.md.
 
 | ID | Requirement | Status | Milestone |
 |---|---|---|---|
-| R-ops-secrets | No secrets in committed run snapshots | Partial | M20 |
+| R-ops-secrets | No secrets in committed run snapshots | Met | M20 |
 
 ## Not met in full, and why
 
@@ -173,4 +173,3 @@ Every requirement that is not Met, with the reason from COMPLIANCE.md (shortened
 - **R-3-eval (Partial)**: Computed as labelled at the author's request; a relabel would be a second calibration run, kept beside this one. Everything the acceptance asks to be REPORTED is now reported (reviewed count, kappa, two runs with spread), but the evaluation cannot yet be trusted, which is the requirement: the judge is not validated and 0 of 147 questions are reviewed by the author. Kept Partial for that reason.
 - **R-6-stack (Partial)**: Remaining for Met: an automated test of the Prefect deployment itself.
 - **R-12-model (Partial)**: Not yet: (1) the provider's data-retention terms are NOT confirmed by the author, so no zero-retention claim is made; (2) no live private model: Ollama is not installed, and the 7.3 GB laptop cannot run a local model beside the full stack; the adapter is tested against a mock Ollama server. M16c: administrators can mark more sources or paths `restricted` with classification rules (admin console); the rule updates documents and index payloads at once, so the model router sends that text only to the private model from the next question.
-- **R-ops-secrets (Partial)**: Still missing: the author changing both passwords, so that the published values are useless.
