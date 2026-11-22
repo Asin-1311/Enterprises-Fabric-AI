@@ -49,6 +49,7 @@ from unittest import mock
 
 from app.agents.llm import LLMCaller, LLMResult
 from app.config import PROJECT_ROOT, get_settings
+from app.security.redaction import snapshot_json
 
 TRACES = PROJECT_ROOT / "eval" / "replay" / "answer_traces.jsonl"
 BASELINE = PROJECT_ROOT / "eval" / "baselines" / "trace_replay.json"
@@ -238,7 +239,7 @@ def check(path: Path = TRACES, results: Path = RESULTS, write: bool = True) -> t
         (out / "per_question.csv").write_text(
             "id,reproduced,reason\n" + "".join(f"{r['id']},{r['reproduced']},{r['reason']}\n" for r in rows),
             encoding="utf-8")
-        (out / "config.json").write_text(json.dumps(ISOLATION, indent=2), encoding="utf-8")
+        (out / "config.json").write_text(snapshot_json(ISOLATION), encoding="utf-8")
     return score, rows
 
 

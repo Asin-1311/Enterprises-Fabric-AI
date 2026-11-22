@@ -40,6 +40,7 @@ from app.retrieval.acl import load_user
 from app.agents.plan import intent_profile
 from app.retrieval.hybrid import MODES as SEARCH_MODES
 from app.retrieval.hybrid import build_searcher
+from app.security.redaction import snapshot_json
 from eval.question_sets import load_questions
 from eval.metrics import (
     dedupe_docs,
@@ -53,7 +54,6 @@ from eval.metrics import (
 MODES = (*SEARCH_MODES, "adaptive")
 DATA = PROJECT_ROOT / "data"
 LEVEL = {"staff": 0, "manager": 1, "partner": 2}
-SECRET_FIELDS = {"llm_auth_token", "anthropic_api_key"}
 
 
 # ------------------------------------------------- independent access rule (for leaks)
@@ -202,9 +202,9 @@ def run(k_docs: int = 10, chunk_limit: int = 40, corpus: str = "full") -> Path:
         w = csv.DictWriter(f, fieldnames=list(rows[0]))
         w.writeheader()
         w.writerows(rows)
-    config = settings.model_dump(exclude=SECRET_FIELDS)
+    config = settings.model_dump()
     config |= {"chunk_limit": chunk_limit, "k_docs": k_docs, "modes": list(MODES), "corpus": corpus}
-    (out / "config.json").write_text(json.dumps(config, indent=2, default=str), encoding="utf-8")
+    (out / "config.json").write_text(snapshot_json(config), encoding="utf-8")
     (out / "model_ids.json").write_text(json.dumps({
         "embedding_model": settings.embedding_model,
         "llm_models_used": "none (retrieval-only evaluation)",
