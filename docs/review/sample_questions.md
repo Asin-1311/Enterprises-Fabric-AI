@@ -54,7 +54,7 @@ Passages were picked from each gold document by word overlap: open the document 
 > [Other specific representations as required by the engagement team.]
 > [Signed by the CEO and CFO]
 
-Author: OK / gold corrected (write the correction) / drop
+Author: OK
 
 Correction:
 
@@ -86,7 +86,7 @@ Correction:
 > - Population completeness must now be documented.
 > - Guidance on direction of testing added.
 
-Author: OK / gold corrected (write the correction) / drop
+Author: OK 
 
 Correction:
 
@@ -104,7 +104,7 @@ Correction:
 
 **Drafting note:** M02 is a manager on the Brightpath team; the note is partner-only.
 
-Author: OK / gold corrected (write the correction) / drop
+Author: OK 
 
 Correction:
 
@@ -122,7 +122,7 @@ Correction:
 
 **Drafting note:** S01 is only on Northwind.
 
-Author: OK / gold corrected (write the correction) / drop
+Author: OK
 
 Correction:
 
@@ -146,7 +146,7 @@ Correction:
 
 > The special steps involved in their audit are the following- (A) General :- 1. Examine the Trust Deed or Regulations, in the case of school or college and note all [...]
 
-Author: OK / gold corrected (write the correction) / drop
+Author: OK 
 
 Correction:
 
@@ -181,7 +181,7 @@ Correction:
 > - Performance materiality changed from a flat 75% to a risk-based 50%-75% range.
 > - Clearly trivial threshold reduced from 5% to 3% of overall materiality.
 
-Author: OK / gold corrected (write the correction) / drop
+Author: OK
 
 Correction:
 
@@ -209,7 +209,7 @@ Correction:
 > Statutory due date (illustrative placeholder): 30 September 2026.
 > Firm internal target: draft tax audit reports to the engagement manager by 31 August 2026.
 
-Author: OK / gold corrected (write the correction) / drop
+Author: OK
 
 Correction:
 
@@ -253,7 +253,7 @@ Correction:
 > - [ ] Doubtful more than 3 years (D3): 100% + 100%.
 > - [ ] Loss assets: 100%.
 
-Author: OK / gold corrected (write the correction) / drop
+Author: OK
 
 Correction:
 
@@ -289,7 +289,7 @@ Correction:
 > over exceptional litigation, a significant subsequent event, early application of a new
 > accounting standard, a major catastrophe.
 
-Author: OK / gold corrected (write the correction) / drop
+Author: OK
 
 Correction:
 
@@ -323,7 +323,7 @@ Correction:
 > FY 2024-25 used Materiality Policy v1.0: 1% of revenue of ₹198 crore = ₹1.98 crore.
 > The change to a profit-based benchmark lowers overall materiality substantially.
 
-Author: OK / gold corrected (write the correction) / drop
+Author: OK
 
 Correction:
 
@@ -358,7 +358,7 @@ Correction:
 > > demonstration. They are NOT from the ICAI chapters and have NOT been verified against
 > > the current notifications. Internal firm dates are fictional firm choices.
 
-Author: OK / gold corrected (write the correction) / drop
+Author: OK
 
 Correction:
 
@@ -385,6 +385,6 @@ Correction:
 > Article Assistant Helpdesk FAQ
 > Example & Associates, Chartered Accountants. Version 4.0, updated 15 September 2025.
 
-Author: OK / gold corrected (write the correction) / drop
+Author: OK
 
 Correction:
