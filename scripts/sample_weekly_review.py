@@ -32,6 +32,7 @@ from pathlib import Path
 from sqlalchemy import select
 
 from app.config import PROJECT_ROOT, get_settings
+from app.security.redaction import snapshot_json
 from eval.run_judge_calibration import LABELS, cohens_kappa
 
 REVIEW_DIR = PROJECT_ROOT / "data" / "review"
@@ -112,7 +113,7 @@ def drift(review_dir: Path = REVIEW_DIR, results: Path = RESULTS) -> Path:
         w.writeheader()
         for week, row in weeks.items():
             w.writerow({"week_ending": week, **row})
-    (out / "config.json").write_text(json.dumps({"review_dir": "data/review (git-ignored)"}, indent=2),
+    (out / "config.json").write_text(snapshot_json({"review_dir": "data/review (git-ignored)"}),
                                      encoding="utf-8")
     print(f"Judge drift over {len(weeks)} week(s), {len(labelled)} with label pairs: {out}")
     return out

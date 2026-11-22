@@ -20,6 +20,7 @@ from pathlib import Path
 
 from app.config import PROJECT_ROOT, get_settings
 from app.learning import reranker_finetune as ft
+from app.security.redaction import snapshot_json
 
 MODELS_DIR = PROJECT_ROOT / "models" / "reranker"
 RESULTS_DIR = PROJECT_ROOT / "eval" / "results"
@@ -69,9 +70,8 @@ def main(argv: list[str] | None = None) -> int:
         w.writerow(["id", *(f"current_{m}" for m in ft.METRICS), *(f"candidate_{m}" for m in ft.METRICS)])
         for c, n in zip(current_rows, candidate_rows, strict=True):
             w.writerow([c["id"], *(c[m] for m in ft.METRICS), *(n[m] for m in ft.METRICS)])
-    (out / "config.json").write_text(json.dumps({"base_model": settings.reranker_model,
-                                                 "epochs": args.epochs, "model_dir": str(model_dir)},
-                                                indent=2), encoding="utf-8")
+    (out / "config.json").write_text(snapshot_json({"base_model": settings.reranker_model,
+                                                 "epochs": args.epochs, "model_dir": str(model_dir)}), encoding="utf-8")
     verdict = "BEATS the current model" if decision["beats_current"] else "does NOT beat the current model"
     print(f"Fine-tuned model {verdict}: {decision['reason']}.\n  current   {current}\n"
           f"  candidate {candidate}\n  model: {model_dir}\n  results: {out.relative_to(PROJECT_ROOT)}")

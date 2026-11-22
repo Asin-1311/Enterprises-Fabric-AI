@@ -12,6 +12,7 @@
 """
 
 import json
+import re
 import sys
 from collections import Counter, defaultdict
 
@@ -67,6 +68,43 @@ def compliance_rows() -> list[list[str]]:
     return rows
 
 
+# How a note in COMPLIANCE.md introduces what is still open.
+OPEN_MARKERS = ("Still missing", "Remaining for Met", "Not yet:")
+
+
+def sentences(text: str) -> list[str]:
+    """The text's sentences. A full stop inside brackets does not end one."""
+    parts, start = [], 0
+    for gap in re.finditer(r"(?<=[.!?])\s+(?=[\"'`(]?[A-Z0-9])", text):
+        piece = text[start:gap.start()]
+        if piece.count("(") <= piece.count(")"):
+            parts.append(piece.strip())
+            start = gap.end()
+    parts.append(text[start:].strip())
+    return [p for p in parts if p]
+
+
+def summarise_note(note: str, tail: int = 400, limit: int = 600) -> str:
+    """Why a requirement is open, in whole sentences: from the last sentence that names what
+    is open or, if none does, as many closing sentences as fit in `tail` characters."""
+    parts = sentences(note)
+    if not parts:
+        return ""
+    marked = [i for i, p in enumerate(parts) if p.startswith(OPEN_MARKERS)]
+    if marked:
+        first = marked[-1]
+    else:
+        first = len(parts) - 1
+        while first > 0 and len(" ".join(parts[first - 1:])) <= tail:
+            first -= 1
+    summary = parts[first]
+    for part in parts[first + 1:]:
+        if len(summary) + 1 + len(part) > limit:
+            break
+        summary += " " + part
+    return summary
+
+
 def section15(rows: list[list[str]]) -> str:
     counts = Counter(r[3] for r in rows)
     by_section: dict[str, list[list[str]]] = defaultdict(list)
@@ -96,10 +134,7 @@ def section15(rows: list[list[str]]) -> str:
     lines += ["## Not met in full, and why", "",
               "Every requirement that is not Met, with the reason from COMPLIANCE.md (shortened).", ""]
     for r in not_met:
-        reason = r[7]
-        cut = reason.rfind("Still missing")
-        reason = reason[cut:] if cut >= 0 else reason[-400:]
-        lines.append(f"- **{r[0]} ({r[3]})**: {reason.strip()[:600]}")
+        lines.append(f"- **{r[0]} ({r[3]})**: {summarise_note(r[7])}")
     return "\n".join(lines) + "\n"
 
 

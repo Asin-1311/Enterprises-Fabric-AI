@@ -2,10 +2,197 @@
 
 Read this file at the start of every session. It replaces the Phase 1 version of 2026-11-08.
 
+**Section 0A (final leg, M20) is the current work. Where it conflicts with anything below, 0A wins.**
+
 Enterprise Fabric AI is a multi-agent adaptive RAG assistant for a chartered accountancy and
 audit firm. It implements the project document "Autonomous Multi-Agent Fabric: Real-Time
 Adaptive RAG for Enterprise Intelligence" (`Autonomous_Multi_Agent_RAG_Project_Documentation.pdf`
 in the project root, called "the specification" or "the spec" below). It is an internship project.
+
+## 0A. Final leg: M20 submission fixes (submission 2026-11-22, 12:55 IST)
+
+### Where the project stands
+- M9–M19 are complete and merged: `main` = `phase2` in content, commit `2378911`, CI green.
+- `docs/report/COMPLIANCE.md`: 43 requirements, 40 Met, 3 Partial (R-3-eval, R-6-stack,
+  R-12-model). The "7 met, 7 partial, 3 not met" figures in Section 0 are history.
+- The project is submitted today. M20 does not try to turn Partial rows into Met. Its goal is a
+  submission that is honest and defensible: no live secrets in the public repository, correct
+  report files, and evaluation claims that state exactly what the author has checked.
+
+### Time tracking (mandatory; this is how M20 finishes inside 3 to 4 hours)
+
+You have no sense of elapsed time. Never estimate the time from memory; read the clock.
+
+**The clock command** (works in PowerShell and in bash; it does not depend on the laptop's
+time zone):
+```
+python -c "from datetime import datetime as D, timezone as Z, timedelta as T; n=D.now(Z(T(hours=5, minutes=30))); m=lambda h, mi: int((n.replace(hour=h, minute=mi, second=0, microsecond=0) - n).total_seconds() // 60); print(f'{n:%H:%M} IST | stop-line 11:30 in {m(11, 30)} min | commit-line 11:55 in {m(11, 55)} min | submission 12:55 in {m(12, 55)} min')"
+```
+
+**Run it:**
+- as the first command of the session;
+- before starting each task, and after each commit;
+- before any command that may take more than 5 minutes (a test suite, an evaluation run);
+- at least every 15 minutes inside a task.
+
+**Three lines that do not move**
+- **11:30 IST, stop-line:** no task may start. Finish the task in hand, then do T6.
+- **11:55 IST, commit-line:** everything is committed and ready to push. An unfinished task is
+  reverted or left out and recorded as not done. Never commit half a task.
+- **12:55 IST, submission:** the author needs the hour after the commit-line for CI, the merge
+  and the PDF. Do not spend it.
+
+**Budget table.** Before starting a task, compare the clock with its latest start.
+
+| Task | Time box | Latest start | If the latest start has passed |
+|---|---|---|---|
+| T0 review sheets | 10 min | at once | Never skipped |
+| T1 secrets in snapshots | 40 min | 10:40 | Never skipped: do it even late, and drop T5 and T2 to pay for it |
+| T2 report generator, deviations | 35 min | 10:55 | Do only the deviation rows (10 min); skip the generator fix |
+| T3 reviewed flags | 10 min | 11:20 | Skip; the report says 0 of 147 reviewed |
+| T4 second calibration | 15 min | 11:15 | Skip; the first calibration stands |
+| T5 zero data retention | 30 min | 10:50 | Skip; retention terms stay unconfirmed |
+| T6 close | 25 min | 11:30 | Never skipped; start it at 11:30 whatever else is open |
+
+**Order.** T0, T1, T2, T5, T6. T3 and T4 depend on the author's sheets: start each one at the
+first task boundary after she returns its sheet, ahead of T2 or T5.
+
+**When behind, drop in this order:** T5 first; then the optional retrieval run in T3; then the
+generator fix in T2; then T4. Never drop T1, the reviewed flags of T3, or T6.
+
+**Overrun rule.** When a task has used its time box, stop and read the clock.
+- If it can be finished and tested within 10 more minutes, finish it.
+- If not, revert it (`git restore` on that task's own uncommitted files only), log it as not
+  done, and move on.
+- No task may use more than its time box plus 10 minutes unless the author says so.
+
+**Late start.** If the first clock reading is after 09:30, skip T5 from the outset. If it is
+after 10:00, also skip the retrieval run in T3 and the generator fix in T2.
+
+**Waiting for the author.** Never wait idle. If a sheet has not come back by 11:00, remind her
+once in one line. At 11:20 go on without it and record T3 or T4 as skipped.
+
+**Time log.** Keep `docs/review/M20_TIMELOG.md`, created in T0 and committed with each task:
+
+| Task | Time box | Started | Finished | Minutes used | Result (done / partly / skipped / reverted) and why |
+|---|---|---|---|---|---|
+
+Add the start time when a task begins and complete the row when it ends. Skipped tasks get a
+row too.
+
+**Status line.** Begin every message to the author with the clock and the plan, for example:
+`[10:42 IST | 48 min to stop-line | T2 running, 12 of 35 min used | next: T5]`
+
+### Speed rules (these replace the per-milestone approval rule in Section 15 for M20 only)
+- Start T0 immediately, without a plan and without waiting.
+- After T0, post one plan for T1–T6 of at most 8 lines, then continue unless the author objects.
+- Stop and ask only for: a paid model call, anything outside the task list, a failing test that
+  M20 did not cause, or any action Section 18 forbids.
+- `lite` profile only. No Docker, no `full` profile, no integration job, no load tests locally.
+- Per task, run only the tests it touches. Run the whole lite suite once, in T6.
+- No refactoring, no renaming, no dependency changes, no new features.
+- Keep messages to the author short: what was done, what she must do next, the time.
+- The honesty rules in Section 0 and the access-control rules stay in force without exception.
+
+### Tasks, in this order
+
+**T0 — Review sheets for the author (10 min; no model calls). Do this first.**
+She reviews while T1 and T2 run.
+- `docs/review/sample_questions.md`: the 12 questions returned by
+  `eval.question_sets.evaluation_sample()` (seed 18). For each: id, question, gold answer, gold
+  documents, the supporting passage from the local corpus where it is available, and a line
+  `Author: OK / gold corrected (write the correction) / drop`.
+- `docs/review/calibration_disputed.md`: the 8 answers in
+  `eval/results/20261121-192337_calibration/per_question.csv` where the judge's label differs
+  from the author's. For each: question, the system's answer, gold answer, cited passages, the
+  judge's label and reason, and a blank line `Author's label after re-examination:`.
+- Tell the author both files are ready.
+
+**T1 — No secrets in run snapshots (new requirement R-ops-secrets; 40 min)**
+- The `config.json` written by evaluation runs (`eval/run_answer_eval.py` near line 391, and
+  any other writer that dumps settings) contains `database_url` with its password and
+  `demo_password`. The repository is public.
+- Add one redaction helper and use it in every run writer. Secret-valued settings (names
+  with a `password`, `secret`, `token` or `api_key` part, not ending in `_ref`) are written as
+  `"***"`; credentials inside any URL (`user:pass@`) are removed. Settings such as
+  `precise_keyword_weight` are not secrets: match name parts, not the substring `key`.
+- Acceptance test (`Covers: R-ops-secrets`): a snapshot built from settings holding a known
+  password and a URL with credentials contains neither string.
+- Do not touch existing folders in `eval/results/`. The author makes the exposed values
+  useless by changing them.
+- When done, tell the author: "Change the PostgreSQL password and the demo password now", and
+  name the exact `.env` keys. No new evaluation run may start before this task is committed.
+
+**T2 — Report generator and declared deviations (R-ops-integrity, R-15-docs; 35 min)**
+- `scripts/make_docs.py`, about line 101: when a note has no "Still missing" marker the code
+  keeps its last 400 characters, so the summaries in `SECTION15.md` start mid-sentence. Make
+  the summary start at a sentence boundary. Add a test.
+- Add to "Declared deviations" in `COMPLIANCE.md`:
+  - Prefect instead of Apache Airflow (a spec-listed alternative; Section 3);
+  - Claude reached through the OpenRouter gateway in the evaluated configuration, not the
+    provider's direct API;
+  - the answer evaluation runs on a fixed sample of 12 of the 147 questions;
+  - the author's review and the judge calibration were done on sub-samples (sizes from T3, T4).
+
+**T3 — Reviewed flags from the author's sheet (R-3-eval; 10 min, when she returns the sheet)**
+- Set `"reviewed": true` only on the ids she marked OK or corrected. Apply her corrections to
+  gold answers exactly as written. Never set the flag on any other question.
+- If she changed any gold answer or gold document: ask whether to re-run the answer evaluation
+  twice on the sample (`--sample`; about 15 minutes and $0.66 per run). Start it in the
+  background if she agrees and it fits before 11:30.
+- If nothing changed: the existing runs stand. Record in `COMPLIANCE.md` that the 12 sample
+  questions were reviewed by the author after the runs, with no change to gold answers.
+- Run the retrieval evaluation once (no model calls) so a saved run records the reviewed
+  count, if it fits before 11:30. Otherwise state the count in `COMPLIANCE.md` only.
+- R-3-eval stays Partial: 12 of 147 reviewed.
+
+**T4 — Second judge calibration (R-13.2-judge, R-3-eval; 15 min, when she returns the sheet)**
+- New labels file: the author's original labels for the 22 answers where she and the judge
+  agreed, and her new labels for the 8 disputed answers. Run `eval/run_judge_calibration.py`
+  into a new run folder. The first calibration run stays beside it.
+- Report agreement and Cohen's kappa exactly as computed. The judge is "validated" only if
+  kappa >= 0.6.
+- Record in `COMPLIANCE.md` and `docs/NOTES.md`: the 8 disputed answers were re-examined by
+  the author knowing the judge's verdicts, so this is not a blind calibration.
+- Never suggest a label to the author and never change one.
+
+**T5 — Zero data retention on OpenRouter requests (R-12-model; 30 min time box; start only
+before 10:50)**
+- Check OpenRouter's current documentation for the provider preferences that enforce zero data
+  retention and deny data collection (`provider.zdr`, `provider.data_collection: "deny"`;
+  confirm the exact field names and whether the Anthropic-compatible endpoint accepts them).
+- Send them on both paths: the agents' client (`app/agents/llm.py`) and the judge's client
+  (`eval/judge_client.py`), behind one setting that is on when the base URL is OpenRouter.
+- Unit test: the flags are present in the outgoing request (mocked transport).
+- Ask the author before one live smoke question. If it fails, or the endpoint does not accept
+  the fields, revert the code within the time box and record that only the account-level
+  setting is used.
+- `COMPLIANCE.md` states only the retention terms the author says she confirmed. R-12-model
+  stays Partial either way: there is no live private model.
+
+**T6 — Close (start by 11:30 at the latest; 25 min)**
+- `python -m scripts.make_docs`; `scripts/make_report.py` if a new run exists; update the
+  summary count in `COMPLIANCE.md` (44 requirements with R-ops-secrets).
+- Add an "M20" section to `docs/NOTES.md`, at most 20 lines.
+- Run the whole lite test suite, `python -m scripts.check_compliance` and `ruff check .`.
+- Commit. Tell the author the branch is ready to push, and give her this list for the PDF:
+  commit hash, every status that changed, new run ids, the reviewed count, both kappa values,
+  and every task that was skipped or reverted.
+
+### Out of scope for M20 (do not start, even if time seems to allow)
+Latency improvements; answer evaluation on all 147 questions; review of the other 135
+questions; a Prefect deployment test; a live private model; measuring the learned routing
+policy; a live degradation run; re-ranker fine-tuning; verifying `docs/PLACEHOLDERS.md`; cloud
+deployment; rewriting git history; editing the PDF. Each stays as a stated limitation.
+
+### Git for M20
+- `git switch phase2`, `git pull`, `git switch -c m20-submission-fixes`. (Milestone branches in
+  this repository have no `phase2/` prefix.)
+- The new `CLAUDE.md` is the only uncommitted change at the start; the author placed it. Commit
+  it first on the M20 branch.
+- One commit per finished task: `M20 T1: redact secrets in run snapshots (R-ops-secrets)`.
+- Push only when the author says so. She merges into `phase2` and `main` herself. Section 18
+  stays in force.
 
 ## 0. Where the project stands and what Phase 2 must do
 
@@ -628,6 +815,9 @@ the requirement IDs closed (e.g. `M12: connectors and CDC (R-7.1-a, R-7.1-b, R-5
   `docs/REQUIREMENTS.md` (use cases, source inventory, quality targets).
 - List every remaining deviation and every requirement still not met, with the reason.
 
+**M20 — Submission fixes (final leg)**
+- Defined in Section 0A, which also sets its time limits and working rules.
+
 ## 16. Compliance tracking
 
 `docs/report/COMPLIANCE.md` has one row per requirement ID in Appendix A:
@@ -749,3 +939,4 @@ Every row starts with the audited status. Close each one with its acceptance tes
 | R-15-docs | 15 (#2, #17) | Architecture design, API reference, operations guide | Partial | M17, M19 | `docs/ARCHITECTURE.md`, API reference and `docs/OPERATIONS.md` exist and are linked from README |
 | R-ops-clone | audit | Runnable from a clean clone | Defect | M9 | Fresh-clone CI job indexes the synthetic corpus and passes tests |
 | R-ops-integrity | audit | No edited evaluation outputs; honest Section 15 | Defect | M9, M19 | `make_report.py` integrity check passes; PDF table generated from `COMPLIANCE.md` |
+| R-ops-secrets | audit (M20) | No secrets in committed run snapshots | Defect | M20 | A snapshot built from settings with a known password and a URL with credentials contains neither |

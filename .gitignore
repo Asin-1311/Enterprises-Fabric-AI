@@ -46,3 +46,6 @@ data/sources/
 # Weekly human-review samples (M18a): real answer text, kept local; only aggregate
 # drift figures go to eval/results/.
 data/review/
+
+# Full licensed (ICAI) passages for the author's review (M20): never committed.
+docs/review/local/

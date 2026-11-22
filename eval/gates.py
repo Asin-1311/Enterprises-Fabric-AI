@@ -41,6 +41,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from app.config import PROJECT_ROOT, get_settings
+from app.security.redaction import snapshot_json
 
 RESULTS = PROJECT_ROOT / "eval" / "results"
 BASELINES = PROJECT_ROOT / "eval" / "baselines"
@@ -168,8 +169,8 @@ def run_routing_replay(results: Path = RESULTS) -> Path:
     (out / "metrics.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
     with (out / "per_question.csv").open("w", newline="", encoding="utf-8") as f:
         csv.writer(f).writerows([["id"], *[[r["id"]] for r in records]])
-    (out / "config.json").write_text(json.dumps({"replay_tolerance": settings.replay_tolerance,
-                                                 "embedding_model": settings.embedding_model}, indent=2),
+    (out / "config.json").write_text(snapshot_json({"replay_tolerance": settings.replay_tolerance,
+                                                 "embedding_model": settings.embedding_model}),
                                      encoding="utf-8")
     return out
 

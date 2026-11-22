@@ -3874,3 +3874,24 @@ Branch `m17a-observability`, made from `phase2` after M16c was merged.
   - load tests with 2 questions per user;
   - Prefect instead of Airflow;
   - Python 3.13.
+
+## M20 - Submission fixes (2026-11-22)
+- **Secrets:** 11 run snapshots committed before M20 published the PostgreSQL and demo
+  passwords, although the assistant had reported that they held no credentials. All nine
+  run writers now redact (`app/security/redaction.py`); both passwords were changed and
+  verified useless. R-ops-secrets is Met; the old values stay readable in git history.
+- **Report:** the summaries in SECTION15.md are whole sentences; four deviations declared
+  (Prefect, OpenRouter, the 12-question sample, review on sub-samples).
+- **Review:** the author reviewed the 12 sample questions after the answer runs, with no
+  gold answer changed: 12 of 147 reviewed, so R-3-eval stays Partial.
+- **Calibration:** the second one was skipped (7 of 8 labels returned, one blank). All 7
+  differ from the author's first labels and match the judge's, but were not blind: the author saw
+  the verdicts, and the assistant had commented on rows 8, 14 and 16. The first run
+  stands (agreement 0.733, kappa 0.0, judge not validated), with its human labels in doubt.
+- **Not done:** zero data retention (late start; terms unconfirmed); the retrieval re-run
+  (stopped); unanswered by 11:30: the PDF's 17-deliverable table (`c755d31`), a load-test
+  deviation row (2 questions per user, on lite), and correcting the deviation row that says
+  the Kubernetes deployment keeps OpenSearch security on (the chart does not deploy it).
+- **Status:** 44 requirements; 41 Met, 3 Partial (R-3-eval, R-6-stack, R-12-model).
+- **Viva:** *why is a secret in history acceptable?* History is not rewritten; changing
+  the value is what makes it useless, and a test blocks new snapshots with secrets.
