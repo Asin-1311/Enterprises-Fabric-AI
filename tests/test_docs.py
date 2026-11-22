@@ -9,6 +9,7 @@ R-ops-integrity (the Section 15 table is generated from COMPLIANCE.md, not hand-
 import csv
 
 from app.config import PROJECT_ROOT
+from scripts.make_docs import compliance_rows, sentences, summarise_note
 from scripts.make_docs import main as make_docs_main
 
 DOCS = PROJECT_ROOT / "docs"
@@ -45,3 +46,20 @@ def test_generated_documents_are_up_to_date() -> None:
     assert make_docs_main(["--check"]) == 0
     section15 = (DOCS / "report" / "SECTION15.md").read_text(encoding="utf-8")
     assert "do not edit" in section15 and "| Completed |" not in section15  # real statuses only
+
+
+def test_summaries_start_and_end_at_sentence_boundaries() -> None:
+    """Covers: R-ops-integrity (the summaries in SECTION15.md are whole sentences)."""
+    for row in compliance_rows():
+        summary = summarise_note(row[7])
+        if summary:
+            parts = sentences(row[7])
+            assert any(" ".join(parts[i:j]) == summary
+                       for i in range(len(parts)) for j in range(i + 1, len(parts) + 1)), row[0]
+    long_note = "First finding (two cases. Both small) is closed. " + "Padding words here. " * 30 + "Last point stands."
+    summary = summarise_note(long_note)
+    assert summary.startswith("Padding words here.") and summary.endswith("Last point stands.")
+    assert len(summary) <= 400
+    assert summarise_note("Built. Not yet: the live model.") == "Not yet: the live model."
+    assert summarise_note("Built. Still missing: a test.") == "Still missing: a test."
+    assert sentences("Seen (twice. Again) today. Done.") == ["Seen (twice. Again) today.", "Done."]
